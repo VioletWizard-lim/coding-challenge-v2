@@ -44,15 +44,15 @@
 ## 3. 단계별 일정
 
 ### 1단계 (11~12월): 뼈대와 학생 화면
-- [ ] Next.js 프로젝트 생성, Supabase 연결, `.env.example`
-- [ ] 잠들지 않게: `/api/health` + Vercel Cron 하루 1회 (Supabase 무료 프로젝트 7일 비활성 일시정지 방지), Pyodide 미리 불러오기
-- [ ] 로그인: 기존 v1 학번·비밀번호 그대로 사용 (서명 쿠키 + bcrypt, `password_hash` 컬럼 추가 마이그레이션). 구글 로그인은 쓰지 않음(학교 계정 종료 예정, 타 학교 확산 고려)
+- [x] Next.js 프로젝트 생성, Supabase 연결, `.env.example`
+- [x] 잠들지 않게: `/api/health` + Vercel Cron 하루 1회 (Supabase 무료 프로젝트 7일 비활성 일시정지 방지), Pyodide 미리 불러오기
+- [x] 로그인: 기존 v1 학번·비밀번호 그대로 사용 (서명 쿠키 + bcrypt, `password_hash` 컬럼 추가 마이그레이션). 구글 로그인은 쓰지 않음(학교 계정 종료 예정, 타 학교 확산 고려)
 - [ ] 교사가 학생 비밀번호 초기화 (교사 화면에서 바로 재설정)
 - [ ] CSV로 학생 일괄 등록 (학번, 이름, 학년, 반, 과목, 초기 비밀번호 / 미리보기 후 등록, 중복 학번은 건너뛰고 알려 줌, 양식 파일 내려받기 제공)
-- [ ] 기록 편집기 (CodeMirror 6, v1과 같은 edit_log 형식, localStorage 이어쓰기)
-- [ ] Pyodide 실행 + 실행 기록 `[ms, "r:ok"|"r:오류이름"]`
+- [x] 기록 편집기 (CodeMirror 6, v1과 같은 edit_log 형식, localStorage 이어쓰기)
+- [x] Pyodide 실행 + 실행 기록 `[ms, "r:ok"|"r:오류이름"]`
 - [ ] 학생 화면: 과목·문제 선택, 코드 설명, 제출, 내 제출 현황(점수·피드백·오답 이유)
-- [ ] 문제 목록 이전 (v1 `problem_data.py`)
+- [x] 문제 목록 이전 (v1 `problem_data.py`)
 - [ ] 로그인 없이 써볼 수 있는 체험 페이지 `/try` (심사위원용 시연, 저장 안 함)
 
 ### 2단계 (12월~1월): 재생과 업적
