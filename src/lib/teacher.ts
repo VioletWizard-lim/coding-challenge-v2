@@ -48,3 +48,42 @@ export async function resetStudentPassword(id: string, password: string): Promis
   if (error) throw new Error(`비밀번호 저장 실패: ${error.message}`);
   return (data ?? []).length === 1;
 }
+
+/** 이미 있는 아이디(학생·교사 모두) 중에서 ids에 든 것 */
+export async function findExistingIds(ids: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await db().from("users").select("id").in("id", ids.slice(i, i + 200));
+    if (error) throw new Error(`학번 확인 실패: ${error.message}`);
+    for (const row of data ?? []) found.add(String(row.id));
+  }
+  return found;
+}
+
+export type NewStudent = {
+  id: string;
+  name: string;
+  grade: number | null;
+  class: number | null;
+  programming_grade: number | null;
+  programming_class: number | null;
+  subjects: string | null;
+  password: string;
+};
+
+/**
+ * 학생 계정을 만든다. 같은 아이디가 이미 있으면 덮어쓰지 않고 건너뛴다.
+ * 비밀번호는 bcrypt 해시와 v1용 평문을 함께 저장한다. 실제로 만들어진 아이디를 돌려준다.
+ */
+export async function createStudents(students: NewStudent[]): Promise<Set<string>> {
+  const rows = [];
+  for (const s of students) {
+    rows.push({ ...s, role: "student", password_hash: await bcrypt.hash(s.password, 10) });
+  }
+  const { data, error } = await db()
+    .from("users")
+    .upsert(rows, { onConflict: "id", ignoreDuplicates: true })
+    .select("id");
+  if (error) throw new Error(`학생 등록 실패: ${error.message}`);
+  return new Set((data ?? []).map((r) => String(r.id)));
+}

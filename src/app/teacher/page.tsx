@@ -3,6 +3,7 @@ import Header from "@/components/Header";
 import { requireRole } from "@/lib/session";
 import { listStudents } from "@/lib/teacher";
 import HealthCard from "./HealthCard";
+import StudentImport from "./StudentImport";
 import StudentManager from "./StudentManager";
 
 export default function TeacherPage() {
@@ -23,6 +24,7 @@ async function TeacherHome() {
       <Suspense fallback={<p className="text-muted">상태 확인 중…</p>}>
         <HealthCard />
       </Suspense>
+      <StudentImport />
       <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
         <Students />
       </Suspense>
