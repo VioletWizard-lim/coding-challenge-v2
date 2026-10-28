@@ -8,6 +8,11 @@ import { editRange, type EditEvent, type LogEvent } from "./editLog";
 export const PAUSE_MS = 60_000;
 /** 이벤트 간격이 이보다 짧은 구간만 "실제 작업 시간"으로 친다 (v1과 같음) */
 const ACTIVE_GAP_MS = 30_000;
+/**
+ * 이보다 짧은 창 이탈은 무시한다. 파이썬 input()의 입력창(prompt)이 뜰 때도 브라우저가
+ * 창 이탈·복귀 신호를 보내 "0초 이탈"이 찍히기 때문 (v1 기록에도 남아 있음).
+ */
+export const MIN_AWAY_MS = 1000;
 /** 한 번에 이만큼 넘게 지우면 "크게 지움"으로 표시 */
 export const BIG_DELETE_CHARS = 30;
 
@@ -119,8 +124,13 @@ export function analyzeLog(init: string, log: unknown): Analysis {
       marks.push(awayMark);
     } else if (kind === "f" && awayMark) {
       const ms = e[0] - awayMark.time;
-      stats.awayMs += ms;
-      awayMark.detail = `다른 창으로 이동 (${formatDuration(ms)})`;
+      if (ms < MIN_AWAY_MS) {
+        stats.awayCount--;
+        marks.splice(marks.indexOf(awayMark), 1);
+      } else {
+        stats.awayMs += ms;
+        awayMark.detail = `다른 창으로 이동 (${formatDuration(ms)})`;
+      }
       awayMark = null;
     } else if (kind === "r:ok") {
       stats.runCount++;
