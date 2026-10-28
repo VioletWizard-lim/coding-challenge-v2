@@ -2,6 +2,7 @@ import { EditorSelection, EditorState, type TransactionSpec } from "@codemirror/
 import { describe, expect, it } from "vitest";
 import {
   applyEditEvent,
+  isValidLog,
   eventsFromChanges,
   kindOf,
   pythonErrorName,
@@ -128,4 +129,20 @@ describe("파이썬 오류 이름", () => {
   it("알 수 없으면 Error", () => {
     expect(pythonErrorName(new Error("뭔가 잘못됨"))).toBe("Error");
   });
+});
+
+describe("제출 기록 형식 확인", () => {
+  it("편집·창·실행 이벤트가 섞인 기록은 통과", () => {
+    expect(isValidLog([[1, "i", 0, 0, 0, 0, "a"], [2, "b"], [3, "r:NameError"]])).toBe(true);
+    expect(isValidLog([])).toBe(true);
+  });
+  it.each([
+    ["배열이 아님", { log: [] }],
+    ["항목이 배열이 아님", ["x"]],
+    ["시각이 숫자가 아님", [["1", "b"]]],
+    ["모르는 편집 종류", [[1, "z", 0, 0, 0, 0, "a"]]],
+    ["위치가 음수", [[1, "i", -1, 0, 0, 0, "a"]]],
+    ["길이가 3~6", [[1, "i", 0]]],
+    ["텍스트가 문자열이 아님", [[1, "i", 0, 0, 0, 0, 5]]],
+  ])("%s → 거부", (_, log) => expect(isValidLog(log)).toBe(false));
 });
