@@ -19,7 +19,7 @@ import {
   lineNumbers,
   type Command,
 } from "@codemirror/view";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { eventsFromChanges, kindOf, pythonErrorName, runEvent, type Recording } from "@/lib/editLog";
 import { loadPython } from "@/lib/pyodide";
 
@@ -30,6 +30,13 @@ type Props = {
   initialCode?: string;
   /** code: 파이썬 편집기 + 실행 / text: 글쓰기 모드(4단계). 기록 형식은 같다. */
   mode?: "code" | "text";
+  /** 제출할 때 지금까지의 기록을 꺼내는 손잡이 */
+  ref?: Ref<RecorderHandle>;
+};
+
+export type RecorderHandle = {
+  /** 지금 코드와 작성 기록을 저장한 뒤 복사본을 돌려준다 */
+  getRecording(): Recording | null;
 };
 
 type PyStatus = "loading" | "ready" | "error";
@@ -64,15 +71,24 @@ function friendlyTraceback(err: unknown) {
  * 작성 과정을 기록하는 편집기. 모든 편집·창 이탈·실행을 v1과 같은 edit_log 형식으로
  * localStorage에 바로 저장하므로 새로고침해도 이어서 쓸 수 있다.
  */
-export default function RecordingEditor({ storageKey, initialCode = "", mode = "code" }: Props) {
+export default function RecordingEditor({ storageKey, initialCode = "", mode = "code", ref }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const recRef = useRef<Recording | null>(null);
   const saveRef = useRef<() => void>(() => {});
-  const [eventCount, setEventCount] = useState(0);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [pyStatus, setPyStatus] = useState<PyStatus>("loading");
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<{ text: string; error: boolean } | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    getRecording() {
+      const rec = recRef.current;
+      if (!rec) return null;
+      saveRef.current();
+      return { init: rec.init, code: rec.code, log: [...rec.log] };
+    },
+  }));
 
   // 편집기 만들기 + 기록
   useEffect(() => {
@@ -84,7 +100,7 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       try {
         localStorage.setItem(storageKey, JSON.stringify(rec));
       } catch {}
-      setEventCount(rec.log.length);
+      setSavedAt(new Date());
     };
     saveRef.current = save;
 
@@ -129,10 +145,13 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       state: EditorState.create({ doc: rec.code, extensions }),
     });
     viewRef.current = view;
-    setEventCount(rec.log.length);
 
-    // 창 이탈·복귀 (v1과 같이 blur/focus와 visibilitychange를 모두 기록)
+    // 창 이탈·복귀. blur/focus와 visibilitychange가 한 번에 겹쳐 오므로
+    // 상태가 바뀔 때만 한 번씩 기록한다 (이탈 → 복귀 → 이탈 … 순서).
+    let away = false;
     const mark = (kind: "b" | "f") => {
+      if ((kind === "b") === away) return;
+      away = kind === "b";
       rec.log.push([Date.now(), kind]);
       save();
     };
@@ -220,8 +239,8 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
             {pyStatus === "error" && "⚠️ 파이썬을 불러오지 못했어요. 실행을 누르면 다시 시도해요."}
           </span>
         )}
-        <span className="ml-auto text-xs text-muted" title="작성 과정이 이 브라우저에 자동 저장돼요">
-          💾 작성 기록 {eventCount}개 자동 저장됨
+        <span className="ml-auto text-xs text-muted" title="작성 중인 코드와 과정이 이 브라우저에 자동 저장돼요">
+          {savedAt ? `💾 자동 저장됨 (${savedAt.toLocaleTimeString("ko-KR")})` : "💾 쓰는 내용은 자동 저장돼요"}
         </span>
       </div>
       {mode === "code" && (

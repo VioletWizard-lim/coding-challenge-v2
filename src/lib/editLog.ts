@@ -99,3 +99,24 @@ export function replay(init: string, log: LogEvent[]): string {
     .filter((e): e is EditEvent => e.length > 2 && typeof e[6] === "string")
     .reduce(applyEditEvent, init);
 }
+
+const EDIT_KINDS = new Set(["i", "d", "p", "x", "u", "o"]);
+const MAX_EVENTS = 200_000;
+
+/**
+ * 제출된 기록이 형식에 맞는지 확인한다 (브라우저에서 온 값이므로 서버에서 다시 확인).
+ * 편집 이벤트(길이 7)와 짧은 이벤트(길이 2)만 허용한다.
+ */
+export function isValidLog(log: unknown): log is LogEvent[] {
+  if (!Array.isArray(log) || log.length > MAX_EVENTS) return false;
+  return log.every((e) => {
+    if (!Array.isArray(e) || typeof e[0] !== "number" || typeof e[1] !== "string") return false;
+    if (e.length === 2) return e[1].length <= 64;
+    return (
+      e.length === 7 &&
+      EDIT_KINDS.has(e[1]) &&
+      [e[2], e[3], e[4], e[5]].every((n) => Number.isInteger(n) && n >= 0) &&
+      typeof e[6] === "string"
+    );
+  });
+}

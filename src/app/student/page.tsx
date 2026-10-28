@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import { getUserProfile } from "@/lib/auth";
 import { allowedSubjects } from "@/lib/problems";
 import { requireRole } from "@/lib/session";
+import MySubmissions from "./MySubmissions";
 import Workspace from "./Workspace";
 
 export default function StudentPage() {
@@ -24,6 +25,12 @@ async function StudentHome() {
     <>
       <Header name={profile.name} role="student" />
       <Workspace userId={profile.id} subjects={allowedSubjects(profile.subjects)} />
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xl font-bold">📊 내 제출 현황</h2>
+        <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+          <MySubmissions name={profile.name} />
+        </Suspense>
+      </section>
     </>
   );
 }
