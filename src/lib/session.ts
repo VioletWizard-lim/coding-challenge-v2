@@ -7,7 +7,11 @@ export type Role = "student" | "teacher";
 export type Session = { id: string; role: Role; name: string };
 
 const COOKIE = "cc_session";
-const MAX_AGE_SECONDS = 8 * 60 * 60; // 하루 수업 시간 정도
+/**
+ * 로그인 유지 시간. 교실 PC를 여러 학생이 같이 쓰므로 학생은 짧게(블록 수업 한 번 정도),
+ * 교사는 채점하는 동안 끊기지 않게 길게 둔다.
+ */
+const SESSION_HOURS: Record<Role, number> = { student: 2, teacher: 8 };
 
 function secretKey() {
   const secret = process.env.SESSION_SECRET;
@@ -21,14 +25,14 @@ export async function createSession(session: Session) {
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(session.id)
     .setIssuedAt()
-    .setExpirationTime(`${MAX_AGE_SECONDS}s`)
+    .setExpirationTime(`${SESSION_HOURS[session.role]}h`)
     .sign(secretKey());
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: MAX_AGE_SECONDS,
+    // maxAge를 주지 않아 브라우저를 닫으면 쿠키도 사라진다. 시간 제한은 위 토큰 만료로 따로 건다.
   });
 }
 
