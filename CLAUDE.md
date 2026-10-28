@@ -1,0 +1,88 @@
+# coding-challenge-v2
+
+고등학교 정보 교과(프로그래밍) 수업용 **코드 작성 과정 기록·성찰 플랫폼**.
+기존 Streamlit 버전(`VioletWizard-lim/coding-challenge`, 이하 v1)을 Next.js로 다시 만드는 프로젝트다.
+2027년 디지털교육연구대회(교육용SW·AI 분과) 출품을 목표로 한다. 자세한 일정과 기능 목록은 `docs/PLAN.md`.
+
+## 핵심 방향 (기능을 추가하거나 바꿀 때 항상 지킬 것)
+
+- **결과가 아니라 과정.** 이 프로그램의 중심은 채점이 아니라 "코드를 어떻게 썼는가"의 기록·재생·성찰이다.
+- **감시가 아니라 성찰.** 학생이 자기 기록을 먼저 볼 수 있어야 한다. 붙여넣기·창 이탈을 감점하거나 벌주는 UI는 만들지 않는다. 업적은 칭찬만 한다.
+- **정보 교과에서 깊게, 다른 교과로 넓게.** 편집기는 코드 모드와 글쓰기 모드를 모두 지원하도록 설계한다(기록 구조는 같게).
+
+## 기술 스택
+
+- Next.js (App Router) + TypeScript + Tailwind CSS
+- 편집기: CodeMirror 6 / 파이썬 실행: Pyodide (브라우저, CDN 로드)
+- DB: **v1과 같은 Supabase 프로젝트** (`@supabase/supabase-js`)
+- AI: Claude API (`@anthropic-ai/sdk`, 서버에서만 호출). 키는 `ANTHROPIC_API_KEY`, 모델 이름은 코드에 박지 말고 `ANTHROPIC_MODEL` 환경변수로 받는다. 교사 채점 보조와 학생 과정 분석 모두 API로 한다. AI 호출은 `src/lib/ai.ts` 한 곳에 모아서, 나중에 다른 AI(Gemini 등)로 바꾸거나 고를 수 있게 한다
+- 배포: Vercel
+
+## 절대 규칙: 사이트가 잠들면 안 된다
+
+v1(Streamlit Cloud)은 한동안 접속이 없으면 "Zzzz" 화면이 뜨고 깨우는 데 시간이 걸렸다. 수업 시작이나 심사위원 접속 때 이런 일이 생기면 안 된다.
+
+- 화면은 Vercel에 배포한다(서버가 상시 대기하는 방식이 아니라 요청마다 실행되므로 잠자기 화면이 없다). 접속 첫 화면은 가능한 한 정적으로 만들어 바로 뜨게 한다.
+- **Supabase 무료 프로젝트는 7일 동안 DB 요청이 적으면 일시정지된다.** 방학처럼 수업이 없는 기간에 특히 위험하다. 이를 막기 위해:
+  - `/api/health` 라우트를 만든다: DB에 가벼운 조회 1건(예: `users`에서 1행 select)을 하고 `{ ok: true, db: true }`를 돌려준다. 비밀 토큰(`CRON_SECRET`) 확인 후에만 동작.
+  - `vercel.json`에 하루 1회 이 라우트를 호출하는 Cron을 등록한다.
+  - 관리자(교사) 화면에 "마지막 상태 확인 시각"을 보여 준다.
+- Pyodide는 첫 실행 때 몇 초 걸린다. 학생이 멈춘 줄 알지 않도록 로딩 문구를 보여 주고, 편집기 화면이 열리면 백그라운드에서 미리 불러온다.
+
+## 절대 규칙: v1과 DB를 함께 쓴다
+
+v1 사이트는 수업에서 계속 운영 중이다. v2 작업이 v1을 깨뜨리면 안 된다.
+
+- 기존 테이블·컬럼을 **삭제하거나 이름·타입을 바꾸지 않는다.** 추가만 한다(새 컬럼은 nullable, 새 테이블은 자유).
+- DB 변경 SQL은 `supabase/migrations/` 에 번호 붙은 파일로 남기고, 직접 실행하지 말고 사용자에게 실행을 요청한다. 실행 전 백업을 권한다.
+- 개발 중 테스트 제출은 테스트 계정으로만 한다(실제 수업 DB다).
+
+### 기존 테이블 (v1)
+
+`users`: `id`(학번/아이디, PK), `password`(평문), `role`('student'|'teacher'), `name`, `grade`, `class`, `programming_grade`, `programming_class`, `subjects`(쉼표 구분 문자열, 예: "프로그래밍,정보")
+
+`submissions`: `id`, `submitted_at`, `name`, `subject`, `problem`(예: "2-3"), `code`, `description`, `grade`, `class`, `year`, `init_code`, `edit_log`(jsonb), `score_function`(0~40), `score_understanding`(0~40, 화면 표기 "코드 설명"), `score_challenge`(0~20), `score_total`, `feedback`, `wrong_reason`
+
+- v1은 학생 제출을 `name`으로 조회한다. v2도 당분간 같은 방식을 유지하되, 나중에 `user_id` 컬럼을 추가하는 것은 괜찮다.
+- 과목이 "프로그래밍"이면 `grade/class`에 `programming_grade/programming_class`(없으면 `grade/class`)를 넣는다.
+- Supabase API는 한 번에 최대 1000행만 준다. 목록 조회는 반드시 페이지를 나눠 끝까지 받는다(v1 `db_utils.fetch_all` 참고).
+
+### edit_log 형식 (v1과 반드시 호환)
+
+v1 교사 화면의 재생기가 v2 제출도 읽을 수 있어야 한다. 형식을 바꾸지 말 것.
+
+```
+편집 이벤트: [시각ms, 종류, fromLine, fromCh, toLine, toCh, 입력텍스트]
+  종류: i=입력 d=삭제 p=붙여넣기 x=잘라내기 u=되돌리기·다시실행 o=기타
+  위치는 0부터 시작하는 줄/글자 위치, "변경 직전 문서" 기준
+창 이벤트:   [시각ms, "b"] 창 이탈 / [시각ms, "f"] 창 복귀
+```
+
+- CodeMirror 6 한 트랜잭션에 변경이 여러 개면, 재생 시 순서대로 적용해도 위치가 어긋나지 않도록 **뒤쪽 변경부터** 기록한다.
+- 문서 초기값 설정은 기록하지 않는다. 시작 코드는 `init_code`에 따로 저장한다.
+- **새 이벤트는 길이 2짜리 배열로만 추가한다**(v1 재생기는 길이 3 이상을 편집 이벤트로 간주한다). 예: 실행 기록 `[시각ms, "r:ok"]`, `[시각ms, "r:NameError"]`, AI 질문 `[시각ms, "q"]`(대화 내용은 `ai_chats` 테이블에 따로 저장).
+- 작성 중 코드는 localStorage `code_rec:{학번}_{과목}_{문제}` 에 `{init, log, code}`로 저장해 새로고침해도 유지한다(v1과 같은 키).
+
+## 보안
+
+- 로그인 세션은 **서명된 쿠키**(jose, HS256, `SESSION_SECRET`)로 한다. v1처럼 `{"id": ...}` 평문 쿠키를 쓰지 않는다.
+- 비밀번호는 bcrypt 해시(`users.password_hash`, 새 컬럼)로 검증한다. v1이 아직 `password` 평문 컬럼을 쓰므로, v1 운영이 끝날 때까지는 평문 컬럼을 지우지 않는다. 로그인 성공 시 해시가 없으면 만들어 저장한다.
+- Supabase 키와 Claude API 키는 서버 환경변수로만 쓴다(`NEXT_PUBLIC_` 금지). DB 접근은 Server Component / Server Action / Route Handler에서만 한다.
+- 로그인은 v1과 같은 학번(아이디)·비밀번호 방식을 유지한다. 구글 등 외부 계정 로그인은 쓰지 않는다. 학생 계정은 교사가 만들고(CSV 일괄 등록), 비밀번호 초기화도 교사가 한다.
+- 교사가 만든 비밀번호도 bcrypt 해시로 저장하되, v1 운영 중에는 v1 로그인이 되도록 `password` 평문 컬럼에도 함께 저장한다.
+- 학생은 자기 제출만, 교사는 전체를 본다. 모든 서버 액션에서 세션의 role을 확인한다.
+- AI에는 학생 이름·학번을 보내지 않는다.
+- 사용자는 미성년자(고등학생)다. Anthropic의 "미성년자 대상 서비스 지침"을 지킨다:
+  - 로그인한 학생만 AI 기능 사용 (교사가 만든 계정 = 연령·대상 확인)
+  - 모든 AI 대화에 학습 범위를 벗어난 내용을 거절하는 안전 지침(system prompt)을 넣는다
+  - AI 응답 화면에 "AI가 만든 답변입니다"를 항상 표시
+  - 교사가 학생의 AI 대화를 열람할 수 있게 하고, 부적절한 대화 신고·표시 기능을 둔다
+  - 개인정보·미성년자 보호 준수 내용을 사이트 안내 페이지에 공개한다
+- Gemini API는 약관상 18세 미만이 쓰는 앱에 사용할 수 없으므로, 학생이 쓰는 AI 기능에는 Gemini를 쓰지 않는다.
+
+## 작업 방식
+
+- 사용자는 정보 교사이고 Claude Code로 개발한다. 설명과 UI 문구는 한국어로, 쉬운 말로.
+- 기능 단위로 브랜치를 만들고 PR로 올린다. PR 설명에 "무엇이 바뀌었고, 화면에서 어떻게 확인하는지"를 적는다.
+- 변경 후 `npm run build`와 `npm run lint`가 통과해야 한다. 편집기·기록 관련 변경은 브라우저에서 실제로 입력·붙여넣기·실행해 보고 edit_log를 확인한다.
+- 환경변수 예시는 `.env.example`에 둔다. `.env.local`은 커밋하지 않는다.
