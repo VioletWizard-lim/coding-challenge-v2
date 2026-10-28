@@ -82,22 +82,38 @@ export function pythonErrorName(err: unknown): string {
   return match ? match[1].split(".").pop()! : "Error";
 }
 
+/**
+ * 편집 이벤트의 위치(줄, 글자)를 문서 안의 글자 번호로 바꾼다.
+ * v1 재생기(CodeMirror 5)처럼 문서 밖 위치는 가장 가까운 곳으로 당긴다(clipPos).
+ */
+export function editRange(lineLengths: number[], e: EditEvent): { from: number; to: number } {
+  const offset = (line: number, ch: number) => {
+    if (line >= lineLengths.length) return lineLengths.reduce((s, n) => s + n + 1, 0) - 1;
+    let pos = 0;
+    for (let i = 0; i < Math.max(line, 0); i++) pos += lineLengths[i] + 1;
+    return pos + Math.min(Math.max(ch, 0), lineLengths[Math.max(line, 0)]);
+  };
+  const a = offset(e[2], e[3]);
+  const b = offset(e[4], e[5]);
+  return { from: Math.min(a, b), to: Math.max(a, b) };
+}
+
 /** v1 재생기(CodeMirror 5 replaceRange)와 같은 방식으로 편집 이벤트 하나를 문자열에 적용한다. */
 export function applyEditEvent(doc: string, e: EditEvent): string {
-  const lines = doc.split("\n");
-  const offset = (line: number, ch: number) => {
-    let pos = 0;
-    for (let i = 0; i < line; i++) pos += lines[i].length + 1;
-    return pos + ch;
-  };
-  return doc.slice(0, offset(e[2], e[3])) + e[6] + doc.slice(offset(e[4], e[5]));
+  const { from, to } = editRange(
+    doc.split("\n").map((l) => l.length),
+    e,
+  );
+  return doc.slice(0, from) + e[6] + doc.slice(to);
 }
+
+/** 기록에서 편집 이벤트(길이 7)만 */
+export const editEvents = (log: LogEvent[]): EditEvent[] =>
+  log.filter((e): e is EditEvent => e.length > 2 && typeof e[6] === "string");
 
 /** 시작 코드에 기록을 처음부터 적용해 최종 코드를 만든다 (재생과 같은 결과). */
 export function replay(init: string, log: LogEvent[]): string {
-  return log
-    .filter((e): e is EditEvent => e.length > 2 && typeof e[6] === "string")
-    .reduce(applyEditEvent, init);
+  return editEvents(log).reduce(applyEditEvent, init);
 }
 
 const EDIT_KINDS = new Set(["i", "d", "p", "x", "u", "o"]);
