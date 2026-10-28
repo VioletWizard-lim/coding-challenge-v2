@@ -59,3 +59,18 @@ export function listMySubmissions(name: string): Promise<MySubmission[]> {
       .order("id", { ascending: false }),
   );
 }
+
+export type ReplayData = { init: string; code: string; log: unknown };
+
+/** 재생용 기록. 이름이 같은 제출만 돌려준다(학생은 자기 제출만). 없거나 남의 것이면 null. */
+export async function getReplayData(submissionId: number, name: string): Promise<ReplayData | null> {
+  const { data, error } = await db()
+    .from("submissions")
+    .select("name, code, init_code, edit_log")
+    .eq("id", submissionId)
+    .eq("name", name)
+    .maybeSingle<Pick<SubmissionRow, "name" | "code" | "init_code" | "edit_log">>();
+  if (error) throw new Error(`기록 조회 실패: ${error.message}`);
+  if (!data) return null;
+  return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
+}

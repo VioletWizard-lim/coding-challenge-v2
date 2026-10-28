@@ -1,5 +1,6 @@
 import { problemLabel } from "@/lib/problems";
 import { listMySubmissions, type MySubmission } from "@/lib/submissions";
+import ReplaySection from "./ReplaySection";
 
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -75,6 +76,7 @@ export default async function MySubmissions({ name }: { name: string }) {
               <pre className="max-h-80 overflow-auto rounded-lg bg-page p-3 font-[family-name:var(--font-code)] text-sm">
                 {s.code}
               </pre>
+              <ReplaySection submissionId={s.id} />
             </div>
           </details>
         </li>
