@@ -75,6 +75,8 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const recRef = useRef<Recording | null>(null);
+  /** 파이썬 실행 중이면 true: input() 입력창이 보내는 창 이탈·복귀 신호를 기록하지 않는다 */
+  const runningRef = useRef(false);
   const saveRef = useRef<() => void>(() => {});
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [pyStatus, setPyStatus] = useState<PyStatus>("loading");
@@ -150,7 +152,7 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
     // 상태가 바뀔 때만 한 번씩 기록한다 (이탈 → 복귀 → 이탈 … 순서).
     let away = false;
     const mark = (kind: "b" | "f") => {
-      if ((kind === "b") === away) return;
+      if (runningRef.current || (kind === "b") === away) return;
       away = kind === "b";
       rec.log.push([Date.now(), kind]);
       save();
@@ -201,6 +203,7 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       return;
     }
     let buffer = "";
+    runningRef.current = true;
     py.setStdout({ batched: (s) => (buffer += s + "\n") });
     py.setStderr({ batched: (s) => (buffer += s + "\n") });
     try {
@@ -211,6 +214,8 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       rec.log.push(runEvent(Date.now(), pythonErrorName(err)));
       setOutput({ text: (buffer ? buffer + "\n" : "") + friendlyTraceback(err), error: true });
     }
+    // 입력창이 닫힌 뒤 늦게 도착하는 신호까지 무시하도록 조금 기다렸다가 푼다
+    setTimeout(() => (runningRef.current = false), 500);
     saveRef.current();
     setRunning(false);
   }

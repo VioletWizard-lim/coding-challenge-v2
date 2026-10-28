@@ -55,6 +55,23 @@ describe("기록 분석", () => {
     ]);
   });
 
+  it("1초 미만의 창 이탈(input() 입력창 등)은 표시·통계에서 뺀다", () => {
+    const { marks, stats } = analyzeLog("", [
+      [0, "r:ok"],
+      [100, "b"],
+      [100, "f"],
+      [200, "b"],
+      [900, "f"],
+      [5 * S, "b"],
+      [8 * S, "f"],
+    ]);
+    expect(marks.map((m) => [m.kind, m.detail])).toEqual([
+      ["run-ok", "실행 성공"],
+      ["away", "다른 창으로 이동 (3초)"],
+    ]);
+    expect(stats).toMatchObject({ awayCount: 1, awayMs: 3 * S });
+  });
+
   it("창 밖에 있던 시간은 '멈춤'으로 치지 않는다", () => {
     const { marks } = analyzeLog("", [
       [0, "b"],
