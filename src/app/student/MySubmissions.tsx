@@ -13,6 +13,15 @@ const timeFormat = new Intl.DateTimeFormat("ko-KR", {
 
 const isGraded = (s: MySubmission) => s.score_total !== null || Boolean(s.feedback);
 
+/** 만점이 아닌 영역 (v1과 같이 기능·코드 설명만, 도전은 가산점이라 빼고) */
+function deductedAreas(s: MySubmission) {
+  if (!isGraded(s)) return [];
+  const areas: string[] = [];
+  if (s.score_function !== null && s.score_function < 40) areas.push("기능");
+  if (s.score_understanding !== null && s.score_understanding < 40) areas.push("코드 설명");
+  return areas;
+}
+
 /** 내 제출 현황: 점수·선생님 피드백·오답 이유·제출한 코드 */
 export default async function MySubmissions({ name }: { name: string }) {
   let rows: MySubmission[];
@@ -33,6 +42,11 @@ export default async function MySubmissions({ name }: { name: string }) {
               <span className="font-bold text-brand">{problemLabel(s.subject, s.problem)}</span>
               {s.wrong_reason && (
                 <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-danger">⚠️ 오답</span>
+              )}
+              {deductedAreas(s).length > 0 && (
+                <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-bold text-orange-700">
+                  📉 감점: {deductedAreas(s).join(" · ")}
+                </span>
               )}
               <span className="text-sm text-muted">{timeFormat.format(new Date(s.submitted_at))}</span>
               <span className="ml-auto">
