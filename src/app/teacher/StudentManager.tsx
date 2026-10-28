@@ -91,46 +91,53 @@ function StudentItem({ student: s, open, onToggle }: { student: StudentRow; open
 }
 
 function ResetForm({ studentId, name }: { studentId: string; name: string }) {
-  const [password, setPassword] = useState("");
   const [result, setResult] = useState<ResetResult | null>(null);
   const [pending, startTransition] = useTransition();
+  const [copied, setCopied] = useState(false);
+
+  function reset() {
+    setCopied(false);
+    startTransition(async () => setResult(await resetPassword(studentId)));
+  }
+
+  if (result?.ok) {
+    return (
+      <div className="flex flex-wrap items-center gap-3" role="status">
+        <span className="text-sm">
+          {name}({studentId}) 새 비밀번호
+        </span>
+        <b className="rounded-lg bg-white px-3 py-1 font-mono text-xl tracking-widest">{result.password}</b>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(result.password).then(() => setCopied(true))}
+          className="rounded-lg border border-line bg-white px-3 py-1 text-sm"
+        >
+          {copied ? "복사됨" : "복사"}
+        </button>
+        <span className="text-xs text-muted">이 창을 닫으면 다시 볼 수 없어요. 학생에게 알려 주세요. (v1·v2 모두 이 비밀번호로 로그인)</span>
+      </div>
+    );
+  }
 
   return (
-    <form
-      className="flex flex-wrap items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        startTransition(async () => {
-          const r = await resetPassword(studentId, password);
-          setResult(r);
-          if (r.ok) setPassword("");
-        });
-      }}
-    >
-      <label className="text-sm">
-        {name}({studentId}) 새 비밀번호{" "}
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="off"
-          required
-          minLength={4}
-          maxLength={72}
-          className="ml-1 rounded-lg border border-line bg-white px-2 py-1"
-        />
-      </label>
+    <div className="flex flex-wrap items-center gap-3">
+      <span className="text-sm">
+        {name}({studentId}) 학생의 비밀번호를 <b>임의의 숫자 6자리</b>로 새로 만들까요? 지금 비밀번호는 더 이상 쓸 수
+        없어요.
+      </span>
       <button
-        type="submit"
+        type="button"
+        onClick={reset}
         disabled={pending}
         className="rounded-lg bg-brand px-3 py-1 text-sm font-bold text-white disabled:opacity-60"
       >
-        {pending ? "저장 중…" : "저장"}
+        {pending ? "만드는 중…" : "새 비밀번호 만들기"}
       </button>
-      {result && (
-        <span role={result.ok ? "status" : "alert"} className={`text-sm ${result.ok ? "text-green-700" : "text-danger"}`}>
+      {result && !result.ok && (
+        <span role="alert" className="text-sm text-danger">
           {result.message}
         </span>
       )}
-    </form>
+    </div>
   );
 }
