@@ -216,7 +216,7 @@ export default function ProblemImport({
               mode === m ? "bg-brand text-white" : "bg-white text-brand"
             }`}
           >
-            {m === "csv" ? "⬆ CSV 올리기" : "📄 학습지로 만들기 (AI)"}
+            {m === "csv" ? "⬆ CSV 올리기" : "📄 학습지 업로드(AI)"}
           </button>
         ))}
       </div>
