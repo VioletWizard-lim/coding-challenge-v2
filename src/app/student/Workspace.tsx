@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useStudentNav } from "@/components/SideTabs";
 import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
 import { storageKeyFor } from "@/lib/editLog";
@@ -33,6 +34,18 @@ export default function Workspace({
   const [pending, startTransition] = useTransition();
   const [coolingDown, setCoolingDown] = useState(false);
   const recorder = useRef<RecorderHandle>(null);
+
+  // 첫 화면에서 "코드 작성하러 가기"를 누르면 그 문제를 골라 둔다
+  const { writeTarget } = useStudentNav();
+  useEffect(() => {
+    if (!writeTarget || !allProblems.some((p) => p.subject === writeTarget.subject && p.number === writeTarget.number)) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- 다른 탭에서 고른 문제를 받아 오는 것 */
+    setSubject(writeTarget.subject);
+    setProblem(writeTarget.number);
+    setMessage(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 새로 고를 때(n)만
+  }, [writeTarget?.n]);
 
   function changeSubject(next: string) {
     setSubject(next);
