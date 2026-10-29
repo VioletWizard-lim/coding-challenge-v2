@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { problemLabel } from "@/lib/problems";
 import type { MySubmission } from "@/lib/submissions";
 import ReplaySection from "./ReplaySection";
+import { useStudentNav } from "./StudentTabs";
 
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -53,7 +54,7 @@ const problemOrder = (a: string, b: string) => {
 export default function SubmissionList({ rows }: { rows: MySubmission[] }) {
   const groups = groupByProblem(rows);
   const [shown, setShown] = useState(PAGE);
-  const [selected, setSelected] = useState("all");
+  const { selectedProblem: selected, setSelectedProblem: setSelected } = useStudentNav();
 
   const subjects = new Set(groups.map((g) => g.latest.subject));
   const options = [...groups].sort(
@@ -142,8 +143,17 @@ function ProblemItem({ group }: { group: Group }) {
 }
 
 function SubmissionCard({ s }: { s: MySubmission }) {
+  const { focusedSubmission } = useStudentNav();
+  const focused = focusedSubmission === s.id;
+  const ref = useRef<HTMLDetailsElement>(null);
+  // 학습 여정에서 "과정 보기"로 왔으면 이 제출을 펼치고 화면에 보이게 한다
+  useEffect(() => {
+    if (!focused || !ref.current) return;
+    ref.current.open = true;
+    ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focused]);
   return (
-    <details className="group rounded-xl border border-line bg-white shadow-sm">
+    <details ref={ref} className={`group rounded-xl border bg-white shadow-sm ${focused ? "border-brand" : "border-line"}`}>
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3.5">
         <span className="font-bold text-brand">{problemLabel(s.subject, s.problem)}</span>
         {s.wrong_reason && (
@@ -181,7 +191,7 @@ function SubmissionCard({ s }: { s: MySubmission }) {
         <pre className="max-h-80 overflow-auto rounded-lg bg-page p-3 font-[family-name:var(--font-code)] text-sm">
           {s.code}
         </pre>
-        <ReplaySection submissionId={s.id} />
+        <ReplaySection key={focused ? "focused" : "normal"} submissionId={s.id} autoStart={focused} />
       </div>
     </details>
   );

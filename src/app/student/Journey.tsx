@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import type { Journey as JourneyData, SubmissionSummary } from "@/lib/journey";
+import { Stats } from "@/components/Replayer";
 import { problemLabel } from "@/lib/problems";
 import { formatDuration } from "@/lib/replay";
-import ReplaySection from "./ReplaySection";
+import { useStudentNav } from "./StudentTabs";
 
 // 활동 달력 색: 한 가지 색(남색)의 밝기로 많고 적음을 나타낸다. 흑백 인쇄에서도 밝기 차이로 읽힌다.
 const HEAT = ["#eceef4", "#c7d2fe", "#818cf8", "#4f46e5", "#3730a3"];
@@ -71,7 +72,7 @@ export default function Journey({ journey }: { journey: JourneyData }) {
           <Units units={units} />
         </Card>
       )}
-      <Card title="🗓 날짜별 기록" note="문제를 누르면 그때의 작성 과정을 다시 볼 수 있어요">
+      <Card title="🗓 날짜별 기록" note="'과정 보기'를 누르면 내 제출 현황에서 그때의 작성 과정을 바로 보여 줘요">
         <DayList days={days} />
       </Card>
     </div>
@@ -239,27 +240,25 @@ function DayList({ days }: { days: JourneyData["days"] }) {
 }
 
 function DayItem({ s }: { s: SubmissionSummary }) {
-  const total = s.typedChars + s.pastedChars;
-  const facts = s.hasLog
-    ? [
-        `실제 작업 ${formatDuration(s.activeMs)}`,
-        `실행 ${s.runCount}번${s.runErrorCount ? ` (오류 ${s.runErrorCount})` : ""}`,
-        s.fixedErrors ? `🔧 스스로 고침 ${s.fixedErrors}번` : null,
-        `삭제·수정 ${s.editCount}번`,
-        `직접 작성 ${percent(total ? s.typedChars / total : null)}`,
-      ].filter(Boolean)
-    : ["작성 기록 없음"];
+  const { showSubmission } = useStudentNav();
   return (
-    <li>
-      <details className="rounded-lg border border-line">
-        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-sm hover:bg-page">
-          <span className="font-bold text-brand">{problemLabel(s.subject, s.problem)}</span>
-          <span className="text-xs text-muted">{facts.join(" · ")}</span>
-        </summary>
-        <div className="border-t border-line p-3">
-          {s.hasLog ? <ReplaySection submissionId={s.id} /> : <p className="text-sm text-muted">이 제출은 작성 기록이 없어요.</p>}
-        </div>
-      </details>
+    <li className="flex flex-col gap-1.5 rounded-lg border border-line px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        <span className="font-bold text-brand">{problemLabel(s.subject, s.problem)}</span>
+        {s.fixedErrors > 0 && (
+          <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-bold text-green-700">
+            🔧 스스로 고침 {s.fixedErrors}번
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => showSubmission(`${s.subject}_${s.problem}`, s.id)}
+          className="ml-auto whitespace-nowrap text-sm font-bold text-brand hover:underline"
+        >
+          {s.hasLog ? "▶ 과정 보기" : "제출 보기"} →
+        </button>
+      </div>
+      <Stats stats={s.stats} empty={!s.hasLog} />
     </li>
   );
 }

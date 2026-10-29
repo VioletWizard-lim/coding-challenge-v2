@@ -289,7 +289,8 @@ function Timeline({
   );
 }
 
-function Stats({ stats: s, empty }: { stats: ReplayStats; empty: boolean }) {
+/** 작성 과정 통계 한 줄 (재생기 위, 학습 여정 날짜별 기록에서 함께 씀) */
+export function Stats({ stats: s, empty }: { stats: ReplayStats; empty: boolean }) {
   if (empty) {
     return (
       <p className="text-sm text-muted">
