@@ -18,7 +18,7 @@ function ago(hours: number) {
   return `${Math.floor(hours / 24)}일 전`;
 }
 
-/** 사이트·DB 상태: /api/health가 매일 남기는 마지막 확인 시각 (Supabase 일시정지 방지 확인용) */
+/** DB 연결 상태: /api/health가 매일 남기는 마지막 연결 확인 시각 (수업 전에 DB 문제를 미리 알아채기 위함) */
 export default async function HealthCard() {
   let status: HealthStatus | null = null;
   try {
@@ -31,16 +31,17 @@ export default async function HealthCard() {
 
   return (
     <section className={`rounded-xl border bg-white p-5 ${healthy ? "border-line" : "border-amber-300"}`}>
-      <h2 className="font-bold">{healthy ? "✅ 사이트 상태 정상" : "⚠️ 사이트 상태 확인 필요"}</h2>
+      <h2 className="font-bold">{healthy ? "✅ DB 연결 정상" : "⚠️ DB 연결 확인 필요"}</h2>
       <p className="mt-1 text-sm text-muted">
         {status?.checkedAt && hours !== null
-          ? `마지막 상태 확인: ${timeFormat.format(new Date(status.checkedAt))} (${ago(hours)})`
-          : "아직 상태 확인 기록이 없어요."}
+          ? `마지막 연결 확인: ${timeFormat.format(new Date(status.checkedAt))} (${ago(hours)})`
+          : "아직 연결 확인 기록이 없어요."}
       </p>
       {!healthy && (
         <p className="mt-2 text-sm text-amber-800">
-          매일 새벽 3시에 자동으로 DB를 확인해요. 하루 넘게 기록이 없으면 Vercel → Settings → Cron Jobs에서
-          /api/health가 켜져 있는지 확인하고 Run을 눌러 보세요. (오래 비워 두면 Supabase가 일시정지될 수 있어요)
+          매일 새벽 3시쯤 자동으로 DB 연결을 확인해요. 마지막 확인이 하루 넘게 지났으면 Vercel → Settings → Cron
+          Jobs에서 /api/health의 Run을 눌러 보세요. 그래도 이 안내가 계속 보이면 Supabase 대시보드에서 프로젝트가
+          켜져 있는지, Vercel 환경변수(SUPABASE_URL, SUPABASE_KEY)가 맞는지 확인해 주세요.
         </p>
       )}
     </section>

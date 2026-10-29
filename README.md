@@ -35,5 +35,5 @@ src/lib/auth.ts       로그인 확인 (bcrypt, v1 평문 비밀번호와 함께
 src/lib/problems.ts   과목·문제 목록 (v1 problem_data.py)
 src/lib/pyodide.ts    브라우저 파이썬 실행
 supabase/migrations/  DB 변경 SQL (직접 실행)
-vercel.json           하루 1회 /api/health 호출 (Supabase 일시정지 방지)
+vercel.json           하루 1회 /api/health 호출 (DB 연결 확인)
 ```

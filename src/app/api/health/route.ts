@@ -1,7 +1,8 @@
 import { db } from "@/lib/db";
 
 /**
- * 상태 확인: DB에 가벼운 조회 1건을 해서 Supabase 무료 프로젝트가 일시정지되지 않게 한다.
+ * DB 연결 확인: 가벼운 조회 1건을 하고 그 시각을 남긴다 (교사 화면의 "DB 연결 정상" 카드).
+ * 무료 Supabase였다면 일시정지도 막아 주지만, 지금 DB는 Pro 요금제라 연결 점검용이다.
  * Vercel Cron이 하루 한 번 호출한다(vercel.json). CRON_SECRET을 설정하면 Vercel이
  * "Authorization: Bearer <CRON_SECRET>" 헤더를 붙여 보낸다.
  */
