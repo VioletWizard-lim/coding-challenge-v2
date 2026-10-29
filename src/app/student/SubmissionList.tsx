@@ -42,22 +42,64 @@ function groupByProblem(rows: MySubmission[]): Group[] {
   return [...groups.values()];
 }
 
-/** 내 제출 현황 목록: 문제별로 최근 제출만 보이고, 처음 10문제 + 더 보기 */
+/** "2-10"이 "2-9" 뒤에 오도록 번호를 숫자로 비교 */
+const problemOrder = (a: string, b: string) => {
+  const [a1, a2] = a.split("-").map(Number);
+  const [b1, b2] = b.split("-").map(Number);
+  return a1 - b1 || a2 - b2 || a.localeCompare(b);
+};
+
+/** 내 제출 현황 목록: 문제 고르기(기본 전체), 문제별로 최근 제출만 보이고, 처음 10문제 + 더 보기 */
 export default function SubmissionList({ rows }: { rows: MySubmission[] }) {
   const groups = groupByProblem(rows);
   const [shown, setShown] = useState(PAGE);
+  const [selected, setSelected] = useState("all");
+
+  const subjects = new Set(groups.map((g) => g.latest.subject));
+  const options = [...groups].sort(
+    (a, b) => a.latest.subject.localeCompare(b.latest.subject) || problemOrder(a.latest.problem, b.latest.problem),
+  );
+  const label = (g: Group) =>
+    (subjects.size > 1 ? `[${g.latest.subject}] ` : "") + problemLabel(g.latest.subject, g.latest.problem);
+  const picked = groups.find((g) => g.key === selected);
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm text-muted">
-        {groups.length}문제 · 제출 {rows.length}번
-      </p>
-      <ul className="flex flex-col gap-2">
-        {groups.slice(0, shown).map((g) => (
-          <ProblemItem key={g.key} group={g} />
-        ))}
-      </ul>
-      {groups.length > shown && (
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={picked ? selected : "all"}
+          onChange={(e) => setSelected(e.target.value)}
+          aria-label="문제 고르기"
+          className="min-w-60 rounded-lg border border-line bg-white px-3 py-2 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+        >
+          <option value="all">전체 ({groups.length}문제)</option>
+          {options.map((g) => (
+            <option key={g.key} value={g.key}>
+              {label(g)} ({1 + g.older.length}번)
+            </option>
+          ))}
+        </select>
+        <span className="text-sm text-muted">
+          {picked ? `제출 ${1 + picked.older.length}번` : `${groups.length}문제 · 제출 ${rows.length}번`}
+        </span>
+      </div>
+      {picked ? (
+        // 한 문제를 고르면 그 문제의 제출을 모두 펼쳐서 보여 준다 (최근 제출부터)
+        <ul className="flex flex-col gap-2">
+          {[picked.latest, ...picked.older].map((s) => (
+            <li key={s.id}>
+              <SubmissionCard s={s} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {groups.slice(0, shown).map((g) => (
+            <ProblemItem key={g.key} group={g} />
+          ))}
+        </ul>
+      )}
+      {!picked && groups.length > shown && (
         <button
           type="button"
           onClick={() => setShown(shown + PAGE)}
