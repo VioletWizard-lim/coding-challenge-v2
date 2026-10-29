@@ -16,6 +16,9 @@ type StudentNav = {
   showSubmission: (problemKey: string, submissionId: number, at?: number) => void;
   /** 다른 탭으로 옮긴다 (예: 새 업적 알림 → 업적 탭) */
   showTab: (id: string) => void;
+  /** 코드 작성 탭에서 이 문제를 골라 연다 (첫 화면의 "코드 작성하러 가기"). n은 같은 문제를 다시 눌러도 바뀌게 */
+  writeTarget: { subject: string; number: string; n: number } | null;
+  startWriting: (subject: string, number: string) => void;
   /** 문제 이름 ("2-3. 용돈 확인하기"). 교사가 올린 문제 제목을 쓰고, 없으면 번호만 */
   problemLabel: (subject: string, number: string) => string;
 };
@@ -29,6 +32,7 @@ export function useStudentNav() {
 }
 
 const SUBMISSIONS_TAB = "submissions";
+const WRITE_TAB = "write";
 
 /**
  * 왼쪽 메뉴 + 오른쪽 넓은 영역 (학생·교사 화면 공용). 고르지 않은 메뉴도 화면에서 숨기기만 하고 그대로 두어서,
@@ -39,6 +43,7 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
   const [selectedProblem, setSelectedProblem] = useState("all");
   const [focusedSubmission, setFocusedSubmission] = useState<number | null>(null);
   const [focusedAt, setFocusedAt] = useState<number | null>(null);
+  const [writeTarget, setWriteTarget] = useState<StudentNav["writeTarget"]>(null);
 
   const nav: StudentNav = {
     selectedProblem,
@@ -58,6 +63,12 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
     },
     showTab(id) {
       setActive(id);
+      window.scrollTo({ top: 0 });
+    },
+    writeTarget,
+    startWriting(subject, number) {
+      setWriteTarget({ subject, number, n: (writeTarget?.n ?? 0) + 1 });
+      setActive(WRITE_TAB);
       window.scrollTo({ top: 0 });
     },
   };

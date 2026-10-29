@@ -7,6 +7,7 @@ import { listOpenProblems } from "@/lib/problemStore";
 import { requireRole } from "@/lib/session";
 import { ACHIEVEMENTS_TAB } from "@/lib/achievements";
 import AchievementsTab from "./AchievementsTab";
+import HomeTab from "./HomeTab";
 import JourneyTab from "./JourneyTab";
 import MySubmissions from "./MySubmissions";
 import ReflectionTab from "./ReflectionTab";
@@ -41,6 +42,17 @@ async function StudentHome() {
       <SideTabs
         titles={titles}
         tabs={[
+          {
+            id: "home",
+            label: "🏠 처음 화면",
+            content: (
+              <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                <div className="mx-auto max-w-5xl">
+                  <HomeTab userId={profile.id} name={profile.name} problems={problems} />
+                </div>
+              </Suspense>
+            ),
+          },
           {
             id: "write",
             label: "📝 코드 작성",
