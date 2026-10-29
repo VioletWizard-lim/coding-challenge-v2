@@ -140,7 +140,7 @@ export default function ProblemManager({
         />
       )}
 
-      <div className="overflow-x-auto">
+      <div className="scrollbar-none overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="text-muted">
             <tr className="border-b border-line">
@@ -192,7 +192,7 @@ export default function ProblemManager({
                         onClick={() => setViewing(isViewing ? null : p.number)}
                         className="mr-3 text-muted hover:text-brand hover:underline"
                       >
-                        {isViewing ? "접기" : "보기"}
+                        {isViewing ? "접기" : "문제 보기"}
                       </button>
                       {tableReady && (
                         <button

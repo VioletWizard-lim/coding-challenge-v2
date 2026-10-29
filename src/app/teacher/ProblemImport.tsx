@@ -405,7 +405,7 @@ export default function ProblemImport({
                   주세요.
                 </p>
               )}
-              <div className="overflow-x-auto rounded-lg border border-line bg-white">
+              <div className="scrollbar-none overflow-x-auto rounded-lg border border-line bg-white">
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-page text-muted">
                     <tr>
@@ -443,7 +443,7 @@ export default function ProblemImport({
                               onClick={() => setOpenRow(openRow === r.line ? null : r.line)}
                               className="whitespace-nowrap text-brand hover:underline"
                             >
-                              {openRow === r.line ? "접기" : "내용 보기"}
+                              {openRow === r.line ? "접기" : "문제 보기"}
                             </button>
                           </td>
                         </tr>

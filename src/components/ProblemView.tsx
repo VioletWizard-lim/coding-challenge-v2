@@ -31,7 +31,7 @@ export default function ProblemView({ problem: p, fit = false }: { problem: Prob
           이 문제는 설명이 아직 없어요. 선생님이 안내한 문제를 보고 편집기에 코드를 작성하세요.
         </div>
       ) : (
-        <div className={`flex flex-col gap-4 text-[15px] leading-7 ${fit ? "" : "max-h-[60vh] overflow-auto pr-1"}`}>
+        <div className={`flex flex-col gap-4 text-[15px] leading-7 ${fit ? "" : "scrollbar-none max-h-[60vh] overflow-auto"}`}>
           {p.description && (
             <Part title="📝 문제">
               <p className="whitespace-pre-wrap">{p.description}</p>
@@ -59,7 +59,7 @@ export default function ProblemView({ problem: p, fit = false }: { problem: Prob
                           {ex.input}
                         </p>
                       )}
-                      <pre className="overflow-x-auto px-3 py-2 font-[family-name:var(--font-code)] text-sm leading-6">
+                      <pre className="scrollbar-none overflow-x-auto px-3 py-2 font-[family-name:var(--font-code)] text-sm leading-6">
                         <span className="sr-only">출력: </span>
                         {ex.output}
                       </pre>
