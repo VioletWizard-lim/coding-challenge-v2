@@ -112,15 +112,18 @@ export async function todaysSubmittedProblems(name: string): Promise<Record<stri
   return bySubject;
 }
 
-export type ReflectionDay = { userId: string; subject: string; classDate: string };
+export type ReflectionDay = { userId: string; subject: string; classDate: string; grade: string | null; class: string | null };
 
 /** 교사용: 누가 어느 날·과목에 성찰을 썼는지만 (날짜 고르기 목록을 '쓴 날'로만 채우려고) */
 export async function listReflectionDays(): Promise<{ ready: boolean; days: ReflectionDay[] }> {
   try {
-    const rows = await fetchAll<{ user_id: string; subject: string; class_date: string }>(() =>
-      db().from("reflections").select("user_id, subject, class_date").order("id"),
+    const rows = await fetchAll<{ user_id: string; subject: string; class_date: string; grade: string | null; class: string | null }>(
+      () => db().from("reflections").select("user_id, subject, class_date, grade, class").order("id"),
     );
-    return { ready: true, days: rows.map((r) => ({ userId: r.user_id, subject: r.subject, classDate: r.class_date })) };
+    return {
+      ready: true,
+      days: rows.map((r) => ({ userId: r.user_id, subject: r.subject, classDate: r.class_date, grade: r.grade, class: r.class })),
+    };
   } catch (err) {
     if (!tableMissing(String((err as Error).message))) throw err;
     return { ready: false, days: [] };
