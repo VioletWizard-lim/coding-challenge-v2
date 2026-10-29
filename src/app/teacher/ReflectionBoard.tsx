@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import ReflectionView from "@/components/ReflectionView";
+import { byNumber } from "@/lib/classes";
 import { allowedSubjects, gradeClassFor } from "@/lib/problems";
 import type { Reflection } from "@/lib/reflection";
 import type { ReflectionDay } from "@/lib/reflectionStore";
@@ -18,7 +19,6 @@ const classKey = (s: StudentRow, subject: string) => {
   const { grade, class: cls } = gradeClassFor(s, subject);
   return grade || cls ? `${grade ?? "?"}-${cls ?? "?"}` : "반 없음";
 };
-const byNumber = (a: string, b: string) => a.localeCompare(b, "ko", { numeric: true });
 
 /**
  * 교사용 성찰 모아보기: 과목·반을 고르면 그 반 학생들이 성찰을 쓴 날만 날짜 목록에 나온다.

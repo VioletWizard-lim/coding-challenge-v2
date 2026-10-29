@@ -10,6 +10,7 @@ import { SUBJECTS } from "@/lib/problems";
 import ProblemManager from "./ProblemManager";
 import ReflectionBoard from "./ReflectionBoard";
 import StudentImport from "./StudentImport";
+import StudentJourney from "./StudentJourney";
 import StudentManager from "./StudentManager";
 
 export default function TeacherPage() {
@@ -24,10 +25,21 @@ export default function TeacherPage() {
 
 async function TeacherHome() {
   const session = await requireRole("teacher");
+  // 학습 여정·성찰에 보일 문제 이름: 원래 목록 + 교사가 올린 제목 (학생 화면과 같은 방식)
+  const titles: Record<string, string> = {};
+  for (const [subject, list] of Object.entries(SUBJECTS)) {
+    for (const [number, title] of Object.entries(list)) titles[`${subject}_${number}`] = title;
+  }
+  try {
+    for (const p of (await listAllProblems()).problems) titles[`${p.subject}_${p.number}`] = p.title;
+  } catch (err) {
+    console.error(err);
+  }
   return (
     <>
       <Header name={session.name} role="teacher" />
       <SideTabs
+        titles={titles}
         tabs={[
           {
             id: "students",
@@ -54,6 +66,17 @@ async function TeacherHome() {
               <div className="mx-auto max-w-5xl">
                 <Suspense fallback={<p className="text-muted">문제 불러오는 중…</p>}>
                   <Problems />
+                </Suspense>
+              </div>
+            ),
+          },
+          {
+            id: "journey",
+            label: "🧭 학생별 학습 여정",
+            content: (
+              <div className="mx-auto max-w-5xl">
+                <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
+                  <Journeys />
                 </Suspense>
               </div>
             ),
@@ -105,6 +128,17 @@ async function Problems() {
     return <p className="text-danger">문제 목록을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
   }
   return <ProblemManager {...data} />;
+}
+
+async function Journeys() {
+  let students;
+  try {
+    students = await listStudents();
+  } catch (err) {
+    console.error(err);
+    return <p className="text-danger">학생 목록을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
+  }
+  return <StudentJourney students={students} />;
 }
 
 async function Students() {
