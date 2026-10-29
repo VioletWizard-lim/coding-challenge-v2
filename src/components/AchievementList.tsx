@@ -7,7 +7,7 @@ const dayFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", mon
 
 /**
  * 업적 목록 (학생·교사 화면 공용). 영역별로, 달성한 것은 밝게, 아직인 것은 흐리게 조건과 진행도를 보여 준다.
- * 숨은 업적은 달성 전에는 이름·조건을 감춘다. onOpen이 있으면 달성한 업적을 눌러 그 순간의 재생으로 간다.
+ * 숨은 업적은 달성 전에는 조건만 감춘다(이름은 보임). onOpen이 있으면 달성한 업적을 눌러 그 순간의 재생으로 간다.
  */
 export default function AchievementList({
   list,
@@ -43,15 +43,16 @@ function Item({ a, onOpen }: { a: AchievementStatus; onOpen?: (earned: Earned) =
   const next = a.steps.find((s) => !s.earned);
   const multi = a.steps.length > 1;
 
+  // 숨은 업적: 이름은 보여 주고, 조건만 달성할 때까지 감춘다
   if (a.hidden && !done) {
     return (
-      <li className="flex items-center gap-3 rounded-xl border border-dashed border-line bg-white/60 px-4 py-3">
-        <span className="text-2xl opacity-40" aria-hidden>
-          ❓
+      <li className="flex items-start gap-3 rounded-xl border border-dashed border-line bg-white/60 px-4 py-3">
+        <span className="text-3xl opacity-30 grayscale" aria-hidden>
+          {a.icon}
         </span>
-        <div className="text-sm text-muted">
-          <p className="font-bold">숨은 업적</p>
-          <p>어떤 업적일까요? 계속 해 보면 나타나요.</p>
+        <div className="flex flex-col gap-0.5">
+          <p className="font-bold text-muted">{a.name}</p>
+          <p className="text-sm text-muted">❓ 조건은 비밀이에요. 달성하면 공개돼요.</p>
         </div>
       </li>
     );

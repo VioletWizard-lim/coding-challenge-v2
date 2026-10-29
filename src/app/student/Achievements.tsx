@@ -5,13 +5,24 @@ import { createPortal } from "react-dom";
 import AchievementList from "@/components/AchievementList";
 import { useStudentNav } from "@/components/SideTabs";
 import { ACHIEVEMENTS_TAB, earnedKeys, type AchievementStatus } from "@/lib/achievements";
+import { markAchievementsSeen } from "./actions";
 const TOAST_MS = 10_000;
 
 /**
- * 학생 업적 탭 + 새 업적 알림. "이미 본 업적"은 이 브라우저에 기억해 두고(localStorage),
- * 제출 뒤 새로 달성한 업적이 생기면 화면 위쪽에 알림을 띄운다.
+ * 학생 업적 탭 + 새 업적 알림. 제출 뒤 새로 달성한 업적이 생기면 화면 위쪽에 알림을 띄운다.
+ * "이미 본 업적"은 DB(users.achievements_seen)에 남겨 어느 컴퓨터에서든 한 번만 뜨게 한다.
+ * 그 칸이 아직 없으면(007 실행 전) 이 브라우저에 기억해 둔다(localStorage).
  */
-export default function Achievements({ userId, list }: { userId: string; list: AchievementStatus[] }) {
+export default function Achievements({
+  userId,
+  list,
+  seen: seenFromDb,
+}: {
+  userId: string;
+  list: AchievementStatus[];
+  /** DB에 남은 "이미 본 업적" (ready=false면 칸이 아직 없음) */
+  seen: { ready: boolean; seen: string[] | null };
+}) {
   const { showSubmission, showTab } = useStudentNav();
   const [toast, setToast] = useState<string | null>(null);
 
@@ -19,20 +30,27 @@ export default function Achievements({ userId, list }: { userId: string; list: A
   const signature = keys.join(",");
   useEffect(() => {
     const storageKey = `ach_seen:${userId}`;
-    let seen: string[] | null = null;
-    try {
-      seen = JSON.parse(localStorage.getItem(storageKey) ?? "null");
-    } catch {
-      seen = null;
+    let seen: string[] | null = seenFromDb.seen;
+    if (!seenFromDb.ready) {
+      try {
+        seen = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+      } catch {
+        seen = null;
+      }
     }
     const current = signature ? signature.split(",") : [];
     const fresh = current.filter((k) => !seen?.includes(k));
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(current));
-    } catch {
-      // 저장이 막힌 브라우저면 알림만 건너뛴다
-    }
     if (!fresh.length) return;
+    if (seenFromDb.ready) {
+      // 기준이 바뀐 업적은 목록에서 빠질 수 있어, 본 것은 모두 남긴다
+      void markAchievementsSeen([...new Set([...(seen ?? []), ...current])]);
+    } else {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(current));
+      } catch {
+        // 저장이 막힌 브라우저면 알림만 건너뛴다
+      }
+    }
     const names = fresh.map((k) => list.find((a) => a.code === k.split(":")[0])!).map((a) => `${a.icon} ${a.name}`);
     const text =
       seen === null

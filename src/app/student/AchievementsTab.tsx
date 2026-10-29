@@ -1,4 +1,5 @@
 import { computeAchievements, unitProblemsOf } from "@/lib/achievements";
+import { getAchievementsSeen } from "@/lib/achievementStore";
 import type { Problem } from "@/lib/problemBank";
 import { listMyReflections } from "@/lib/reflectionStore";
 import { getMyJourneyData } from "@/lib/submissions";
@@ -14,9 +15,14 @@ export default async function AchievementsTab({
   name: string;
   problems: Problem[];
 }) {
-  let list;
+  let list, seen;
   try {
-    const [{ records }, mine] = await Promise.all([getMyJourneyData(name), listMyReflections(userId)]);
+    const [{ records }, mine, seenRecord] = await Promise.all([
+      getMyJourneyData(name),
+      listMyReflections(userId),
+      getAchievementsSeen(userId),
+    ]);
+    seen = seenRecord;
     list = computeAchievements(
       records,
       mine.reflections.map((r) => ({ date: r.classDate, savedAt: r.updatedAt })),
@@ -26,5 +32,5 @@ export default async function AchievementsTab({
     console.error(err);
     return <p className="text-danger">업적을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
   }
-  return <Achievements userId={userId} list={list} />;
+  return <Achievements userId={userId} list={list} seen={seen} />;
 }
