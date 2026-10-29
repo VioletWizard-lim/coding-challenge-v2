@@ -7,14 +7,17 @@ const dayFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", mon
 
 /**
  * 업적 목록 (학생·교사 화면 공용). 영역별로, 달성한 것은 밝게, 아직인 것은 흐리게 조건과 진행도를 보여 준다.
- * 숨은 업적은 달성 전에는 조건만 감춘다(이름은 보임). onOpen이 있으면 달성한 업적을 눌러 그 순간의 재생으로 간다.
+ * 숨은 업적은 달성 전에는 조건만 감춘다(이름은 보임). 교사 화면(revealHidden)에서는 조건도 보여 준다. onOpen이 있으면 달성한 업적을 눌러 그 순간의 재생으로 간다.
  */
 export default function AchievementList({
   list,
   onOpen,
+  revealHidden = false,
 }: {
   list: AchievementStatus[];
   onOpen?: (earned: Earned) => void;
+  /** 교사 화면: 숨은 업적의 조건도 보여 준다 */
+  revealHidden?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -26,7 +29,7 @@ export default function AchievementList({
             <h3 className="font-bold">{area.label}</h3>
             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {items.map((a) => (
-                <Item key={a.code} a={a} onOpen={onOpen} />
+                <Item key={a.code} a={a} onOpen={onOpen} revealHidden={revealHidden} />
               ))}
             </ul>
           </section>
@@ -36,7 +39,15 @@ export default function AchievementList({
   );
 }
 
-function Item({ a, onOpen }: { a: AchievementStatus; onOpen?: (earned: Earned) => void }) {
+function Item({
+  a,
+  onOpen,
+  revealHidden,
+}: {
+  a: AchievementStatus;
+  onOpen?: (earned: Earned) => void;
+  revealHidden: boolean;
+}) {
   const earnedSteps = a.steps.filter((s) => s.earned);
   const done = earnedSteps.length > 0;
   const latest = earnedSteps.at(-1)?.earned ?? null;
@@ -44,7 +55,7 @@ function Item({ a, onOpen }: { a: AchievementStatus; onOpen?: (earned: Earned) =
   const multi = a.steps.length > 1;
 
   // 숨은 업적: 이름은 보여 주고, 조건만 달성할 때까지 감춘다
-  if (a.hidden && !done) {
+  if (a.hidden && !done && !revealHidden) {
     return (
       <li className="flex items-start gap-3 rounded-xl border border-dashed border-line bg-white/60 px-4 py-3">
         <span className="text-3xl opacity-30 grayscale" aria-hidden>
@@ -78,6 +89,7 @@ function Item({ a, onOpen }: { a: AchievementStatus; onOpen?: (earned: Earned) =
           )}
         </p>
         <p className="text-sm text-muted">{next ? next.desc : a.steps.at(-1)!.desc}</p>
+        {revealHidden && a.hidden && !done && <span className="text-xs text-muted">🔒 학생에게는 조건이 숨겨져 있어요</span>}
         {next?.target && a.current !== null && (
           <div className="mt-1 flex items-center gap-2">
             <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-page">
