@@ -1,4 +1,6 @@
-# 파이썬 코딩 챌린지 v2
+# Line by Line (한 줄씩) · 파이썬 코딩 챌린지 v2
+
+주소: https://line-by-line-class.vercel.app
 
 코드를 **어떻게** 썼는지 기록하고 돌아보는 수업 도구. v1(Streamlit, `VioletWizard-lim/coding-challenge`)을 Next.js로 다시 만드는 중이다.
 방향과 규칙은 [`CLAUDE.md`](CLAUDE.md), 일정은 [`docs/PLAN.md`](docs/PLAN.md).

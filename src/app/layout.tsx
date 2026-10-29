@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { SITE } from "@/lib/site";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "파이썬 코딩 챌린지",
-  description: "코드를 어떻게 썼는지 기록하고 돌아보는 수업 도구",
+  title: `${SITE.name} · ${SITE.subtitle}`,
+  description: SITE.description,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

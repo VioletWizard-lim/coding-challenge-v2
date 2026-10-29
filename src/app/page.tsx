@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { getSession, homeFor } from "@/lib/session";
+import { SITE } from "@/lib/site";
 import LoginForm from "./LoginForm";
 
 /** 첫 화면(로그인). 화면 자체는 정적으로 만들어 바로 뜨고, 이미 로그인했으면 내 화면으로 보낸다. */
@@ -8,7 +9,12 @@ export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
       <div className="mb-10 text-center">
-        <h1 className="text-3xl font-black">🚀 파이썬 코딩 챌린지</h1>
+        <h1 className="text-3xl font-black">
+          {SITE.icon} {SITE.name}
+        </h1>
+        <p className="mt-1 font-bold text-brand">
+          {SITE.nameKo} · {SITE.subtitle}
+        </p>
         <p className="mt-2 text-muted">내가 코드를 어떻게 썼는지 기록하고 돌아봐요</p>
       </div>
       <div className="rounded-2xl border border-line bg-white p-6 shadow-sm">

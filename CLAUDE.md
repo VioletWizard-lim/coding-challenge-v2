@@ -1,6 +1,7 @@
 # coding-challenge-v2
 
 고등학교 정보 교과(프로그래밍) 수업용 **코드 작성 과정 기록·성찰 플랫폼**.
+서비스 이름은 **Line by Line (한 줄씩)**, 지금 쓰임새는 부제 "파이썬 코딩 챌린지"로 붙인다(나중에 글쓰기 등으로 넓히면 부제만 늘림, `src/lib/site.ts`). 주소: https://line-by-line-class.vercel.app
 기존 Streamlit 버전(`VioletWizard-lim/coding-challenge`, 이하 v1)을 Next.js로 다시 만드는 프로젝트다.
 2027년 디지털교육연구대회(교육용SW·AI 분과) 출품을 목표로 한다. 자세한 일정과 기능 목록은 `docs/PLAN.md`.
 
