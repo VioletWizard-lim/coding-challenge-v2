@@ -4,6 +4,8 @@ import { requireRole } from "@/lib/session";
 import SideTabs from "@/components/SideTabs";
 import { listAllProblems } from "@/lib/problemStore";
 import { listReflectionDays } from "@/lib/reflectionStore";
+import { getTeacherHome } from "@/lib/teacherHome";
+import TeacherDashboard from "./TeacherDashboard";
 import { listStudents } from "@/lib/teacher";
 import HealthCard from "./HealthCard";
 import { SUBJECTS } from "@/lib/problems";
@@ -42,13 +44,21 @@ async function TeacherHome() {
         titles={titles}
         tabs={[
           {
+            id: "home",
+            label: "🏠 처음 화면",
+            content: (
+              <div className="mx-auto max-w-5xl">
+                <Suspense fallback={<p className="text-muted">오늘 수업 현황 불러오는 중…</p>}>
+                  <Dashboard name={session.name} />
+                </Suspense>
+              </div>
+            ),
+          },
+          {
             id: "students",
             label: "🏫 학생 관리",
             content: (
               <div className="mx-auto flex max-w-5xl flex-col gap-6">
-                <Suspense fallback={<p className="text-muted">상태 확인 중…</p>}>
-                  <HealthCard />
-                </Suspense>
                 <StudentImport />
                 <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
                   <Students />
@@ -128,6 +138,28 @@ async function Problems() {
     return <p className="text-danger">문제 목록을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
   }
   return <ProblemManager {...data} />;
+}
+
+async function Dashboard({ name }: { name: string }) {
+  let data;
+  try {
+    const [{ problems }, days] = await Promise.all([listAllProblems(), listReflectionDays()]);
+    data = await getTeacherHome(problems, days.days);
+  } catch (err) {
+    console.error(err);
+    return <p className="text-danger">오늘 수업 현황을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
+  }
+  return (
+    <TeacherDashboard
+      name={name}
+      data={data}
+      status={
+        <Suspense fallback={<p className="text-muted">DB 연결 확인 중…</p>}>
+          <HealthCard />
+        </Suspense>
+      }
+    />
+  );
 }
 
 async function Journeys() {
