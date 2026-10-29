@@ -2,7 +2,7 @@
  * 나의 학습 여정: 제출들의 작성 기록을 모아 "언제, 무엇을, 어떻게 풀어 왔는지" 계산한다.
  * 감시가 아니라 성찰용이다. 잘한 것(직접 작성, 스스로 고친 오류)을 중심으로 보여 준다.
  */
-import { analyzeLog } from "./replay";
+import { analyzeLog, type ReplayStats } from "./replay";
 
 export type SubmissionSummary = {
   id: number;
@@ -23,6 +23,8 @@ export type SubmissionSummary = {
   fixedErrors: number;
   editCount: number;
   pauseCount: number;
+  /** 재생기와 같은 통계 전체 (날짜별 기록에 그대로 보여 줌) */
+  stats: ReplayStats;
 };
 
 export type Journey = {
@@ -106,6 +108,7 @@ export function summarizeSubmission(row: {
     fixedErrors: countFixedErrors(row.edit_log),
     editCount: stats.editCount,
     pauseCount: stats.pauseCount,
+    stats,
   };
 }
 
