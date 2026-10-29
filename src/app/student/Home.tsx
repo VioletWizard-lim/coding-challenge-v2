@@ -101,8 +101,10 @@ export default function Home({ name, data }: { name: string; data: HomeData }) {
 
       {data.recent && (
         <Card
-          title="▶ 최근 제출 다시 보기"
-          note={`${formatDay(data.recent.date)} · ${problemLabel(data.recent.subject, data.recent.problem)} — 내가 어떻게 썼는지 돌아봐요`}
+          title="▶ 내 기록 다시 보기"
+          note={`최근 제출 · ${formatDay(data.recent.date)} · ${problemLabel(data.recent.subject, data.recent.problem)} — 내가 어떻게 썼는지 돌아봐요`}
+          action={{ label: "모든 기록 보기 →", onClick: () => showTab("submissions") }}
+          highlight
         >
           <ReplaySection key={data.recent.id} submissionId={data.recent.id} />
         </Card>
@@ -157,17 +159,22 @@ function Card({
   title,
   note,
   action,
+  highlight = false,
   children,
 }: {
   title: string;
   note?: string;
   action?: { label: string; onClick: () => void };
+  /** 핵심 기능(재생) 카드: 테두리와 제목을 강조 */
+  highlight?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
+    <section
+      className={`flex flex-col gap-3 rounded-xl bg-white p-5 ${highlight ? "border-2 border-brand/50 shadow-sm" : "border border-line"}`}
+    >
       <div className="flex flex-wrap items-baseline gap-x-3">
-        <h3 className="font-bold">{title}</h3>
+        <h3 className={highlight ? "text-lg font-black text-brand" : "font-bold"}>{title}</h3>
         {note && <p className="text-sm text-muted">{note}</p>}
         {action && (
           <button type="button" onClick={action.onClick} className="ml-auto text-sm font-bold text-brand hover:underline">

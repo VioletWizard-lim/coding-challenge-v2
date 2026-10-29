@@ -5,14 +5,14 @@ import ScrollTopButton from "./ScrollTopButton";
 
 type Tab = { id: string; label: string; content: ReactNode };
 
-/** 탭끼리 주고받는 상태: 내 제출 현황에서 고른 문제와, 다른 탭에서 "이 제출 보기"로 연 제출 */
+/** 탭끼리 주고받는 상태: 내 기록 다시 보기에서 고른 문제와, 다른 탭에서 "이 제출 보기"로 연 제출 */
 type StudentNav = {
   selectedProblem: string;
   setSelectedProblem: (key: string) => void;
   focusedSubmission: number | null;
   /** 재생을 이 순간(기록 안의 시각)부터 연다 (업적에서 왔을 때) */
   focusedAt: number | null;
-  /** 내 제출 현황 탭으로 옮겨 그 문제를 고르고, 그 제출을 펼쳐 작성 과정을 바로 연다 */
+  /** 내 기록 다시 보기 탭으로 옮겨 그 문제를 고르고, 그 제출을 펼쳐 작성 과정을 바로 연다 */
   showSubmission: (problemKey: string, submissionId: number, at?: number) => void;
   /** 다른 탭으로 옮긴다 (예: 새 업적 알림 → 업적 탭) */
   showTab: (id: string) => void;

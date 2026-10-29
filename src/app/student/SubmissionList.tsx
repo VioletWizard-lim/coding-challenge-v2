@@ -49,7 +49,7 @@ const problemOrder = (a: string, b: string) => {
   return a1 - b1 || a2 - b2 || a.localeCompare(b);
 };
 
-/** 내 제출 현황 목록: 문제 고르기(기본 전체), 문제별로 최근 제출만 보이고, 처음 10문제 + 더 보기 */
+/** 내 기록 다시 보기 목록: 문제 고르기(기본 전체), 문제별로 최근 제출만 보이고, 처음 10문제 + 더 보기 */
 export default function SubmissionList({ rows }: { rows: MySubmission[] }) {
   const groups = groupByProblem(rows);
   const [shown, setShown] = useState(PAGE);
@@ -176,6 +176,13 @@ function SubmissionCard({ s }: { s: MySubmission }) {
         </span>
       </summary>
       <div className="flex flex-col gap-3 border-t border-line px-5 py-4">
+        {/* 재생(내가 어떻게 썼는지)이 먼저, 점수·피드백은 그 아래 */}
+        <ReplaySection
+          key={focused ? `focused-${focusedAt}` : "normal"}
+          submissionId={s.id}
+          autoStart={focused}
+          startAt={focused ? (focusedAt ?? undefined) : undefined}
+        />
         {isGraded(s) && (
           <div className="flex flex-wrap gap-2">
             <Score label="기능" value={s.score_function} max={40} />
@@ -190,12 +197,6 @@ function SubmissionCard({ s }: { s: MySubmission }) {
         <pre className="max-h-80 overflow-auto rounded-lg bg-page p-3 font-[family-name:var(--font-code)] text-sm">
           {s.code}
         </pre>
-        <ReplaySection
-          key={focused ? `focused-${focusedAt}` : "normal"}
-          submissionId={s.id}
-          autoStart={focused}
-          startAt={focused ? (focusedAt ?? undefined) : undefined}
-        />
       </div>
     </details>
   );

@@ -26,6 +26,8 @@ type Def = {
   name: string;
   /** 단계가 있으면 단계마다 목표 수 (예: 5 / 20 / 50) */
   tiers?: number[];
+  /** 단계 표시 단위 (예: "5번", "5일"). 메달·레벨처럼 보이지 않게 숫자로만 보여 준다 */
+  unit?: string;
   /** 조건 설명. 단계가 있으면 단계마다 */
   desc: string | string[];
   /** 숨은 업적: 달성 전에는 조건을 보여 주지 않는다 (이름은 보임) */
@@ -40,6 +42,7 @@ export const ACHIEVEMENTS: Def[] = [
     icon: "✋",
     name: "내 손으로 완성",
     tiers: [5, 20, 50],
+    unit: "번",
     desc: ["붙여넣기 없이 제출 5번", "붙여넣기 없이 제출 20번", "붙여넣기 없이 제출 50번"],
   },
   { code: "error_friend", area: "debug", icon: "🤝", name: "오류는 친구", desc: "오류가 난 뒤 스스로 고쳐 실행에 성공" },
@@ -52,12 +55,13 @@ export const ACHIEVEMENTS: Def[] = [
     icon: "💭",
     name: "하루를 돌아보는 사람",
     tiers: [1, 5],
+    unit: "일",
     desc: ["오늘의 성찰 처음 쓰기", "서로 다른 날 5일 성찰 쓰기"],
   },
   { code: "found_stuck", area: "reflect", icon: "🔍", name: "막힌 곳 발견", desc: "내 재생을 보며 그 순간에 타임라인 메모 남기기" },
   { code: "focus10", area: "steady", icon: "🎧", name: "몰입 10분", desc: "창을 벗어나지 않고 10분 넘게 이어서 작업" },
   { code: "unit_master", area: "steady", icon: "🏔️", name: "단원 정복", desc: "한 단원의 공개된 문제를 모두 제출" },
-  { code: "steady5", area: "steady", icon: "👣", name: "꾸준한 발걸음", tiers: [5], desc: ["서로 다른 날 5일 이상 제출"] },
+  { code: "steady5", area: "steady", icon: "👣", name: "꾸준한 발걸음", tiers: [5], unit: "일", desc: ["서로 다른 날 5일 이상 제출"] },
   { code: "one_shot", area: "hidden", icon: "🎯", name: "한 번에 성공", desc: "첫 실행에서 오류 없이 성공하고 제출", hidden: true },
   {
     code: "error_collector",
@@ -109,6 +113,8 @@ export type AchievementStatus = {
   hidden: boolean;
   /** 단계마다 [조건, 달성 기록 또는 null]. 단계가 없으면 하나 */
   steps: { desc: string; target: number | null; earned: Earned | null }[];
+  /** 단계 표시 단위 ("번", "일") */
+  unit: string;
   /** 지금까지 쌓인 수 (단계·진행도가 있는 업적만) */
   current: number | null;
 };
@@ -306,6 +312,7 @@ export function computeAchievements(
       icon: d.icon,
       name: d.name,
       hidden: !!d.hidden,
+      unit: d.unit ?? "번",
       steps: descs.map((desc, i) => ({ desc, target: d.tiers?.[i] ?? null, earned: steps[i] ?? null })),
       // 단원 정복은 가장 많이 푼 단원의 진행률(%)을 보여 준다
       current: d.code === "unit_master" ? Math.round(bestUnit * 100) : (counts.get(d.code) ?? null),

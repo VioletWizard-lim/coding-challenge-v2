@@ -2,7 +2,6 @@
 
 import { AREAS, type AchievementStatus, type Earned } from "@/lib/achievements";
 
-const TIER_BADGE = ["🥉", "🥈", "🥇"];
 const dayFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "long", day: "numeric" });
 
 /**
@@ -78,16 +77,23 @@ function Item({
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className={`font-bold ${done ? "text-ink" : "text-muted"}`}>
           {a.name}
-          {multi && (
-            <span className="ml-1.5 tracking-wider">
-              {a.steps.map((s, i) => (
-                <span key={i} className={s.earned ? "" : "opacity-25 grayscale"} title={s.desc}>
-                  {a.steps.length === 3 ? TIER_BADGE[i] : i === 0 ? "⭐" : "🌟"}
-                </span>
-              ))}
-            </span>
-          )}
         </p>
+        {/* 여러 번 달성하는 업적은 메달·레벨 대신 횟수만 담백하게: 5번 ✓ · 20번 · 50번 */}
+        {multi && (
+          <p className="flex flex-wrap gap-1.5 text-xs">
+            {a.steps.map((s, i) => (
+              <span
+                key={i}
+                title={s.desc}
+                className={`rounded-full px-2 py-0.5 ${s.earned ? "bg-green-50 font-bold text-green-700" : "bg-page text-muted"}`}
+              >
+                {s.target}
+                {a.unit}
+                {s.earned ? " ✓" : ""}
+              </span>
+            ))}
+          </p>
+        )}
         <p className="text-sm text-muted">{next ? next.desc : a.steps.at(-1)!.desc}</p>
         {revealHidden && a.hidden && !done && <span className="text-xs text-muted">🔒 학생에게는 조건이 숨겨져 있어요</span>}
         {next?.target && a.current !== null && (
