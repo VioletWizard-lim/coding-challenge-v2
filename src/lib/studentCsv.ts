@@ -7,7 +7,8 @@ export const MAX_ROWS = 300;
 
 /** CSV 첫 줄(제목)의 이름 → 칸. 띄어쓰기는 무시하고 비교한다. */
 const COLUMNS = {
-  학번: "id",
+  아이디: "id",
+  학번: "id", // 예전 양식
   이름: "name",
   학년: "grade",
   반: "class",
@@ -36,10 +37,18 @@ export type StudentInput = {
 export type ParsedRow = { line: number; student: StudentInput; error: string | null };
 export type ParseResult = { rows: ParsedRow[]; error: string | null };
 
-export const TEMPLATE_CSV =
-  "학번,이름,학년,반,과목,초기 비밀번호,프로그래밍 학년,프로그래밍 반\n" +
-  "20301,홍길동,2,3,프로그래밍/정보,,2,5\n" +
-  "20302,김영희,2,3,정보,abcd1234,,\n";
+/** 권장 아이디 규칙: s + 만든 해 두 자리 + 학번 (예: 2026년 2학년 3반 1번 → s2620301). 한 학교 안에서는 해가 바뀌어도 겹치지 않는다 */
+export const suggestedId = (year: number, studentNumber: string) => `s${String(year).slice(-2)}${studentNumber}`;
+
+/** 내려받는 양식: 예시 아이디는 올해(한국 시간) 기준 */
+export function templateCsv(now = new Date()): string {
+  const year = Number(new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(now));
+  return (
+    "아이디,이름,학년,반,과목,초기 비밀번호,프로그래밍 학년,프로그래밍 반\n" +
+    `${suggestedId(year, "20301")},홍길동,2,3,프로그래밍/정보,,2,5\n` +
+    `${suggestedId(year, "20302")},김영희,2,3,정보,abcd1234,,\n`
+  );
+}
 
 /** 따옴표("...")와 줄바꿈을 처리하는 간단한 CSV 읽기 */
 export function parseCsv(text: string): string[][] {
@@ -92,7 +101,7 @@ export function parseStudentCsv(text: string): ParseResult {
     if (col && !columnAt.has(col)) columnAt.set(col, i);
   });
   if (!columnAt.has("id") || !columnAt.has("name")) {
-    return { rows: [], error: "첫 줄에 '학번'과 '이름' 제목이 있어야 해요. 양식 파일을 내려받아 써 주세요." };
+    return { rows: [], error: "첫 줄에 '아이디'(또는 '학번')와 '이름' 제목이 있어야 해요. 양식 파일을 내려받아 써 주세요." };
   }
   if (table.length - 1 > MAX_ROWS) {
     return { rows: [], error: `한 번에 ${MAX_ROWS}명까지 등록할 수 있어요. 파일을 나눠 주세요.` };
@@ -125,9 +134,9 @@ export function parseStudentCsv(text: string): ParseResult {
 
     let error: string | null = null;
     const unknownSubject = subjectList.find((s) => !(s in SUBJECTS));
-    if (!student.id) error = "학번이 비어 있어요.";
-    else if (!/^[\w-]{1,30}$/.test(student.id)) error = "학번은 영문·숫자로 30자 이내여야 해요.";
-    else if (seen.has(student.id)) error = "파일 안에 같은 학번이 또 있어요.";
+    if (!student.id) error = "아이디가 비어 있어요.";
+    else if (!/^[\w-]{1,30}$/.test(student.id)) error = "아이디는 영문·숫자로 30자 이내여야 해요.";
+    else if (seen.has(student.id)) error = "파일 안에 같은 아이디가 또 있어요.";
     else if (!student.name) error = "이름이 비어 있어요.";
     else if (student.name.length > 30) error = "이름이 너무 길어요.";
     else if (Object.values(nums).includes("bad")) error = "학년·반은 숫자로 적어 주세요.";
@@ -145,7 +154,7 @@ export function parseStudentCsv(text: string): ParseResult {
 /** 등록 결과(비밀번호 포함)를 엑셀에서 한글이 깨지지 않는 CSV로 만든다 */
 export function resultCsv(rows: { id: string; name: string; password: string }[]) {
   const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  return "﻿학번,이름,비밀번호\n" + rows.map((r) => [r.id, r.name, r.password].map(esc).join(",")).join("\n") + "\n";
+  return "﻿아이디,이름,비밀번호\n" + rows.map((r) => [r.id, r.name, r.password].map(esc).join(",")).join("\n") + "\n";
 }
 
 /** 엑셀이 저장한 CSV는 EUC-KR(CP949)인 경우가 많아, UTF-8로 안 읽히면 EUC-KR로 읽는다 */

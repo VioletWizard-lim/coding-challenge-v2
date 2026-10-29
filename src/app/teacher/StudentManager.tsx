@@ -64,7 +64,7 @@ export default function StudentManager({ students }: { students: StudentRow[] })
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="학번이나 이름으로 찾기"
+          placeholder="아이디나 이름으로 찾기"
           className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
         />
       </div>
@@ -72,7 +72,7 @@ export default function StudentManager({ students }: { students: StudentRow[] })
         <table className="w-full text-left text-sm">
           <thead className="text-muted">
             <tr className="border-b border-line">
-              <th className="py-2 pr-3 font-normal">학번</th>
+              <th className="py-2 pr-3 font-normal">아이디</th>
               <th className="py-2 pr-3 font-normal">이름</th>
               <th className="py-2 pr-3 font-normal">학년-반</th>
               <th className="py-2 pr-3 font-normal">프로그래밍 반</th>
@@ -95,7 +95,7 @@ export default function StudentManager({ students }: { students: StudentRow[] })
       {matched.length === 0 && <p className="text-sm text-muted">찾는 학생이 없어요.</p>}
       {matched.length > SHOW_LIMIT && (
         <p className="text-sm text-muted">
-          {matched.length}명 중 {SHOW_LIMIT}명만 보여요. 반을 고르거나 학번·이름으로 찾아 주세요.
+          {matched.length}명 중 {SHOW_LIMIT}명만 보여요. 반을 고르거나 아이디·이름으로 찾아 주세요.
         </p>
       )}
     </section>
