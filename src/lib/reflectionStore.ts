@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { db, fetchAll, type UserRow } from "./db";
 import { kstDate } from "./journey";
 import type { Reflection, ReflectionInput } from "./reflection";
@@ -44,17 +45,18 @@ async function list(makeQuery: Parameters<typeof fetchAll<ReflectionRow>>[0]): P
   }
 }
 
-/** 내가 쓴 성찰 전부 (최근 날짜부터) */
-export function listMyReflections(userId: string): Promise<ReflectionList> {
-  return list(() =>
-    db()
-      .from("reflections")
-      .select("*")
-      .eq("user_id", userId)
-      .order("class_date", { ascending: false })
-      .order("id", { ascending: false }),
-  );
-}
+/** 내가 쓴 성찰 전부 (최근 날짜부터). 한 번의 화면 요청 안에서는 탭끼리 같은 결과를 나눠 쓴다(cache) */
+export const listMyReflections = cache(
+  (userId: string): Promise<ReflectionList> =>
+    list(() =>
+      db()
+        .from("reflections")
+        .select("*")
+        .eq("user_id", userId)
+        .order("class_date", { ascending: false })
+        .order("id", { ascending: false }),
+    ),
+);
 
 /** 교사용: 한 날짜·과목의 성찰 전부 */
 export function listReflectionsByDate(classDate: string, subject: string): Promise<ReflectionList> {

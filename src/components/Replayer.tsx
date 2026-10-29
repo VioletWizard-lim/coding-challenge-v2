@@ -13,6 +13,8 @@ type Props = {
   code: string;
   log: unknown;
   mode?: "code" | "text";
+  /** 이 시각(기록 안의 ms)까지 진행된 화면으로 연다. 없으면 처음부터 */
+  startAt?: number;
 };
 
 /** 타임라인 표시: 흑백 인쇄에서도 구분되도록 색과 함께 모양이 다른 기호를 쓴다 */
@@ -58,15 +60,20 @@ function editSpec(state: EditorState, e: EditEvent) {
 }
 
 /** 작성 과정 재생기 (교사·학생 공용). v1 replay.html과 같은 기록을 읽는다. */
-export default function Replayer({ init, code, log, mode = "code" }: Props) {
+export default function Replayer({ init, code, log, mode = "code", startAt }: Props) {
   const analysis = useMemo(() => analyzeLog(init, log), [init, log]);
   const { edits, marks, stats, startTime } = analysis;
+  // 업적에서 왔으면 그 순간까지의 편집을 적용한 화면에서 시작한다
+  const startIndex = useMemo(
+    () => (startAt === undefined ? 0 : edits.filter((e) => e[0] <= startAt).length),
+    [edits, startAt],
+  );
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const extensionsRef = useRef<Extension[]>([]);
   const indexRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(startIndex);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(4);
   const [skipIdle, setSkipIdle] = useState(true);
@@ -86,18 +93,17 @@ export default function Replayer({ init, code, log, mode = "code" }: Props) {
       }),
       ...(mode === "code" ? [python(), syntaxHighlighting(defaultHighlightStyle, { fallback: true })] : [EditorView.lineWrapping]),
     ];
-    const view = new EditorView({
-      parent: parentRef.current!,
-      state: EditorState.create({ doc: edits.length ? init : code, extensions: extensionsRef.current }),
-    });
+    let state = EditorState.create({ doc: edits.length ? init : code, extensions: extensionsRef.current });
+    for (let i = 0; i < startIndex; i++) state = state.update(editSpec(state, edits[i])).state;
+    const view = new EditorView({ parent: parentRef.current!, state });
     viewRef.current = view;
-    indexRef.current = 0;
+    indexRef.current = startIndex;
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       view.destroy();
       viewRef.current = null;
     };
-  }, [init, code, edits, mode]);
+  }, [init, code, edits, mode, startIndex]);
 
   /** n번째 편집까지 적용한 화면으로 이동 */
   function goTo(n: number) {

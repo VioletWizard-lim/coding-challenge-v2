@@ -1,4 +1,6 @@
 import "server-only";
+import { cache } from "react";
+import type { AchievementSubmission } from "./achievements";
 import { db, fetchAll, type SubmissionRow, type UserRow } from "./db";
 import type { LogEvent } from "./editLog";
 import { kstDate, summarizeSubmission, type SubmissionSummary } from "./journey";
@@ -78,20 +80,46 @@ export async function getReplayDataById(submissionId: number): Promise<ReplayDat
   return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
 }
 
+type JourneyRow = Pick<
+  SubmissionRow,
+  "id" | "subject" | "problem" | "submitted_at" | "init_code" | "edit_log" | "code" | "wrong_reason" | "score_total"
+>;
+
 /**
- * 학습 여정용: 내 제출을 작성 기록까지 읽어 서버에서 요약만 만든다(무거운 기록은 브라우저로 보내지 않음).
- * 기록이 커서 100건씩 나눠 받는다.
+ * 학습 여정·업적용: 내 제출을 작성 기록까지 읽어 서버에서 요약만 만든다(무거운 기록은 브라우저로 보내지 않음).
+ * 기록이 커서 100건씩 나눠 받는다. 한 번의 화면 요청 안에서는 학습 여정 탭과 업적 탭이 같은 결과를 나눠 쓴다(cache).
  */
-export async function getMyJourneyData(name: string): Promise<{ summaries: SubmissionSummary[]; today: string }> {
-  const rows = await fetchAll<Pick<SubmissionRow, "id" | "subject" | "problem" | "submitted_at" | "init_code" | "edit_log">>(
-    () =>
-      db()
-        .from("submissions")
-        .select("id, subject, problem, submitted_at, init_code, edit_log")
-        .eq("name", name)
-        .order("submitted_at", { ascending: false })
-        .order("id", { ascending: false }),
-    100,
-  );
-  return { summaries: rows.map(summarizeSubmission), today: kstDate(new Date()) };
-}
+export const getMyJourneyData = cache(
+  async (name: string): Promise<{ summaries: SubmissionSummary[]; records: AchievementSubmission[]; today: string }> => {
+    const rows = await fetchAll<JourneyRow>(
+      () =>
+        db()
+          .from("submissions")
+          .select("id, subject, problem, submitted_at, init_code, edit_log, code, wrong_reason, score_total")
+          .eq("name", name)
+          .order("submitted_at", { ascending: false })
+          .order("id", { ascending: false }),
+      100,
+    );
+    const summaries = rows.map(summarizeSubmission);
+    const records = rows.map((r, i): AchievementSubmission => {
+      const s = summaries[i];
+      return {
+        id: r.id,
+        subject: r.subject,
+        problem: r.problem,
+        submittedAt: r.submitted_at,
+        date: s.date,
+        log: r.edit_log,
+        code: r.code ?? "",
+        wrongReason: r.wrong_reason,
+        scoreTotal: r.score_total,
+        hasLog: s.hasLog,
+        typedChars: s.typedChars,
+        pasteCount: s.stats.pasteCount,
+        editCount: s.editCount,
+      };
+    });
+    return { summaries, records, today: kstDate(new Date()) };
+  },
+);
