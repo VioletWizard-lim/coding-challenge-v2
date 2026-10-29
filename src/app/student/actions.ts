@@ -10,7 +10,7 @@ import { findOpenProblem } from "@/lib/problemStore";
 import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
 import { saveTodayReflection } from "@/lib/reflectionStore";
 import { getSession } from "@/lib/session";
-import { getReplayData, insertSubmission, submissionOwner, type ReplayData } from "@/lib/submissions";
+import { getReplayData, insertSubmission, isMySubmission, type ReplayData } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote, type NotesBundle, type TimelineNote } from "@/lib/timelineNotes";
 import { countNotes, deleteNote, insertNote, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 
@@ -80,7 +80,7 @@ export async function loadMyReplay(submissionId: number): Promise<ReplayResult> 
   if (!Number.isInteger(submissionId)) return { ok: false, error: "제출을 찾지 못했어요." };
   try {
     const profile = await getUserProfile(session.id);
-    const data = profile ? await getReplayData(submissionId, profile.name) : null;
+    const data = profile ? await getReplayData(submissionId, profile) : null;
     if (!data) return { ok: false, error: "제출을 찾지 못했어요." };
     return { ok: true, data: { ...data, notes: await listNotesForSubmission(submissionId, session.id) } };
   } catch (err) {
@@ -141,7 +141,7 @@ export async function saveMyNote(input: { submissionId: number; at: number; text
     }
     const profile = await getUserProfile(session.id);
     if (!Number.isInteger(input.submissionId) || !Number.isFinite(input.at)) return { ok: false, error: "제출을 찾지 못했어요." };
-    if (!profile || (await submissionOwner(input.submissionId)) !== profile.name) return { ok: false, error: "제출을 찾지 못했어요." };
+    if (!profile || !(await isMySubmission(input.submissionId, profile))) return { ok: false, error: "제출을 찾지 못했어요." };
     if ((await countNotes(input.submissionId)) >= MAX_NOTES_PER_SUBMISSION) {
       return { ok: false, error: `한 제출에 메모는 ${MAX_NOTES_PER_SUBMISSION}개까지 남길 수 있어요.` };
     }

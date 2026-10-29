@@ -48,7 +48,7 @@ async function StudentHome() {
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
-                  <HomeTab userId={profile.id} name={profile.name} subjects={subjects} problems={problems} />
+                  <HomeTab userId={profile.id} owner={profile} subjects={subjects} problems={problems} />
                 </div>
               </Suspense>
             ),
@@ -64,7 +64,7 @@ async function StudentHome() {
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
-                  <MySubmissions name={profile.name} />
+                  <MySubmissions owner={profile} />
                 </div>
               </Suspense>
             ),
@@ -75,7 +75,7 @@ async function StudentHome() {
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-3xl">
-                  <ReflectionTab userId={profile.id} name={profile.name} subjects={subjects} problems={problems} />
+                  <ReflectionTab userId={profile.id} owner={profile} subjects={subjects} problems={problems} />
                 </div>
               </Suspense>
             ),
@@ -86,7 +86,7 @@ async function StudentHome() {
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
-                  <JourneyTab userId={profile.id} name={profile.name} />
+                  <JourneyTab userId={profile.id} owner={profile} />
                 </div>
               </Suspense>
             ),
@@ -97,7 +97,7 @@ async function StudentHome() {
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
-                  <AchievementsTab userId={profile.id} name={profile.name} problems={problems} />
+                  <AchievementsTab userId={profile.id} owner={profile} problems={problems} />
                 </div>
               </Suspense>
             ),

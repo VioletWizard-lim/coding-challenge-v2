@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { getSession, homeFor } from "@/lib/session";
+import Logo from "@/components/Logo";
 import { SITE } from "@/lib/site";
 import LoginForm from "./LoginForm";
 
@@ -9,8 +10,9 @@ export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-16">
       <div className="mb-10 text-center">
-        <h1 className="text-3xl font-black">
-          {SITE.icon} {SITE.name}
+        <h1 className="flex items-center justify-center gap-3 text-3xl font-black">
+          <Logo className="h-10 w-10" />
+          {SITE.name}
         </h1>
         <p className="mt-1 font-bold text-brand">
           {SITE.nameKo} · {SITE.subtitle}

@@ -12,12 +12,12 @@ import { buildJourney, type Journey } from "@/lib/journey";
 import { allowedSubjects } from "@/lib/problems";
 import type { Reflection } from "@/lib/reflection";
 import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore";
-import { getMyJourneyData, getReplayDataById, submissionOwner } from "@/lib/submissions";
+import { getMyJourneyData, getReplayDataById, submissionExists } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote } from "@/lib/timelineNotes";
 import { countNotes, deleteNote, insertNote, listMyNotes, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 import type { NoteResult, ReplayResult } from "../student/actions";
-import { parseStudentCsv, type ParsedRow } from "@/lib/studentCsv";
-import { createStudents, findExistingIds, resetStudentPassword } from "@/lib/teacher";
+import { parseStudentCsv, planForExisting, type ExistingPlan, type ParsedRow } from "@/lib/studentCsv";
+import { createStudents, findExistingAccounts, resetStudentPassword, setStudentSubjects } from "@/lib/teacher";
 
 export type ResetResult = { ok: true; password: string } | { ok: false; message: string };
 
@@ -45,17 +45,24 @@ export async function resetPassword(studentId: string): Promise<ResetResult> {
   return { ok: true, password };
 }
 
-export type PreviewRow = ParsedRow & { exists: boolean };
+/** plan: 이미 있는 아이디면 어떻게 할지 (없으면 null = 새로 등록) */
+export type PreviewRow = ParsedRow & { exists: boolean; plan: ExistingPlan | null };
 export type PreviewResult = { ok: true; rows: PreviewRow[] } | { ok: false; message: string };
 
-/** CSV 미리보기: 줄마다 오류와, 이미 있는 학번인지 알려 준다. 아직 아무것도 저장하지 않는다. */
+/** CSV 미리보기: 줄마다 오류와, 이미 있는 학번이면 어떻게 할지(과목 추가·그대로·건드리지 않음) 알려 준다. 아직 아무것도 저장하지 않는다. */
 export async function previewStudents(csvText: string): Promise<PreviewResult> {
   if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
   const parsed = parseStudentCsv(String(csvText ?? ""));
   if (parsed.error) return { ok: false, message: parsed.error };
   try {
-    const existing = await findExistingIds(parsed.rows.map((r) => r.student.id).filter(Boolean));
-    return { ok: true, rows: parsed.rows.map((r) => ({ ...r, exists: existing.has(r.student.id) })) };
+    const existing = await findExistingAccounts(parsed.rows.map((r) => r.student.id).filter(Boolean));
+    return {
+      ok: true,
+      rows: parsed.rows.map((r) => {
+        const acc = existing.get(r.student.id);
+        return { ...r, exists: !!acc, plan: acc ? planForExisting(r.student, acc) : null };
+      }),
+    };
   } catch (err) {
     console.error("CSV 미리보기 오류:", err);
     return { ok: false, message: "학번을 확인하지 못했어요. 잠시 후 다시 시도하세요." };
@@ -66,13 +73,16 @@ export type ImportResult =
   | {
       ok: true;
       created: { id: string; name: string; password: string; generated: boolean }[];
+      /** 이미 있는 학생에게 과목을 더한 것 */
+      updated: { id: string; name: string; added: string[] }[];
       skipped: { line: number; id: string; reason: string }[];
     }
   | { ok: false; message: string };
 
 /**
  * CSV로 학생 계정을 만든다. 미리보기와 같은 검사를 서버에서 다시 하고,
- * 오류 줄과 이미 있는 학번은 건너뛴다(기존 계정은 절대 바꾸지 않음).
+ * 이미 있는 학번은 같은 학생(이름이 같음)이면 과목만 더하고, 다른 칸(이름·비밀번호 등)은 절대 바꾸지 않는다.
+ * 이름이 다르거나 교사 계정이면 다른 사람일 수 있어 건너뛴다. 오류 줄도 건너뛴다.
  * 비밀번호를 비운 학생은 숫자 6자리를 만들어 준다.
  */
 export async function importStudents(csvText: string): Promise<ImportResult> {
@@ -82,13 +92,27 @@ export async function importStudents(csvText: string): Promise<ImportResult> {
 
   const skipped: { line: number; id: string; reason: string }[] = [];
   let created: { id: string; name: string; password: string; generated: boolean }[] = [];
+  const updated: { id: string; name: string; added: string[] }[] = [];
   try {
-    const existing = await findExistingIds(parsed.rows.map((r) => r.student.id).filter(Boolean));
+    const existing = await findExistingAccounts(parsed.rows.map((r) => r.student.id).filter(Boolean));
     const toCreate = parsed.rows.filter((r) => {
-      const reason = r.error ?? (existing.has(r.student.id) ? "이미 있는 학번" : null);
-      if (reason) skipped.push({ line: r.line, id: r.student.id, reason });
-      return !reason;
+      if (r.error) {
+        skipped.push({ line: r.line, id: r.student.id, reason: r.error });
+        return false;
+      }
+      const acc = existing.get(r.student.id);
+      if (!acc) return true;
+      const plan = planForExisting(r.student, acc);
+      if (plan.kind === "add") updated.push({ id: r.student.id, name: r.student.name, added: plan.add });
+      else skipped.push({ line: r.line, id: r.student.id, reason: plan.kind === "same" ? "이미 있음 (바꿀 것 없음)" : plan.reason });
+      return false;
     });
+    // 같은 학생에게 과목 더하기 (과목 칸만 바꾼다)
+    for (const u of [...updated]) {
+      const acc = existing.get(u.id)!;
+      const plan = planForExisting(parsed.rows.find((r) => r.student.id === u.id)!.student, acc);
+      if (plan.kind !== "add" || !(await setStudentSubjects(u.id, plan.next))) updated.splice(updated.indexOf(u), 1);
+    }
     const withPasswords = toCreate.map(({ student: s }) => ({
       ...s,
       generated: !s.password,
@@ -121,8 +145,8 @@ export async function importStudents(csvText: string): Promise<ImportResult> {
   }
 
   skipped.sort((a, b) => a.line - b.line);
-  if (created.length) refresh(); // 아래 학생 목록을 새로 불러온다
-  return { ok: true, created, skipped };
+  if (created.length || updated.length) refresh(); // 아래 학생 목록을 새로 불러온다
+  return { ok: true, created, updated, skipped };
 }
 
 export type ProblemResult = { ok: true; message: string } | { ok: false; message: string };
@@ -301,7 +325,7 @@ export async function loadStudentJourney(studentId: string): Promise<StudentJour
     const profile = await getUserProfile(String(studentId ?? ""));
     if (!profile || profile.role !== "student") return { ok: false, message: "학생을 찾지 못했어요." };
     const [{ summaries, records, today }, mine, open, notes] = await Promise.all([
-      getMyJourneyData(profile.name),
+      getMyJourneyData(profile),
       listMyReflections(profile.id),
       listOpenProblems(allowedSubjects(profile.subjects)),
       listMyNotes(profile.id),
@@ -346,7 +370,7 @@ export async function saveFeedbackNote(input: { submissionId: number; at: number
       const note = await updateNote(session.id, Number(input.id), text);
       return note ? { ok: true, note } : { ok: false, error: "피드백을 찾지 못했어요." };
     }
-    if (!Number.isInteger(input.submissionId) || !Number.isFinite(input.at) || !(await submissionOwner(input.submissionId))) {
+    if (!Number.isInteger(input.submissionId) || !Number.isFinite(input.at) || !(await submissionExists(input.submissionId))) {
       return { ok: false, error: "제출을 찾지 못했어요." };
     }
     if ((await countNotes(input.submissionId)) >= MAX_NOTES_PER_SUBMISSION) {

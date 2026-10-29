@@ -2,26 +2,26 @@ import { computeAchievements, unitProblemsOf } from "@/lib/achievements";
 import { buildJourney } from "@/lib/journey";
 import type { Problem } from "@/lib/problemBank";
 import { listMyReflections } from "@/lib/reflectionStore";
-import { getMyJourneyData } from "@/lib/submissions";
+import { getMyJourneyData, type Owner } from "@/lib/submissions";
 import { listMyNotes } from "@/lib/timelineNoteStore";
 import Home, { type HomeData } from "./Home";
 
 /** 학생 첫 화면: 오늘 할 일과 최근 기록 요약을 서버에서 계산한다 (학습 여정·업적 탭과 같은 기록을 나눠 씀) */
 export default async function HomeTab({
   userId,
-  name,
+  owner,
   subjects,
   problems,
 }: {
   userId: string;
-  name: string;
+  owner: Owner;
   subjects: string[];
   problems: Problem[];
 }) {
   let data: HomeData;
   try {
     const [{ summaries, records, today }, mine, notes] = await Promise.all([
-      getMyJourneyData(name),
+      getMyJourneyData(owner),
       listMyReflections(userId),
       listMyNotes(userId),
     ]);
@@ -62,5 +62,5 @@ export default async function HomeTab({
     console.error(err);
     return <p className="text-danger">첫 화면을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
   }
-  return <Home name={name} data={data} />;
+  return <Home name={owner.name} data={data} />;
 }

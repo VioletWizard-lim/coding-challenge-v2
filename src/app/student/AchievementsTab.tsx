@@ -2,24 +2,24 @@ import { computeAchievements, unitProblemsOf } from "@/lib/achievements";
 import { getAchievementsSeen } from "@/lib/achievementStore";
 import type { Problem } from "@/lib/problemBank";
 import { listMyReflections } from "@/lib/reflectionStore";
-import { getMyJourneyData } from "@/lib/submissions";
+import { getMyJourneyData, type Owner } from "@/lib/submissions";
 import { listMyNotes } from "@/lib/timelineNoteStore";
 import Achievements from "./Achievements";
 
 /** 서버에서 내 기록으로 업적을 계산한다 (학습 여정 탭과 같은 기록을 나눠 씀) */
 export default async function AchievementsTab({
   userId,
-  name,
+  owner,
   problems,
 }: {
   userId: string;
-  name: string;
+  owner: Owner;
   problems: Problem[];
 }) {
   let list, seen;
   try {
     const [{ records }, mine, seenRecord, notes] = await Promise.all([
-      getMyJourneyData(name),
+      getMyJourneyData(owner),
       listMyReflections(userId),
       getAchievementsSeen(userId),
       listMyNotes(userId),

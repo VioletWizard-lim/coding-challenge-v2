@@ -156,3 +156,32 @@ export function decodeCsvFile(buffer: ArrayBuffer): string {
     return new TextDecoder("euc-kr").decode(buffer);
   }
 }
+
+/** 이미 있는 계정 (CSV의 같은 아이디) */
+export type ExistingAccount = { name: string; role: string; subjects: string | null };
+
+/**
+ * 이미 있는 아이디를 어떻게 할지.
+ * - same: 바꿀 것 없음 / add: 같은 학생이라 과목만 더함(이름·비밀번호는 그대로) / conflict: 다른 사람일 수 있어 건드리지 않음
+ */
+export type ExistingPlan =
+  | { kind: "same" }
+  | { kind: "add"; add: string[]; next: string }
+  | { kind: "conflict"; reason: string };
+
+const subjectList = (v: string | null) =>
+  (v ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+export function planForExisting(csv: StudentInput, acc: ExistingAccount): ExistingPlan {
+  if (acc.role !== "student") return { kind: "conflict", reason: "교사 계정과 같은 아이디예요" };
+  if (acc.name.trim() !== csv.name.trim()) return { kind: "conflict", reason: `이미 '${acc.name}' 학생이 쓰는 아이디예요` };
+  const current = subjectList(acc.subjects);
+  if (!current.length) return { kind: "same" }; // 과목이 비어 있으면 이미 모든 과목
+  // CSV에서 과목을 비우면 모든 과목
+  const wanted = csv.subjects ? subjectList(csv.subjects) : Object.keys(SUBJECTS);
+  const add = wanted.filter((s) => !current.includes(s));
+  return add.length ? { kind: "add", add, next: [...current, ...add].join(",") } : { kind: "same" };
+}
