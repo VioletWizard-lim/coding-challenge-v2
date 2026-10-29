@@ -3,7 +3,7 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
-import { validateProblem, type ProblemInput } from "@/lib/problemBank";
+import { parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { deleteProblem, saveProblem } from "@/lib/problemStore";
 import { parseStudentCsv, type ParsedRow } from "@/lib/studentCsv";
 import { createStudents, findExistingIds, resetStudentPassword } from "@/lib/teacher";
@@ -119,11 +119,17 @@ export type ProblemResult = { ok: true; message: string } | { ok: false; message
 /** 문제 저장 (id가 없으면 새 문제). 공개 시각은 그대로 저장하고, 학생 화면에서는 서버 시계로 공개 여부를 판단한다 */
 export async function saveProblemAction(id: number | null, input: ProblemInput): Promise<ProblemResult> {
   if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const difficulty = Number(input.difficulty);
   const p: ProblemInput = {
     subject: String(input.subject ?? ""),
     number: String(input.number ?? "").trim(),
     title: String(input.title ?? ""),
+    difficulty: input.difficulty === null || input.difficulty === undefined ? null : difficulty,
     description: String(input.description ?? ""),
+    conditions: String(input.conditions ?? ""),
+    examples: parseExamples(input.examples),
+    goal: String(input.goal ?? ""),
+    challenge: String(input.challenge ?? ""),
     starterCode: String(input.starterCode ?? ""),
     openAt: input.openAt ? new Date(input.openAt).toISOString() : null,
   };
@@ -132,6 +138,9 @@ export async function saveProblemAction(id: number | null, input: ProblemInput):
   try {
     const result = await saveProblem(id, p);
     if (result === "duplicate") return { ok: false, message: `${p.subject} ${p.number}번 문제가 이미 있어요.` };
+    if (result === "fields-missing") {
+      return { ok: false, message: "난이도·조건·예시 칸이 아직 없어요. Supabase에서 004_problem_fields.sql을 실행해 주세요." };
+    }
   } catch (err) {
     console.error("문제 저장 오류:", err);
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };

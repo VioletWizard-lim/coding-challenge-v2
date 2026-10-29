@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { compareNumber, labelOf, NUMBER_PATTERN, openStatus, type Problem } from "@/lib/problemBank";
+import { compareNumber, labelOf, MAX_EXAMPLES, NUMBER_PATTERN, openStatus, type Example, type Problem } from "@/lib/problemBank";
 import { SUBJECTS } from "@/lib/problems";
 import { deleteProblemAction, saveProblemAction, type ProblemResult } from "./actions";
 
@@ -29,10 +29,12 @@ function nextNumber(list: Problem[]) {
 export default function ProblemManager({
   problems,
   tableReady,
+  fieldsReady,
   now,
 }: {
   problems: Problem[];
   tableReady: boolean;
+  fieldsReady: boolean;
   now: string;
 }) {
   const subjects = Object.keys(SUBJECTS);
@@ -44,7 +46,20 @@ export default function ProblemManager({
 
   function startNew() {
     setMessage(null);
-    setEditing({ id: null, subject, number: nextNumber(list), title: "", description: "", starterCode: "", openAt: null });
+    setEditing({
+      id: null,
+      subject,
+      number: nextNumber(list),
+      title: "",
+      difficulty: null,
+      description: "",
+      conditions: "",
+      examples: [],
+      goal: "",
+      challenge: "",
+      starterCode: "",
+      openAt: null,
+    });
   }
 
   return (
@@ -80,6 +95,12 @@ export default function ProblemManager({
           주세요. 지금은 코드에 들어 있는 문제 목록을 보여 줘요(고칠 수 없음).
         </p>
       )}
+      {tableReady && !fieldsReady && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          ⚠️ 난이도·조건·예시·문제 목표·도전 과제를 저장하려면 Supabase SQL Editor에서{" "}
+          <code>supabase/migrations/004_problem_fields.sql</code>을 실행해 주세요.
+        </p>
+      )}
       <p className="text-sm text-muted">
         공개 시각이 되면 학생 화면에 문제가 나타나요. 그 전에는 학생에게 제목도 보이지 않아요. 시각은 한국 시간이에요.
       </p>
@@ -109,7 +130,8 @@ export default function ProblemManager({
             <tr className="border-b border-line">
               <th className="py-2 pr-3 font-normal">번호</th>
               <th className="py-2 pr-3 font-normal">제목</th>
-              <th className="py-2 pr-3 font-normal">설명</th>
+              <th className="py-2 pr-3 font-normal">난이도</th>
+              <th className="py-2 pr-3 font-normal">내용</th>
               <th className="py-2 pr-3 font-normal">공개</th>
               <th className="py-2 font-normal" />
             </tr>
@@ -121,7 +143,14 @@ export default function ProblemManager({
                 <tr key={p.number} className={`border-b border-line/60 ${editing?.id === p.id && p.id ? "bg-brand-soft/50" : ""}`}>
                   <td className="py-2 pr-3 font-mono">{p.number}</td>
                   <td className="py-2 pr-3">{p.title === p.number ? <span className="text-muted">(제목 없음)</span> : p.title}</td>
-                  <td className="py-2 pr-3 text-muted">{p.description ? "있음" : "–"}</td>
+                  <td className="py-2 pr-3 whitespace-nowrap text-amber-500" aria-label={p.difficulty ? `별 ${p.difficulty}개` : "난이도 없음"}>
+                    {p.difficulty ? "★".repeat(p.difficulty) : <span className="text-muted">–</span>}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-muted">
+                    {[p.description && "문제", p.conditions && "조건", p.examples.length && `예시 ${p.examples.length}`, p.goal && "목표", p.challenge && "도전"]
+                      .filter(Boolean)
+                      .join(" · ") || "–"}
+                  </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
                     {status.kind === "open" && <span className="text-green-700">● {status.text}</span>}
                     {status.kind === "scheduled" && <span className="text-amber-700">◷ {status.text}</span>}
@@ -166,7 +195,12 @@ function ProblemForm({
   const alreadyOpen = problem.openAt !== null && new Date(problem.openAt) <= now;
   const [number, setNumber] = useState(problem.number);
   const [title, setTitle] = useState(problem.title === problem.number ? "" : problem.title);
+  const [difficulty, setDifficulty] = useState<number | null>(problem.difficulty);
   const [description, setDescription] = useState(problem.description);
+  const [conditions, setConditions] = useState(problem.conditions);
+  const [examples, setExamples] = useState<Example[]>(problem.examples.length ? problem.examples : [{ input: "", output: "" }]);
+  const [goal, setGoal] = useState(problem.goal);
+  const [challenge, setChallenge] = useState(problem.challenge);
   const [starterCode, setStarterCode] = useState(problem.starterCode);
   const [mode, setMode] = useState<OpenMode>(problem.openAt === null ? "hidden" : alreadyOpen ? "now" : "at");
   const [openAtLocal, setOpenAtLocal] = useState(problem.openAt && !alreadyOpen ? toLocalInput(problem.openAt) : "");
@@ -186,7 +220,12 @@ function ProblemForm({
         subject: problem.subject,
         number: number.trim(),
         title,
+        difficulty,
         description,
+        conditions,
+        examples: examples.filter((e) => e.input.trim() || e.output.trim()),
+        goal,
+        challenge,
         starterCode,
         openAt,
       });
@@ -216,13 +255,106 @@ function ProblemForm({
           <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} placeholder="내가 가진 용돈 확인하기" className={inputClass} />
         </label>
       </div>
+      <div className="flex flex-col gap-1 text-sm text-muted">
+        난이도
+        <div className="flex items-center gap-1" role="radiogroup" aria-label="난이도">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              type="button"
+              role="radio"
+              aria-checked={difficulty === n}
+              aria-label={`별 ${n}개`}
+              onClick={() => setDifficulty(difficulty === n ? null : n)}
+              className={`text-2xl leading-none ${difficulty !== null && n <= difficulty ? "text-amber-500" : "text-slate-300"}`}
+            >
+              ★
+            </button>
+          ))}
+          <span className="ml-2 text-xs">{difficulty ? `별 ${difficulty}개` : "정하지 않음"} (같은 별을 다시 누르면 지워져요)</span>
+        </div>
+      </div>
       <label className="flex flex-col gap-1 text-sm text-muted">
-        문제 설명 (학생 화면 왼쪽에 그대로 보여요. 입력·출력 예시도 여기에)
+        문제
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          rows={8}
-          placeholder={"용돈과 과자 가격을 입력받아 살 수 있는지 출력하세요.\n\n[입력 예시]\n3000\n1200\n\n[출력 예시]\n살 수 있어요!"}
+          rows={5}
+          placeholder="용돈과 과자 가격을 입력받아, 과자를 살 수 있는지 출력하는 프로그램을 만드세요."
+          className={`${inputClass} leading-6`}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-muted">
+        조건 (한 줄에 하나씩)
+        <textarea
+          value={conditions}
+          onChange={(e) => setConditions(e.target.value)}
+          rows={3}
+          placeholder={"input()으로 두 수를 입력받을 것\nif 문을 사용할 것"}
+          className={`${inputClass} leading-6`}
+        />
+      </label>
+      <fieldset className="flex flex-col gap-2 text-sm text-muted">
+        <legend className="mb-1">예시 (입력이 없는 문제는 입력 칸을 비워 두세요)</legend>
+        {examples.map((ex, i) => (
+          <div key={i} className="grid gap-2 rounded-lg border border-line bg-white p-2 sm:grid-cols-[1fr_1fr_auto]">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs">예시 {i + 1} 입력</span>
+              <textarea
+                value={ex.input}
+                onChange={(e) => setExamples(examples.map((x, j) => (j === i ? { ...x, input: e.target.value } : x)))}
+                rows={2}
+                spellCheck={false}
+                className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs">예시 {i + 1} 출력</span>
+              <textarea
+                value={ex.output}
+                onChange={(e) => setExamples(examples.map((x, j) => (j === i ? { ...x, output: e.target.value } : x)))}
+                rows={2}
+                spellCheck={false}
+                className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setExamples(examples.filter((_, j) => j !== i))}
+              className="self-end rounded-lg px-2 py-1 text-xs text-danger hover:bg-red-50"
+              aria-label={`예시 ${i + 1} 지우기`}
+            >
+              지우기
+            </button>
+          </div>
+        ))}
+        {examples.length < MAX_EXAMPLES && (
+          <button
+            type="button"
+            onClick={() => setExamples([...examples, { input: "", output: "" }])}
+            className="self-start rounded-lg border border-line bg-white px-3 py-1 text-sm"
+          >
+            ＋ 예시 추가
+          </button>
+        )}
+      </fieldset>
+      <label className="flex flex-col gap-1 text-sm text-muted">
+        문제 목표
+        <textarea
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          rows={2}
+          placeholder="입력값을 정수로 바꾸고, 조건문으로 두 경우를 나눌 수 있다."
+          className={`${inputClass} leading-6`}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-muted">
+        도전 과제 (선택, 단원 마지막 문제 등)
+        <textarea
+          value={challenge}
+          onChange={(e) => setChallenge(e.target.value)}
+          rows={2}
+          placeholder="과자를 여러 개 살 때 몇 개까지 살 수 있는지도 출력해 보세요."
           className={`${inputClass} leading-6`}
         />
       </label>

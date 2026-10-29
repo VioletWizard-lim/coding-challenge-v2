@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   compareNumber,
+  conditionList,
+  parseExamples,
   isOpen,
   labelOf,
   openStatus,
@@ -15,7 +17,12 @@ const p = (over: Partial<Problem>): Problem => ({
   subject: "프로그래밍",
   number: "1-1",
   title: "제목",
+  difficulty: null,
   description: "",
+  conditions: "",
+  examples: [],
+  goal: "",
+  challenge: "",
   starterCode: "",
   openAt: null,
   ...over,
@@ -49,7 +56,19 @@ describe("공개 시각", () => {
 });
 
 describe("검사", () => {
-  const ok = { subject: "프로그래밍", number: "2-3", title: "용돈", description: "", starterCode: "", openAt: null };
+  const ok = {
+    subject: "프로그래밍",
+    number: "2-3",
+    title: "용돈",
+    difficulty: 3,
+    description: "",
+    conditions: "",
+    examples: [],
+    goal: "",
+    challenge: "",
+    starterCode: "",
+    openAt: null,
+  };
   it("올바른 문제는 통과", () => expect(validateProblem(ok)).toBeNull());
   it.each([
     [{ subject: "국어" }, "과목"],
@@ -57,6 +76,9 @@ describe("검사", () => {
     [{ number: "" }, "단원-번호"],
     [{ title: "  " }, "제목"],
     [{ openAt: "아무거나" }, "공개 시각"],
+    [{ difficulty: 6 }, "난이도"],
+    [{ difficulty: 0 }, "난이도"],
+    [{ examples: Array.from({ length: 11 }, () => ({ input: "", output: "1" })) }, "10개"],
   ])("%o → 안내", (over, msg) => expect(validateProblem({ ...ok, ...over })).toContain(msg));
 });
 
@@ -66,4 +88,22 @@ it("문제 이름과 코드에 든 문제 목록", () => {
   const list = staticProblems();
   expect(list.length).toBe(80);
   expect(list.every((x) => isOpen(x, new Date()))).toBe(true);
+});
+
+describe("조건·예시 읽기", () => {
+  it("조건은 줄마다 하나, 앞의 표시는 뺀다", () => {
+    expect(conditionList("- input()을 쓸 것\n\n• print는 한 번만\n2) 변수 이름은 영어로\n  그냥 줄  ")).toEqual([
+      "input()을 쓸 것",
+      "print는 한 번만",
+      "변수 이름은 영어로",
+      "그냥 줄",
+    ]);
+  });
+  it("예시 jsonb를 안전하게 읽는다", () => {
+    expect(parseExamples([{ input: "3", output: "9" }, { output: "안녕" }, null, { input: "", output: "" }, "x"])).toEqual([
+      { input: "3", output: "9" },
+      { input: "", output: "안녕" },
+    ]);
+    expect(parseExamples(null)).toEqual([]);
+  });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
 import { storageKeyFor } from "@/lib/editLog";
 import { labelOf, type Problem } from "@/lib/problemBank";
@@ -96,25 +97,7 @@ export default function Workspace({
           </label>
         </div>
         {current ? (
-          <>
-            <div>
-              <p className="text-sm font-bold text-brand">
-                {subject} {current.number}
-              </p>
-              <h2 className="text-2xl font-black">
-                {current.title === current.number ? `${current.number}번 문제` : current.title}
-              </h2>
-            </div>
-            {current.description ? (
-              <div className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-lg bg-page p-4 text-[15px] leading-7">
-                {current.description}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed border-line bg-page p-4 text-sm leading-6 text-muted">
-                이 문제는 설명이 아직 없어요. 선생님이 안내한 문제를 보고 편집기에 코드를 작성하세요.
-              </div>
-            )}
-          </>
+          <ProblemView problem={current} />
         ) : (
           <div className="rounded-lg border border-dashed border-line bg-page p-4 text-sm leading-6 text-muted">
             아직 공개된 문제가 없어요. 선생님이 문제를 공개하면 여기에 나와요.
