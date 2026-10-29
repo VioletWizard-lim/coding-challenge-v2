@@ -1,6 +1,7 @@
 import "server-only";
 import { db, fetchAll, type SubmissionRow, type UserRow } from "./db";
 import type { LogEvent } from "./editLog";
+import { kstDate, summarizeSubmission, type SubmissionSummary } from "./journey";
 
 type Profile = Pick<UserRow, "name" | "grade" | "class" | "programming_grade" | "programming_class">;
 
@@ -73,4 +74,22 @@ export async function getReplayData(submissionId: number, name: string): Promise
   if (error) throw new Error(`기록 조회 실패: ${error.message}`);
   if (!data) return null;
   return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
+}
+
+/**
+ * 학습 여정용: 내 제출을 작성 기록까지 읽어 서버에서 요약만 만든다(무거운 기록은 브라우저로 보내지 않음).
+ * 기록이 커서 100건씩 나눠 받는다.
+ */
+export async function getMyJourneyData(name: string): Promise<{ summaries: SubmissionSummary[]; today: string }> {
+  const rows = await fetchAll<Pick<SubmissionRow, "id" | "subject" | "problem" | "submitted_at" | "init_code" | "edit_log">>(
+    () =>
+      db()
+        .from("submissions")
+        .select("id, subject, problem, submitted_at, init_code, edit_log")
+        .eq("name", name)
+        .order("submitted_at", { ascending: false })
+        .order("id", { ascending: false }),
+    100,
+  );
+  return { summaries: rows.map(summarizeSubmission), today: kstDate(new Date()) };
 }
