@@ -3,9 +3,8 @@
 import { useState } from "react";
 import type { Journey as JourneyData, SubmissionSummary } from "@/lib/journey";
 import { Stats } from "@/components/Replayer";
-import { problemLabel } from "@/lib/problems";
 import { formatDuration } from "@/lib/replay";
-import { useStudentNav } from "./StudentTabs";
+import { useStudentNav } from "@/components/SideTabs";
 
 // 활동 달력 색: 한 가지 색(남색)의 밝기로 많고 적음을 나타낸다. 흑백 인쇄에서도 밝기 차이로 읽힌다.
 const HEAT = ["#eceef4", "#c7d2fe", "#818cf8", "#4f46e5", "#3730a3"];
@@ -240,7 +239,7 @@ function DayList({ days }: { days: JourneyData["days"] }) {
 }
 
 function DayItem({ s }: { s: SubmissionSummary }) {
-  const { showSubmission } = useStudentNav();
+  const { showSubmission, problemLabel } = useStudentNav();
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-line px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
