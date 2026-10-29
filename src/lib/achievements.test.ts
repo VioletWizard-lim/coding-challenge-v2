@@ -109,6 +109,15 @@ describe("업적 계산", () => {
     expect(find(list, "reflector").steps.map((s) => !!s.earned)).toEqual([true, false]);
     expect(find(list, "reflector").current).toBe(2);
   });
+  it("막힌 곳 발견: 첫 타임라인 메모의 그 순간", () => {
+    const s = sub();
+    const list = computeAchievements([s], [], {}, [
+      { submissionId: s.id, at: 9000, createdAt: "2026-10-20T03:00:00Z" },
+      { submissionId: s.id, at: 5000, createdAt: "2026-10-19T03:00:00Z" },
+    ]);
+    expect(find(list, "found_stuck").steps[0].earned).toMatchObject({ submissionId: s.id, at: 5000, earnedAt: "2026-10-19T03:00:00Z" });
+    expect(find(computeAchievements([s], [], {}), "found_stuck").steps[0].earned).toBeNull();
+  });
   it("숨은 업적: 주석 3줄, 함수, 같은 문제 세 번째, 오류 수집가", () => {
     const code = "# 이름 받기\nname = input()\n# 인사\n# 출력\ndef hello(n):\n    print(n)";
     const fix = (kind: string) => [[1, `r:${kind}`], [2, "r:ok"]];

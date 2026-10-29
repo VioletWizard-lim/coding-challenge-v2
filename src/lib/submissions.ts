@@ -68,6 +68,13 @@ export async function getReplayData(submissionId: number, name: string): Promise
   return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
 }
 
+/** 제출이 있는지, 있으면 누구 것인지 (이름). 메모를 남길 때 확인용 */
+export async function submissionOwner(submissionId: number): Promise<string | null> {
+  const { data, error } = await db().from("submissions").select("name").eq("id", submissionId).maybeSingle<{ name: string }>();
+  if (error) throw new Error(`제출 조회 실패: ${error.message}`);
+  return data?.name ?? null;
+}
+
 /** 교사용 재생 기록: 어느 학생의 제출이든 id로 연다 (교사 확인은 부르는 쪽에서) */
 export async function getReplayDataById(submissionId: number): Promise<ReplayData | null> {
   const { data, error } = await db()

@@ -12,7 +12,10 @@ import { buildJourney, type Journey } from "@/lib/journey";
 import { allowedSubjects } from "@/lib/problems";
 import type { Reflection } from "@/lib/reflection";
 import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore";
-import { getMyJourneyData, getReplayDataById, type ReplayData } from "@/lib/submissions";
+import { getMyJourneyData, getReplayDataById, submissionOwner } from "@/lib/submissions";
+import { MAX_NOTES_PER_SUBMISSION, validateNote } from "@/lib/timelineNotes";
+import { countNotes, deleteNote, insertNote, listMyNotes, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
+import type { NoteResult, ReplayResult } from "../student/actions";
 import { parseStudentCsv, type ParsedRow } from "@/lib/studentCsv";
 import { createStudents, findExistingIds, resetStudentPassword } from "@/lib/teacher";
 
@@ -297,15 +300,17 @@ export async function loadStudentJourney(studentId: string): Promise<StudentJour
   try {
     const profile = await getUserProfile(String(studentId ?? ""));
     if (!profile || profile.role !== "student") return { ok: false, message: "학생을 찾지 못했어요." };
-    const [{ summaries, records, today }, mine, open] = await Promise.all([
+    const [{ summaries, records, today }, mine, open, notes] = await Promise.all([
       getMyJourneyData(profile.name),
       listMyReflections(profile.id),
       listOpenProblems(allowedSubjects(profile.subjects)),
+      listMyNotes(profile.id),
     ]);
     const achievements = computeAchievements(
       records,
       mine.reflections.map((r) => ({ date: r.classDate, savedAt: r.updatedAt })),
       unitProblemsOf(open),
+      notes.notes,
     );
     return { ok: true, journey: buildJourney(summaries, today), reflections: mine.reflections, achievements };
   } catch (err) {
@@ -314,17 +319,54 @@ export async function loadStudentJourney(studentId: string): Promise<StudentJour
   }
 }
 
-export type TeacherReplayResult = { ok: true; data: ReplayData } | { ok: false; error: string };
-
-/** 교사용: 아무 학생 제출의 작성 과정 기록 (재생용) */
-export async function loadStudentReplay(submissionId: number): Promise<TeacherReplayResult> {
-  if (!(await isTeacher())) return { ok: false, error: "교사 계정으로 다시 로그인하세요." };
+/** 교사용: 아무 학생 제출의 작성 과정 기록 (재생용) + 학생 메모·교사 피드백 */
+export async function loadStudentReplay(submissionId: number): Promise<ReplayResult> {
+  const session = await getSession();
+  if (session?.role !== "teacher") return { ok: false, error: "교사 계정으로 다시 로그인하세요." };
   if (!Number.isInteger(submissionId)) return { ok: false, error: "제출을 찾지 못했어요." };
   try {
     const data = await getReplayDataById(submissionId);
-    return data ? { ok: true, data } : { ok: false, error: "제출을 찾지 못했어요." };
+    if (!data) return { ok: false, error: "제출을 찾지 못했어요." };
+    return { ok: true, data: { ...data, notes: await listNotesForSubmission(submissionId, session.id) } };
   } catch (err) {
     console.error("재생 기록 오류:", err);
     return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 교사 피드백: 학생 제출의 재생 그 순간에 남기거나(id 없음) 고친다(id 있음, 내가 쓴 것만) */
+export async function saveFeedbackNote(input: { submissionId: number; at: number; text: string; id?: number }): Promise<NoteResult> {
+  const session = await getSession();
+  if (session?.role !== "teacher") return { ok: false, error: "교사 계정으로 다시 로그인하세요." };
+  const text = String(input.text ?? "").trim();
+  const invalid = validateNote(text);
+  if (invalid) return { ok: false, error: invalid };
+  try {
+    if (input.id !== undefined) {
+      const note = await updateNote(session.id, Number(input.id), text);
+      return note ? { ok: true, note } : { ok: false, error: "피드백을 찾지 못했어요." };
+    }
+    if (!Number.isInteger(input.submissionId) || !Number.isFinite(input.at) || !(await submissionOwner(input.submissionId))) {
+      return { ok: false, error: "제출을 찾지 못했어요." };
+    }
+    if ((await countNotes(input.submissionId)) >= MAX_NOTES_PER_SUBMISSION) {
+      return { ok: false, error: `한 제출에 메모는 ${MAX_NOTES_PER_SUBMISSION}개까지 남길 수 있어요.` };
+    }
+    return { ok: true, note: await insertNote(session.id, "teacher", input.submissionId, input.at, text) };
+  } catch (err) {
+    console.error("피드백 저장 오류:", err);
+    return { ok: false, error: "피드백을 저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 교사 피드백 지우기 (내가 쓴 것만) */
+export async function deleteFeedbackNote(id: number): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (session?.role !== "teacher") return { ok: false, error: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return (await deleteNote(session.id, Number(id))) ? { ok: true } : { ok: false, error: "피드백을 찾지 못했어요." };
+  } catch (err) {
+    console.error("피드백 삭제 오류:", err);
+    return { ok: false, error: "피드백을 지우지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
