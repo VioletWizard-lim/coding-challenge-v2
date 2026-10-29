@@ -130,7 +130,7 @@ export default function ProblemManager({
         </p>
       )}
       <p className="text-sm text-muted">
-        공개 시각이 되면 학생 화면에 문제가 나타나요. 그 전에는 학생에게 제목도 보이지 않아요. 시각은 한국 시간이에요.
+        공개 시각이 되면 학생 화면에 문제가 나타나요. 그 전에는 학생에게 제목도 보이지 않아요. 시각은 한국 시간이에요. 문제 줄을 누르면 학생 화면에 보이는 모습을 볼 수 있어요.
       </p>
 
       {message && messageAt === null && <Notice result={message} />}
@@ -172,8 +172,26 @@ export default function ProblemManager({
               const isViewing = viewing === p.number && !isEditing;
               return (
                 <Fragment key={p.number}>
-                  <tr className={`border-b border-line/60 ${isEditing || isViewing ? "bg-brand-soft/50" : ""}`}>
-                    <td className="py-2 pr-3 font-mono">{p.number}</td>
+                  {/* 줄을 누르면 학생 화면 미리보기가 펼쳐진다 (고치는 중에는 고치기 칸이 대신 열려 있음) */}
+                  <tr
+                    onClick={() => !isEditing && setViewing(isViewing ? null : p.number)}
+                    onKeyDown={(e) => {
+                      if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget && !isEditing) {
+                        e.preventDefault();
+                        setViewing(isViewing ? null : p.number);
+                      }
+                    }}
+                    tabIndex={isEditing ? undefined : 0}
+                    aria-expanded={isEditing ? undefined : isViewing}
+                    title={isEditing ? undefined : isViewing ? "누르면 접혀요" : "누르면 문제가 보여요"}
+                    className={`border-b border-line/60 ${isEditing || isViewing ? "bg-brand-soft/50" : "cursor-pointer hover:bg-page"}`}
+                  >
+                    <td className="py-2 pr-3 font-mono whitespace-nowrap">
+                      <span className="mr-1 inline-block w-3 text-muted" aria-hidden>
+                        {isEditing ? "" : isViewing ? "▾" : "▸"}
+                      </span>
+                      {p.number}
+                    </td>
                     <td className="py-2 pr-3">
                       {p.title === p.number ? <span className="text-muted">(제목 없음)</span> : p.title}
                     </td>
@@ -200,17 +218,11 @@ export default function ProblemManager({
                       {status.kind === "hidden" && <span className="text-muted">○ {status.text}</span>}
                     </td>
                     <td className="py-2 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => setViewing(isViewing ? null : p.number)}
-                        className="mr-3 text-muted hover:text-brand hover:underline"
-                      >
-                        {isViewing ? "접기" : "문제 보기"}
-                      </button>
                       {tableReady && (
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation(); // 줄 누르기(문제 보기)와 겹치지 않게
                             setMessage(null);
                             setViewing(null);
                             setEditing(isEditing ? null : p);

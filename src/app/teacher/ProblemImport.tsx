@@ -409,7 +409,7 @@ export default function ProblemImport({
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-page text-muted">
                     <tr>
-                      {["줄", "상태", "과목", "번호", "제목", "난이도", "예시", "공개", "바뀌는 칸 / 이유", ""].map(
+                      {["줄", "상태", "과목", "번호", "제목", "난이도", "예시", "공개", "바뀌는 칸 / 이유"].map(
                         (h) => (
                           <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">
                             {h}
@@ -421,10 +421,28 @@ export default function ProblemImport({
                   <tbody>
                     {rows.map((r) => (
                       <Fragment key={r.line}>
+                        {/* 줄을 누르면 들어갈 문제 내용이 펼쳐진다 */}
                         <tr
-                          className={`border-t border-line/60 ${r.status === "error" ? "bg-red-50" : r.willHide ? "bg-amber-50" : ""}`}
+                          onClick={() => setOpenRow(openRow === r.line ? null : r.line)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setOpenRow(openRow === r.line ? null : r.line);
+                            }
+                          }}
+                          tabIndex={0}
+                          aria-expanded={openRow === r.line}
+                          title={openRow === r.line ? "누르면 접혀요" : "누르면 문제가 보여요"}
+                          className={`cursor-pointer border-t border-line/60 ${
+                            r.status === "error" ? "bg-red-50" : r.willHide ? "bg-amber-50" : openRow === r.line ? "bg-brand-soft/50" : "hover:bg-page"
+                          }`}
                         >
-                          <td className="px-2 py-1.5 text-muted">{r.line}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-muted">
+                            <span className="mr-1 inline-block w-3" aria-hidden>
+                              {openRow === r.line ? "▾" : "▸"}
+                            </span>
+                            {r.line}
+                          </td>
                           <td className={`px-2 py-1.5 whitespace-nowrap ${STATUS[r.status].className}`}>
                             {STATUS[r.status].text}
                           </td>
@@ -437,19 +455,10 @@ export default function ProblemImport({
                           <td className="px-2 py-1.5">{r.exampleCount || ""}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap">{r.openText}</td>
                           <td className="px-2 py-1.5 text-xs text-muted">{r.error ?? r.changes.join(", ")}</td>
-                          <td className="px-2 py-1.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setOpenRow(openRow === r.line ? null : r.line)}
-                              className="whitespace-nowrap text-brand hover:underline"
-                            >
-                              {openRow === r.line ? "접기" : "문제 보기"}
-                            </button>
-                          </td>
                         </tr>
                         {openRow === r.line && (
                           <tr className="border-t border-line/60">
-                            <td colSpan={10} className="bg-page/60 p-3">
+                            <td colSpan={9} className="bg-page/60 p-3">
                               <div className="max-w-xl rounded-xl border border-line bg-white p-4">
                                 <p className="mb-2 text-xs text-muted">학생 화면에서 이렇게 보여요</p>
                                 <ProblemView problem={{ ...r.problem, id: null }} fit />

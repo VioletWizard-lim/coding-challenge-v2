@@ -3,9 +3,9 @@ import Header from "@/components/Header";
 import { requireRole } from "@/lib/session";
 import SideTabs from "@/components/SideTabs";
 import { listAllProblems } from "@/lib/problemStore";
+import { listReflectionDays } from "@/lib/reflectionStore";
 import { listStudents } from "@/lib/teacher";
 import HealthCard from "./HealthCard";
-import { kstDate } from "@/lib/journey";
 import { SUBJECTS } from "@/lib/problems";
 import ProblemManager from "./ProblemManager";
 import ReflectionBoard from "./ReflectionBoard";
@@ -76,9 +76,9 @@ async function TeacherHome() {
 }
 
 async function Reflections() {
-  let students, problems;
+  let students, problems, days;
   try {
-    [students, { problems }] = await Promise.all([listStudents(), listAllProblems()]);
+    [students, { problems }, days] = await Promise.all([listStudents(), listAllProblems(), listReflectionDays()]);
   } catch (err) {
     console.error(err);
     return <p className="text-danger">학생 목록을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
@@ -86,7 +86,13 @@ async function Reflections() {
   const titles: Record<string, string> = {};
   for (const p of problems) titles[`${p.subject}_${p.number}`] = p.title;
   return (
-    <ReflectionBoard students={students} subjects={Object.keys(SUBJECTS)} today={kstDate(new Date())} titles={titles} />
+    <ReflectionBoard
+      students={students}
+      subjects={Object.keys(SUBJECTS)}
+      ready={days.ready}
+      days={days.days}
+      titles={titles}
+    />
   );
 }
 
