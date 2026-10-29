@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useTransition } from "react";
+import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import ProblemView from "@/components/ProblemView";
 import {
   compareNumber,
@@ -60,8 +60,18 @@ export default function ProblemManager({
   const list = problems.filter((p) => p.subject === subject);
   const nowDate = new Date(now);
 
+  /** 새 문제 입력 칸에 무언가 적었는지 (다시 누르면 닫을지 정할 때 씀) */
+  const newDirty = useRef(false);
+  const newOpen = editing?.id === null;
+
   function startNew() {
     setMessage(null);
+    if (newOpen) {
+      // 다시 누르면 닫는다. 적은 내용이 있으면 한 번 물어본다
+      if (newDirty.current && !confirm("새 문제에 적은 내용이 있어요. 지우고 닫을까요?")) return;
+      return setEditing(null);
+    }
+    newDirty.current = false;
     setEditing({
       id: null,
       subject,
@@ -101,7 +111,7 @@ export default function ProblemManager({
           disabled={!tableReady}
           className="rounded-lg bg-brand px-4 py-2 font-bold text-white disabled:opacity-50"
         >
-          ＋ 새 문제
+          {newOpen ? "✕ 새 문제 닫기" : "＋ 새 문제"}
         </button>
       </div>
 
@@ -137,6 +147,9 @@ export default function ProblemManager({
             if (r.ok) setEditing(null);
           }}
           onCancel={() => setEditing(null)}
+          onDirtyChange={(dirty) => {
+            newDirty.current = dirty;
+          }}
         />
       )}
 
@@ -267,11 +280,13 @@ function ProblemForm({
   now,
   onDone,
   onCancel,
+  onDirtyChange,
 }: {
   problem: Problem;
   now: Date;
   onDone: (r: ProblemResult) => void;
   onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const alreadyOpen = problem.openAt !== null && new Date(problem.openAt) <= now;
   const [number, setNumber] = useState(problem.number);
@@ -289,6 +304,22 @@ function ProblemForm({
   const [openAtLocal, setOpenAtLocal] = useState(problem.openAt && !alreadyOpen ? toLocalInput(problem.openAt) : "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // 처음 값에서 바뀐 칸이 있는지 (번호는 추천 값이라, 다르게 고쳤을 때만)
+  const dirty =
+    number.trim() !== problem.number ||
+    title.trim() !== (problem.title === problem.number ? "" : problem.title).trim() ||
+    description !== problem.description ||
+    conditions !== problem.conditions ||
+    goal !== problem.goal ||
+    challenge !== problem.challenge ||
+    starterCode !== problem.starterCode ||
+    difficulty !== problem.difficulty ||
+    examples.some((e, i) => e.input !== (problem.examples[i]?.input ?? "") || e.output !== (problem.examples[i]?.output ?? "")) ||
+    openAtLocal !== (problem.openAt && !alreadyOpen ? toLocalInput(problem.openAt) : "");
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   function save() {
     if (!NUMBER_PATTERN.test(number.trim())) return setError("번호는 '2-3'처럼 단원-번호로 적어 주세요.");
