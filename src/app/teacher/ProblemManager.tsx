@@ -285,17 +285,17 @@ function ProblemForm({
         />
       </label>
       <label className="flex flex-col gap-1 text-sm text-muted">
-        조건 (한 줄에 하나씩)
+        조건 (한 줄에 하나씩, 학생 화면에 1. 2. 3. 번호가 붙어요)
         <textarea
           value={conditions}
           onChange={(e) => setConditions(e.target.value)}
           rows={3}
-          placeholder={"input()으로 두 수를 입력받을 것\nif 문을 사용할 것"}
+          placeholder={"input()을 4번 이상 사용할 것 (이름, 반찬, 밥 종류, 국 종류)\n추천 조합 메뉴는 밥 종류와 반찬을 결합해서 새로 만들 것\n예시와 같은 형태로 여러 줄에 걸쳐 출력할 것"}
           className={`${inputClass} leading-6`}
         />
       </label>
       <fieldset className="flex flex-col gap-2 text-sm text-muted">
-        <legend className="mb-1">예시 (입력이 없는 문제는 입력 칸을 비워 두세요)</legend>
+        <legend className="mb-1">예시 (입력값이 여러 개면 &lsquo;길동 / 돈까스 / 볶음밥 / 된장국&rsquo;처럼, 입력이 없는 문제는 비워 두세요)</legend>
         {examples.map((ex, i) => (
           <div key={i} className="grid gap-2 rounded-lg border border-line bg-white p-2 sm:grid-cols-[1fr_1fr_auto]">
             <label className="flex flex-col gap-1">
@@ -349,7 +349,7 @@ function ProblemForm({
         />
       </label>
       <label className="flex flex-col gap-1 text-sm text-muted">
-        도전 과제 (선택, 단원 마지막 문제 등)
+        도전 과제 (경험자용, 선택)
         <textarea
           value={challenge}
           onChange={(e) => setChallenge(e.target.value)}

@@ -10,7 +10,11 @@ export default function ProblemView({ problem: p }: { problem: Problem }) {
         <p className="flex flex-wrap items-center gap-x-2 text-sm font-bold text-brand">
           {p.subject} {p.number}
           {p.difficulty && (
-            <span className="text-amber-500" aria-label={`난이도 별 ${p.difficulty}개`} title={`난이도 별 ${p.difficulty}개`}>
+            <span
+              className="text-amber-500"
+              aria-label={`난이도 별 ${p.difficulty}개`}
+              title={`난이도 별 ${p.difficulty}개`}
+            >
               {"★".repeat(p.difficulty)}
               <span className="text-slate-300">{"★".repeat(5 - p.difficulty)}</span>
             </span>
@@ -32,23 +36,37 @@ export default function ProblemView({ problem: p }: { problem: Problem }) {
           )}
           {conditions.length > 0 && (
             <Part title="✅ 조건">
-              <ul className="list-disc pl-5">
+              <ol className="list-decimal pl-5">
                 {conditions.map((c, i) => (
                   <li key={i}>{c}</li>
                 ))}
-              </ul>
+              </ol>
             </Part>
           )}
           {p.examples.length > 0 && (
             <Part title="💡 예시">
-              <div className="flex flex-col gap-2">
-                {p.examples.map((ex, i) => (
-                  <div key={i} className="grid gap-2 sm:grid-cols-2">
-                    {ex.input && <Sample label={`입력 ${i + 1}`} text={ex.input} />}
-                    <Sample label={`출력 ${i + 1}`} text={ex.output} />
-                  </div>
-                ))}
+              {/* 예시마다 상자 하나: 위에 입력값(파란 글씨), 아래에 출력. 넓으면 나란히 */}
+              <div className="@container">
+                <div className={`grid gap-2 ${p.examples.length > 1 ? "@xl:grid-cols-2" : ""}`}>
+                  {p.examples.map((ex, i) => (
+                    <div key={i} className="min-w-0 overflow-hidden rounded-md border border-line bg-page">
+                      {ex.input && (
+                        <p className="border-b border-line bg-brand-soft/60 px-3 py-1.5 font-bold whitespace-pre-wrap text-brand">
+                          <span className="sr-only">입력: </span>
+                          {ex.input}
+                        </p>
+                      )}
+                      <pre className="overflow-x-auto px-3 py-2 font-[family-name:var(--font-code)] text-sm leading-6">
+                        <span className="sr-only">출력: </span>
+                        {ex.output}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
               </div>
+              {p.examples.some((ex) => ex.input) && (
+                <p className="mt-1 text-xs text-muted">파란 글씨는 입력값, 그 아래는 출력이에요.</p>
+              )}
             </Part>
           )}
           {p.goal && (
@@ -58,7 +76,7 @@ export default function ProblemView({ problem: p }: { problem: Problem }) {
           )}
           {p.challenge && (
             <section className="rounded-lg border-2 border-dashed border-violet-300 bg-violet-50 p-3">
-              <h3 className="mb-1 font-bold text-violet-800">🚀 도전 과제</h3>
+              <h3 className="mb-1 font-bold text-violet-800">🚀 도전 과제 (경험자용)</h3>
               <p className="whitespace-pre-wrap">{p.challenge}</p>
             </section>
           )}
@@ -74,16 +92,5 @@ function Part({ title, children }: { title: string; children: React.ReactNode })
       <h3 className="mb-1 font-bold">{title}</h3>
       {children}
     </section>
-  );
-}
-
-function Sample({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="flex min-w-0 flex-col">
-      <span className="text-xs text-muted">{label}</span>
-      <pre className="overflow-x-auto rounded-md border border-line bg-page px-3 py-2 font-[family-name:var(--font-code)] text-sm leading-6">
-        {text}
-      </pre>
-    </div>
   );
 }
