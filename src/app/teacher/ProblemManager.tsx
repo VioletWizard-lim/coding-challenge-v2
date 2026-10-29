@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { compareNumber, labelOf, MAX_EXAMPLES, NUMBER_PATTERN, openStatus, type Example, type Problem } from "@/lib/problemBank";
 import { SUBJECTS } from "@/lib/problems";
 import { deleteProblemAction, saveProblemAction, type ProblemResult } from "./actions";
+import ProblemImport from "./ProblemImport";
 
 const inputClass =
   "rounded-lg border border-line bg-white px-3 py-2 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
@@ -95,6 +96,8 @@ export default function ProblemManager({
           주세요. 지금은 코드에 들어 있는 문제 목록을 보여 줘요(고칠 수 없음).
         </p>
       )}
+      <ProblemImport problems={problems} now={now} disabled={!tableReady || !fieldsReady} />
+
       {tableReady && !fieldsReady && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
           ⚠️ 난이도·조건·예시·문제 목표·도전 과제를 저장하려면 Supabase SQL Editor에서{" "}

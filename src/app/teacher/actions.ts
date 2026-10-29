@@ -3,8 +3,9 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
-import { parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
-import { deleteProblem, saveProblem } from "@/lib/problemStore";
+import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
+import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
+import { deleteProblem, listAllProblems, saveProblem } from "@/lib/problemStore";
 import { parseStudentCsv, type ParsedRow } from "@/lib/studentCsv";
 import { createStudents, findExistingIds, resetStudentPassword } from "@/lib/teacher";
 
@@ -160,4 +161,104 @@ export async function deleteProblemAction(id: number): Promise<ProblemResult> {
   }
   refresh();
   return { ok: true, message: "문제를 지웠어요." };
+}
+
+export type ProblemPreviewRow = {
+  line: number;
+  subject: string;
+  number: string;
+  title: string;
+  difficulty: number | null;
+  exampleCount: number;
+  openText: string;
+  /** new: 새 문제, update: 바뀌는 칸 있음, same: 그대로, error: 건너뜀 */
+  status: "new" | "update" | "same" | "error";
+  changes: string[];
+  /** 공개 중이던 문제가 비공개로 바뀌는지 (실수 방지 경고) */
+  willHide: boolean;
+  error: string | null;
+};
+
+export type ProblemImportPreview = { ok: true; rows: ProblemPreviewRow[] } | { ok: false; message: string };
+
+/** CSV를 기존 문제와 비교해 무엇이 바뀌는지 미리 보여 준다 (아직 저장하지 않음) */
+async function planProblemImport(csvText: string) {
+  const parsed = parseProblemCsv(String(csvText ?? ""));
+  if (parsed.error) return { error: parsed.error } as const;
+  const { problems, tableReady, fieldsReady } = await listAllProblems();
+  if (!tableReady || !fieldsReady) {
+    return { error: "먼저 Supabase에서 003_problems.sql과 004_problem_fields.sql을 실행해 주세요." } as const;
+  }
+  const now = new Date();
+  const plan = parsed.rows.map((r) => {
+    const existing = problems.find((p) => p.subject === r.input.subject && p.number === r.input.number);
+    const next: ProblemInput = { ...r.input, openAt: resolveOpenAt(r.open, existing, now) };
+    const changes = existing ? changedFields(existing, next) : [];
+    const status: ProblemPreviewRow["status"] = r.error ? "error" : !existing ? "new" : changes.length ? "update" : "same";
+    const wasOpen = !!existing?.openAt && new Date(existing.openAt) <= now;
+    return { row: r, existing, next, changes, status, willHide: status === "update" && wasOpen && !isOpen(next, now) };
+  });
+  return { plan, now } as const;
+}
+
+const openText = (p: ProblemInput, now: Date) => {
+  const s = openStatus(p, now);
+  return s.kind === "scheduled" ? s.text.replace(" 공개 예정", " 공개") : s.text;
+};
+
+export async function previewProblemImport(csvText: string): Promise<ProblemImportPreview> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const result = await planProblemImport(csvText);
+    if ("error" in result) return { ok: false, message: result.error! };
+    return {
+      ok: true,
+      rows: result.plan.map(({ row, next, changes, status, willHide }) => ({
+        line: row.line,
+        subject: next.subject,
+        number: next.number,
+        title: next.title,
+        difficulty: next.difficulty,
+        exampleCount: next.examples.length,
+        openText: openText(next, result.now),
+        status,
+        changes,
+        willHide,
+        error: row.error,
+      })),
+    };
+  } catch (err) {
+    console.error("문제 CSV 미리보기 오류:", err);
+    return { ok: false, message: "확인하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type ProblemImportResult = { ok: true; created: number; updated: number; skipped: number } | { ok: false; message: string };
+
+/** CSV 반영: 새 문제는 만들고, 있는 문제는 바뀐 칸만이 아니라 CSV 내용으로 통째로 바꾼다. 오류 줄은 건너뜀 */
+export async function importProblems(csvText: string): Promise<ProblemImportResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  try {
+    const result = await planProblemImport(csvText);
+    if ("error" in result) return { ok: false, message: result.error! };
+    for (const { existing, next, status } of result.plan) {
+      if (status === "error") skipped++;
+      if (status !== "new" && status !== "update") continue;
+      const saved = await saveProblem(existing?.id ?? null, next);
+      if (saved !== "ok") {
+        skipped++;
+        continue;
+      }
+      if (status === "new") created++;
+      else updated++;
+    }
+  } catch (err) {
+    console.error("문제 CSV 반영 오류:", err);
+    return { ok: false, message: `반영하다 멈췄어요 (새 문제 ${created}개, 고친 문제 ${updated}개까지 저장됨). 잠시 후 다시 올려 주세요.` };
+  }
+  if (created || updated) refresh();
+  return { ok: true, created, updated, skipped };
 }
