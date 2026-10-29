@@ -13,7 +13,7 @@ export default function LoginForm() {
           name="id"
           defaultValue={state.id}
           autoComplete="username"
-          placeholder="학번(교사는 교사 아이디)을 입력하세요"
+          placeholder="아이디를 입력하세요"
           required
           className="rounded-lg border border-line bg-white px-3 py-2.5 text-base text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
         />

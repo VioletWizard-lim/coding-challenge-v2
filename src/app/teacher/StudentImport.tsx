@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { decodeCsvFile, MAX_ROWS, resultCsv, TEMPLATE_CSV } from "@/lib/studentCsv";
+import { decodeCsvFile, MAX_ROWS, resultCsv, templateCsv } from "@/lib/studentCsv";
 import { importStudents, previewStudents, type ImportResult, type PreviewRow } from "./actions";
 
 function download(filename: string, content: string) {
@@ -74,17 +74,21 @@ export default function StudentImport() {
         <li>
           <button
             type="button"
-            onClick={() => download("학생등록_양식.csv", "﻿" + TEMPLATE_CSV)}
+            onClick={() => download("학생등록_양식.csv", "﻿" + templateCsv())}
             className="text-brand underline"
           >
             양식 파일 내려받기
           </button>{" "}
           → 엑셀에서 학생을 채우고 CSV로 저장 (한 번에 {MAX_ROWS}명까지)
         </li>
+        <li>
+          아이디는 <b>s + 만든 해 두 자리 + 학번</b>을 권해요 (예: 2026년 2학년 3반 1번 → <code>s2620301</code>). 한 학교
+          안에서는 해가 바뀌어도 겹치지 않아요. 이미 쓰고 있는 아이디는 그대로 두세요.
+        </li>
         <li>과목이 여러 개면 &lsquo;프로그래밍/정보&rsquo;처럼 / 로 나눠 적고, 비우면 모든 과목을 볼 수 있어요.</li>
         <li>초기 비밀번호를 비우면 숫자 6자리를 만들어 줘요.</li>
         <li>
-          이미 있는 학번이 같은 학생(이름이 같음)이면 <b>과목만 더해요</b>. 이름·비밀번호는 바꾸지 않아요. 이름이 다르면 다른
+          이미 있는 아이디가 같은 학생(이름이 같음)이면 <b>과목만 더해요</b>. 이름·비밀번호는 바꾸지 않아요. 이름이 다르면 다른
           학생일 수 있어서 건드리지 않고 알려 줘요.
         </li>
       </ol>
@@ -128,7 +132,7 @@ export default function StudentImport() {
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 bg-page text-muted">
                 <tr>
-                  {["줄", "상태", "학번", "이름", "학년-반", "프로그래밍 반", "과목", "비밀번호"].map((h) => (
+                  {["줄", "상태", "아이디", "이름", "학년-반", "프로그래밍 반", "과목", "비밀번호"].map((h) => (
                     <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">
                       {h}
                     </th>
@@ -206,7 +210,7 @@ export default function StudentImport() {
                   onClick={() => download("학생등록_결과_비밀번호.csv", resultCsv(done.created))}
                   className="rounded-lg bg-brand px-4 py-2 font-bold text-white"
                 >
-                  결과 CSV 내려받기 (학번·이름·비밀번호)
+                  결과 CSV 내려받기 (아이디·이름·비밀번호)
                 </button>
                 <button type="button" onClick={reset} className="rounded-lg border border-line px-4 py-2">
                   다른 파일 등록
@@ -216,7 +220,7 @@ export default function StudentImport() {
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-page text-muted">
                     <tr>
-                      <th className="px-2 py-1.5 font-normal">학번</th>
+                      <th className="px-2 py-1.5 font-normal">아이디</th>
                       <th className="px-2 py-1.5 font-normal">이름</th>
                       <th className="px-2 py-1.5 font-normal">비밀번호</th>
                     </tr>

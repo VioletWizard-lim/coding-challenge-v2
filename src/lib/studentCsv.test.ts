@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeCsvFile, parseCsv, parseStudentCsv, resultCsv, TEMPLATE_CSV } from "./studentCsv";
+import { decodeCsvFile, parseCsv, parseStudentCsv, resultCsv, suggestedId, templateCsv } from "./studentCsv";
 
 describe("CSV 읽기", () => {
   it("따옴표 안의 쉼표·줄바꿈·따옴표, CRLF, BOM, 빈 줄을 처리한다", () => {
@@ -20,11 +20,11 @@ describe("CSV 읽기", () => {
 
 describe("학생 CSV 검사", () => {
   it("양식 파일은 오류 없이 읽힌다", () => {
-    const { rows, error } = parseStudentCsv(TEMPLATE_CSV);
+    const { rows, error } = parseStudentCsv(templateCsv(new Date("2026-10-29T03:00:00Z")));
     expect(error).toBeNull();
     expect(rows.map((r) => r.error)).toEqual([null, null]);
     expect(rows[0].student).toEqual({
-      id: "20301",
+      id: "s2620301",
       name: "홍길동",
       grade: 2,
       class: 3,
@@ -48,7 +48,7 @@ describe("학생 CSV 검사", () => {
   });
 
   it.each([
-    ["학번이 비어 있음", ",홍길동", "학번이 비어"],
+    ["학번이 비어 있음", ",홍길동", "아이디가 비어"],
     ["학번에 공백", "20 301,홍길동", "영문·숫자"],
     ["이름이 비어 있음", "20301,", "이름이 비어"],
     ["학년이 숫자가 아님", "20301,홍길동,2학년", "숫자로"],
@@ -63,7 +63,7 @@ describe("학생 CSV 검사", () => {
 
   it("파일 안의 중복 학번은 두 번째부터 오류", () => {
     const { rows } = parseStudentCsv("학번,이름\n1,가\n1,나\n");
-    expect(rows.map((r) => r.error)).toEqual([null, "파일 안에 같은 학번이 또 있어요."]);
+    expect(rows.map((r) => r.error)).toEqual([null, "파일 안에 같은 아이디가 또 있어요."]);
     expect(rows.map((r) => r.line)).toEqual([2, 3]);
   });
 
@@ -76,7 +76,7 @@ describe("학생 CSV 검사", () => {
 describe("결과 CSV", () => {
   it("BOM을 붙이고 쉼표가 든 값은 따옴표로 감싼다", () => {
     expect(resultCsv([{ id: "1", name: "홍,길동", password: "012345" }])).toBe(
-      '﻿학번,이름,비밀번호\n1,"홍,길동",012345\n',
+      '﻿아이디,이름,비밀번호\n1,"홍,길동",012345\n',
     );
   });
 });
@@ -104,5 +104,16 @@ describe("이미 있는 아이디", () => {
     const { planForExisting } = await import("./studentCsv");
     expect(planForExisting(csv("정보", "김철수"), acc("정보")).kind).toBe("conflict");
     expect(planForExisting(csv("정보"), acc(null, "홍길동", "teacher")).kind).toBe("conflict");
+  });
+});
+
+describe("권장 아이디 규칙", () => {
+  it("s + 만든 해 두 자리 + 학번, 양식 예시는 올해(한국 시간) 기준", () => {
+    expect(suggestedId(2026, "20301")).toBe("s2620301");
+    // 한국 시간 1월 1일 0시 30분 = 협정 세계시 12월 31일
+    expect(templateCsv(new Date("2026-12-31T15:30:00Z"))).toContain("s2720301,홍길동");
+  });
+  it("예전 양식('학번' 칸)도 읽는다", () => {
+    expect(parseStudentCsv("학번,이름\n20301,홍길동\n").rows[0].student.id).toBe("20301");
   });
 });
