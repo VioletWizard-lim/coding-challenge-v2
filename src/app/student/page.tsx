@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import { getUserProfile } from "@/lib/auth";
 import { allowedSubjects } from "@/lib/problems";
 import { requireRole } from "@/lib/session";
+import JourneyTab from "./JourneyTab";
 import MySubmissions from "./MySubmissions";
 import StudentTabs from "./StudentTabs";
 import Workspace from "./Workspace";
@@ -38,6 +39,15 @@ async function StudentHome() {
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <MySubmissions name={profile.name} />
+              </Suspense>
+            ),
+          },
+          {
+            id: "journey",
+            label: "🧭 나의 학습 여정",
+            content: (
+              <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                <JourneyTab name={profile.name} />
               </Suspense>
             ),
           },
