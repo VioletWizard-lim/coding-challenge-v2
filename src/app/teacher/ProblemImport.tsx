@@ -1,9 +1,19 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { Fragment, useRef, useState, useTransition } from "react";
+import ProblemView from "@/components/ProblemView";
 import type { Problem } from "@/lib/problemBank";
 import { SUBJECTS } from "@/lib/problems";
-import { MAX_WORKSHEET_BYTES, type ExtractedProblem } from "@/lib/worksheet";
+import {
+  cleanDocxHtml,
+  DOCX_TYPE,
+  looksLike,
+  MAX_WORKSHEET_BYTES,
+  MAX_WORKSHEET_FILES,
+  WORKSHEET_ACCEPT,
+  worksheetType,
+  type ExtractedProblem,
+} from "@/lib/worksheet";
 import { problemsToCsv } from "@/lib/problemCsv";
 import { decodeCsvFile } from "@/lib/studentCsv";
 import { importProblems, previewProblemImport, type ProblemImportResult, type ProblemPreviewRow } from "./actions";
@@ -39,10 +49,20 @@ async function shrinkImage(file: File): Promise<File> {
   return blob ? new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }) : file;
 }
 
+/** 워드(docx)는 브라우저에서 글(표 포함 HTML)만 뽑는다. 그림은 빼므로 파일이 커도 괜찮다 */
+async function docxToHtml(file: File): Promise<string> {
+  const mammoth = await import("mammoth");
+  const { value } = await mammoth.convertToHtml(
+    { arrayBuffer: await file.arrayBuffer() },
+    { convertImage: mammoth.images.imgElement(async () => ({ src: "" })) },
+  );
+  return cleanDocxHtml(value);
+}
+
 /**
  * 문제 일괄 등록. 두 가지 길이 같은 미리보기 → 반영으로 이어진다.
  * - CSV: 지금 문제 내려받기(= 양식) → 엑셀에서 고치기 → 올리기
- * - 학습지(AI): PDF·사진을 올리면 AI가 읽어 문제로 옮김 → 교사가 확인 후 반영
+ * - 학습지(AI): PDF·사진·워드를 올리면 AI가 읽어 문제로 옮김 → 교사가 확인 후 반영
  */
 export default function ProblemImport({
   problems,
@@ -60,6 +80,7 @@ export default function ProblemImport({
   const [rows, setRows] = useState<ProblemPreviewRow[] | null>(null);
   const [done, setDone] = useState<Extract<ProblemImportResult, { ok: true }> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [openRow, setOpenRow] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -93,15 +114,37 @@ export default function ProblemImport({
     if (!list?.length) return;
     const picked = [...list]; // reset()이 파일 입력을 비우면 FileList도 비므로 먼저 복사
     reset();
-    const files = await Promise.all(picked.map(shrinkImage));
-    setFileName(files.map((f) => f.name).join(", "));
-    if (files.reduce((n, f) => n + f.size, 0) > MAX_WORKSHEET_BYTES) {
-      return setMessage("파일이 너무 커요(모두 합쳐 4MB까지). PDF를 나누거나 사진 수를 줄여 주세요.");
-    }
+    setFileName(picked.map((f) => f.name).join(", "));
+    if (picked.length > MAX_WORKSHEET_FILES) return setMessage(`한 번에 ${MAX_WORKSHEET_FILES}개 파일까지 올릴 수 있어요.`);
     startTransition(async () => {
       const form = new FormData();
       form.set("subject", aiSubject);
-      files.forEach((f) => form.append("files", f));
+      let bytes = 0;
+      for (const file of picked) {
+        const type = worksheetType(file.name, file.type);
+        if (!type || !looksLike(type, new Uint8Array(await file.slice(0, 8).arrayBuffer()))) {
+          return setMessage(
+            `'${file.name}'은(는) 올릴 수 없는 형식이에요. PDF, 워드(docx), 사진(jpg, png)만 올려 주세요. 한글 파일은 'PDF로 저장'해서 올려 주세요.`,
+          );
+        }
+        if (type === DOCX_TYPE) {
+          try {
+            const html = await docxToHtml(file);
+            bytes += new Blob([html]).size;
+            form.append("texts", html);
+          } catch {
+            return setMessage(`'${file.name}'을(를) 열지 못했어요. 워드에서 다시 저장하거나 PDF로 저장해 올려 주세요.`);
+          }
+          continue;
+        }
+        // 형식을 비워 보내는 브라우저가 있어 확장자로 정한 형식을 붙인다
+        const ready = await shrinkImage(file.type === type ? file : new File([file], file.name, { type }));
+        bytes += ready.size;
+        form.append("files", ready);
+      }
+      if (bytes > MAX_WORKSHEET_BYTES) {
+        return setMessage("파일이 너무 커요(PDF는 모두 합쳐 4MB까지). PDF를 나눠서 올리거나, 워드 파일이 있으면 워드로 올려 주세요.");
+      }
       let data: { ok: boolean; message?: string; problems?: ExtractedProblem[] };
       try {
         const res = await fetch("/api/teacher/worksheet", { method: "POST", body: form });
@@ -181,10 +224,16 @@ export default function ProblemImport({
         <>
           <ol className="list-decimal pl-5 text-sm text-muted">
             <li>
-              학습지 <b>PDF</b>나 <b>사진</b>(jpg, png)을 올리면 AI가 난이도·문제·조건·예시·목표·도전 과제를 읽어 옮겨
+              학습지 <b>PDF</b>, <b>워드</b>(docx), <b>사진</b>(jpg, png)을 올리면 AI가 난이도·문제·조건·예시·목표·도전 과제를 읽어 옮겨
               줘요. 한글(HWP) 파일은 한글에서 <b>&lsquo;PDF로 저장&rsquo;</b>해서 올려 주세요.
             </li>
-            <li>여러 장이면 한꺼번에 고를 수 있어요 (모두 합쳐 4MB까지). 읽는 데 1~3분 걸릴 수 있어요.</li>
+            <li>
+              여러 장이면 한꺼번에 고를 수 있어요. 사진은 자동으로 줄여서 보내고, 워드는 글만 뽑아 보내서 크기
+              걱정이 없어요. PDF는 모두 합쳐 4MB까지예요. 읽는 데 1~3분 걸릴 수 있어요.
+            </li>
+            <li>
+              올린 파일은 AI가 읽는 데만 쓰고 <b>어디에도 저장하지 않아요</b>. 반영을 누른 문제 내용만 저장돼요.
+            </li>
             <li>
               AI가 틀릴 수 있으니 <b>미리보기를 꼭 확인</b>하고 반영하세요. 새 문제는 <b>비공개</b>로 들어가고, 이미
               있는 문제는 공개 상태를 그대로 둬요.
@@ -211,7 +260,7 @@ export default function ProblemImport({
                   ref={fileInput}
                   type="file"
                   multiple
-                  accept="application/pdf,image/png,image/jpeg,image/webp"
+                  accept={WORKSHEET_ACCEPT}
                   className="sr-only"
                   onChange={(e) => pickWorksheet(e.target.files)}
                 />
@@ -298,33 +347,55 @@ export default function ProblemImport({
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-page text-muted">
                     <tr>
-                      {["줄", "상태", "과목", "번호", "제목", "난이도", "예시", "공개", "바뀌는 칸 / 이유"].map((h) => (
-                        <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
+                      {["줄", "상태", "과목", "번호", "제목", "난이도", "예시", "공개", "바뀌는 칸 / 이유", ""].map(
+                        (h) => (
+                          <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">
+                            {h}
+                          </th>
+                        ),
+                      )}
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((r) => (
-                      <tr
-                        key={r.line}
-                        className={`border-t border-line/60 ${r.status === "error" ? "bg-red-50" : r.willHide ? "bg-amber-50" : ""}`}
-                      >
-                        <td className="px-2 py-1.5 text-muted">{r.line}</td>
-                        <td className={`px-2 py-1.5 whitespace-nowrap ${STATUS[r.status].className}`}>
-                          {STATUS[r.status].text}
-                        </td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{r.subject}</td>
-                        <td className="px-2 py-1.5 font-mono">{r.number}</td>
-                        <td className="px-2 py-1.5">{r.title === r.number ? "" : r.title}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap text-amber-500">
-                          {r.difficulty ? "★".repeat(r.difficulty) : ""}
-                        </td>
-                        <td className="px-2 py-1.5">{r.exampleCount || ""}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{r.openText}</td>
-                        <td className="px-2 py-1.5 text-xs text-muted">{r.error ?? r.changes.join(", ")}</td>
-                      </tr>
+                      <Fragment key={r.line}>
+                        <tr
+                          className={`border-t border-line/60 ${r.status === "error" ? "bg-red-50" : r.willHide ? "bg-amber-50" : ""}`}
+                        >
+                          <td className="px-2 py-1.5 text-muted">{r.line}</td>
+                          <td className={`px-2 py-1.5 whitespace-nowrap ${STATUS[r.status].className}`}>
+                            {STATUS[r.status].text}
+                          </td>
+                          <td className="px-2 py-1.5 whitespace-nowrap">{r.subject}</td>
+                          <td className="px-2 py-1.5 font-mono">{r.number}</td>
+                          <td className="px-2 py-1.5">{r.title === r.number ? "" : r.title}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-amber-500">
+                            {r.difficulty ? "★".repeat(r.difficulty) : ""}
+                          </td>
+                          <td className="px-2 py-1.5">{r.exampleCount || ""}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap">{r.openText}</td>
+                          <td className="px-2 py-1.5 text-xs text-muted">{r.error ?? r.changes.join(", ")}</td>
+                          <td className="px-2 py-1.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setOpenRow(openRow === r.line ? null : r.line)}
+                              className="whitespace-nowrap text-brand hover:underline"
+                            >
+                              {openRow === r.line ? "접기" : "내용 보기"}
+                            </button>
+                          </td>
+                        </tr>
+                        {openRow === r.line && (
+                          <tr className="border-t border-line/60">
+                            <td colSpan={10} className="bg-page/60 p-3">
+                              <div className="max-w-xl rounded-xl border border-line bg-white p-4">
+                                <p className="mb-2 text-xs text-muted">학생 화면에서 이렇게 보여요</p>
+                                <ProblemView problem={{ ...r.problem, id: null }} />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

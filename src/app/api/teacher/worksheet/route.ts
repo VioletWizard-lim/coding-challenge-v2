@@ -2,14 +2,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { AiNotConfiguredError, AiRefusedError, extractProblemsFromWorksheet, type WorksheetFile } from "@/lib/ai";
 import { SUBJECTS } from "@/lib/problems";
 import { getSession } from "@/lib/session";
-import { MAX_WORKSHEET_BYTES, MAX_WORKSHEET_FILES, WORKSHEET_TYPES } from "@/lib/worksheet";
+import { looksLike, MAX_WORKSHEET_BYTES, MAX_WORKSHEET_FILES, MAX_WORKSHEET_TEXT, WORKSHEET_TYPES } from "@/lib/worksheet";
 
 // 학습지가 길면 AI가 읽는 데 1~3분 걸릴 수 있다
 export const maxDuration = 300;
 
 const fail = (message: string, status = 400) => Response.json({ ok: false, message }, { status });
 
-/** 교사가 올린 학습지(PDF·사진)를 AI가 읽어 문제 목록으로 돌려준다. 저장은 하지 않는다 (미리보기 후 교사가 반영) */
+/** 교사가 올린 학습지(PDF·사진, docx에서 뽑은 글)를 AI가 읽어 문제 목록으로 돌려준다. 파일은 어디에도 저장하지 않는다 (미리보기 후 교사가 반영) */
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session || session.role !== "teacher") return fail("교사 계정으로 다시 로그인하세요.", 401);
@@ -18,20 +18,24 @@ export async function POST(request: Request) {
   const subject = String(form.get("subject") ?? "");
   if (!(subject in SUBJECTS)) return fail("과목을 고르세요.");
   const files = form.getAll("files").filter((f): f is File => f instanceof File);
-  if (!files.length) return fail("학습지 파일을 고르세요.");
-  if (files.length > MAX_WORKSHEET_FILES) return fail(`한 번에 ${MAX_WORKSHEET_FILES}개 파일까지 올릴 수 있어요.`);
+  const texts = form.getAll("texts").map(String).filter((t) => t.trim());
+  if (!files.length && !texts.length) return fail("학습지 파일을 고르세요.");
+  if (files.length + texts.length > MAX_WORKSHEET_FILES) return fail(`한 번에 ${MAX_WORKSHEET_FILES}개 파일까지 올릴 수 있어요.`);
   if (files.reduce((n, f) => n + f.size, 0) > MAX_WORKSHEET_BYTES) {
-    return fail("파일이 너무 커요(모두 합쳐 4MB까지). PDF를 나누거나 사진 수를 줄여 주세요.");
+    return fail("파일이 너무 커요(PDF는 모두 합쳐 4MB까지). PDF를 나눠서 올려 주세요.");
   }
-  const bad = files.find((f) => !(WORKSHEET_TYPES as readonly string[]).includes(f.type));
-  if (bad) return fail(`'${bad.name}'은(는) 올릴 수 없는 형식이에요. PDF나 사진(jpg, png)만 올려 주세요. 한글 파일은 'PDF로 저장'해서 올려 주세요.`);
+  if (texts.reduce((n, t) => n + t.length, 0) > MAX_WORKSHEET_TEXT) return fail("워드 파일 내용이 너무 길어요. 나눠서 올려 주세요.");
 
-  const worksheet: WorksheetFile[] = await Promise.all(
-    files.map(async (f) => ({
-      mediaType: f.type as WorksheetFile["mediaType"],
-      base64: Buffer.from(await f.arrayBuffer()).toString("base64"),
-    })),
-  );
+  const worksheet: WorksheetFile[] = [];
+  for (const f of files) {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const type = (WORKSHEET_TYPES as readonly string[]).includes(f.type) ? (f.type as (typeof WORKSHEET_TYPES)[number]) : null;
+    if (!type || !looksLike(type, bytes)) {
+      return fail(`'${f.name}'은(는) 올릴 수 없는 형식이에요. PDF, 워드(docx), 사진(jpg, png)만 올려 주세요. 한글 파일은 'PDF로 저장'해서 올려 주세요.`);
+    }
+    worksheet.push({ mediaType: type, base64: Buffer.from(bytes).toString("base64") });
+  }
+  texts.forEach((text) => worksheet.push({ mediaType: "text/html", text }));
 
   try {
     const problems = await extractProblemsFromWorksheet(worksheet, subject);

@@ -25,9 +25,12 @@ function aiModel() {
   return model;
 }
 
-export type WorksheetFile = { mediaType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp"; base64: string };
+export type WorksheetFile =
+  | { mediaType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp"; base64: string }
+  /** docx에서 브라우저가 뽑은 HTML (표 구조 유지) */
+  | { mediaType: "text/html"; text: string };
 
-const WORKSHEET_SYSTEM = `당신은 고등학교 정보 교사를 돕는 도우미입니다. 교사가 올린 프로그래밍 학습지(PDF 또는 사진)에서 문제들을 찾아 정해진 JSON 형식으로 옮겨 적습니다.
+const WORKSHEET_SYSTEM = `당신은 고등학교 정보 교사를 돕는 도우미입니다. 교사가 올린 프로그래밍 학습지(PDF, 사진, 또는 워드 파일을 바꾼 HTML)에서 문제들을 찾아 정해진 JSON 형식으로 옮겨 적습니다.
 
 학습지의 문제는 보통 이런 표 양식입니다: 제목 줄("1-6 급식 추천 카드 완성"), 난이도(★ 개수), 문제, 조건(번호 목록), 예시, 문제 목표, 도전 과제.
 
@@ -44,9 +47,11 @@ const WORKSHEET_SYSTEM = `당신은 고등학교 정보 교사를 돕는 도우�
 /** 학습지에서 문제를 뽑는다. 결과는 교사가 미리보기에서 확인한 뒤에만 저장된다 */
 export async function extractProblemsFromWorksheet(files: WorksheetFile[], subject: string): Promise<ExtractedProblem[]> {
   const content: Anthropic.Beta.BetaContentBlockParam[] = files.map((f) =>
-    f.mediaType === "application/pdf"
-      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64 } }
-      : { type: "image", source: { type: "base64", media_type: f.mediaType, data: f.base64 } },
+    f.mediaType === "text/html"
+      ? { type: "text", text: `<worksheet_html>\n${f.text}\n</worksheet_html>` }
+      : f.mediaType === "application/pdf"
+        ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64 } }
+        : { type: "image", source: { type: "base64", media_type: f.mediaType, data: f.base64 } },
   );
   content.push({ type: "text", text: `이 학습지에 있는 문제를 모두 옮겨 주세요. (과목: ${subject})` });
 

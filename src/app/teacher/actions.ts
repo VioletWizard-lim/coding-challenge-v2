@@ -177,6 +177,8 @@ export type ProblemPreviewRow = {
   /** 공개 중이던 문제가 비공개로 바뀌는지 (실수 방지 경고) */
   willHide: boolean;
   error: string | null;
+  /** 반영될 내용 (미리보기에서 "보기"로 학생 화면처럼 보여 줌) */
+  problem: ProblemInput;
 };
 
 export type ProblemImportPreview = { ok: true; rows: ProblemPreviewRow[] } | { ok: false; message: string };
@@ -225,6 +227,7 @@ export async function previewProblemImport(csvText: string): Promise<ProblemImpo
         changes,
         willHide,
         error: row.error,
+        problem: next,
       })),
     };
   } catch (err) {

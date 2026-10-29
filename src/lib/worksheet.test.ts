@@ -49,3 +49,22 @@ describe("AI가 읽은 학습지 → 문제", () => {
     expect(toProblems({ problems: "x" }, "정보")).toEqual([]);
   });
 });
+
+describe("학습지 파일 형식", () => {
+  it("형식이 비어 있으면 확장자로 정하고, 모르는 형식은 거부", async () => {
+    const { worksheetType, DOCX_TYPE, looksLike } = await import("./worksheet");
+    expect(worksheetType("학습지.docx", "")).toBe(DOCX_TYPE);
+    expect(worksheetType("a.PDF", "")).toBe("application/pdf");
+    expect(worksheetType("a.jpg", "image/jpeg")).toBe("image/jpeg");
+    expect(worksheetType("a.hwp", "")).toBeNull();
+    expect(looksLike("application/pdf", new TextEncoder().encode("%PDF-1.7"))).toBe(true);
+    expect(looksLike("application/pdf", new Uint8Array([0x50, 0x4b, 3, 4]))).toBe(false);
+    expect(looksLike(DOCX_TYPE, new Uint8Array([0x50, 0x4b, 3, 4]))).toBe(true);
+  });
+  it("docx HTML에서 그림을 뺀다", async () => {
+    const { cleanDocxHtml } = await import("./worksheet");
+    expect(cleanDocxHtml('<p>문제 <img src="data:x" />1</p>\n\n<table><tr><td>조건</td></tr></table>')).toBe(
+      "<p>문제 1</p> <table><tr><td>조건</td></tr></table>",
+    );
+  });
+});
