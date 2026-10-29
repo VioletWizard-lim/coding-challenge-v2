@@ -10,7 +10,9 @@ import { findOpenProblem } from "@/lib/problemStore";
 import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
 import { saveTodayReflection } from "@/lib/reflectionStore";
 import { getSession } from "@/lib/session";
-import { getReplayData, insertSubmission, type ReplayData } from "@/lib/submissions";
+import { getReplayData, insertSubmission, submissionOwner, type ReplayData } from "@/lib/submissions";
+import { MAX_NOTES_PER_SUBMISSION, validateNote, type NotesBundle, type TimelineNote } from "@/lib/timelineNotes";
+import { countNotes, deleteNote, insertNote, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 
 export type SubmitInput = {
   subject: string;
@@ -68,7 +70,8 @@ export async function submitCode(input: SubmitInput): Promise<SubmitResult> {
   return { ok: true };
 }
 
-export type ReplayResult = { ok: true; data: ReplayData } | { ok: false; error: string };
+/** 재생 기록 + 그 제출의 타임라인 메모·피드백 */
+export type ReplayResult = { ok: true; data: ReplayData & { notes: NotesBundle } } | { ok: false; error: string };
 
 /** 내 제출의 작성 과정 기록 (재생용). 다른 학생의 제출은 볼 수 없다. */
 export async function loadMyReplay(submissionId: number): Promise<ReplayResult> {
@@ -79,7 +82,7 @@ export async function loadMyReplay(submissionId: number): Promise<ReplayResult> 
     const profile = await getUserProfile(session.id);
     const data = profile ? await getReplayData(submissionId, profile.name) : null;
     if (!data) return { ok: false, error: "제출을 찾지 못했어요." };
-    return { ok: true, data };
+    return { ok: true, data: { ...data, notes: await listNotesForSubmission(submissionId, session.id) } };
   } catch (err) {
     console.error("재생 기록 오류:", err);
     return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
@@ -119,5 +122,46 @@ export async function markAchievementsSeen(keys: string[]): Promise<void> {
     await saveAchievementsSeen(session.id, valid);
   } catch (err) {
     console.error("업적 알림 기록 오류:", err);
+  }
+}
+
+export type NoteResult = { ok: true; note: TimelineNote } | { ok: false; error: string };
+
+/** 내 제출의 재생에 메모를 남기거나(id 없음) 고친다(id 있음). 다른 학생 제출에는 남길 수 없다. */
+export async function saveMyNote(input: { submissionId: number; at: number; text: string; id?: number }): Promise<NoteResult> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
+  const text = String(input.text ?? "").trim();
+  const invalid = validateNote(text);
+  if (invalid) return { ok: false, error: invalid };
+  try {
+    if (input.id !== undefined) {
+      const note = await updateNote(session.id, Number(input.id), text);
+      return note ? { ok: true, note } : { ok: false, error: "메모를 찾지 못했어요." };
+    }
+    const profile = await getUserProfile(session.id);
+    if (!Number.isInteger(input.submissionId) || !Number.isFinite(input.at)) return { ok: false, error: "제출을 찾지 못했어요." };
+    if (!profile || (await submissionOwner(input.submissionId)) !== profile.name) return { ok: false, error: "제출을 찾지 못했어요." };
+    if ((await countNotes(input.submissionId)) >= MAX_NOTES_PER_SUBMISSION) {
+      return { ok: false, error: `한 제출에 메모는 ${MAX_NOTES_PER_SUBMISSION}개까지 남길 수 있어요.` };
+    }
+    const note = await insertNote(session.id, "student", input.submissionId, input.at, text);
+    refresh(); // 업적("막힌 곳 발견") 다시 계산
+    return { ok: true, note };
+  } catch (err) {
+    console.error("메모 저장 오류:", err);
+    return { ok: false, error: "메모를 저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 내 메모 지우기 */
+export async function deleteMyNote(id: number): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
+  try {
+    return (await deleteNote(session.id, Number(id))) ? { ok: true } : { ok: false, error: "메모를 찾지 못했어요." };
+  } catch (err) {
+    console.error("메모 삭제 오류:", err);
+    return { ok: false, error: "메모를 지우지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

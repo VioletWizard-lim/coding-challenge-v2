@@ -3,6 +3,7 @@ import { buildJourney } from "@/lib/journey";
 import type { Problem } from "@/lib/problemBank";
 import { listMyReflections } from "@/lib/reflectionStore";
 import { getMyJourneyData } from "@/lib/submissions";
+import { listMyNotes } from "@/lib/timelineNoteStore";
 import Home, { type HomeData } from "./Home";
 
 /** 학생 첫 화면: 오늘 할 일과 최근 기록 요약을 서버에서 계산한다 (학습 여정·업적 탭과 같은 기록을 나눠 씀) */
@@ -19,7 +20,11 @@ export default async function HomeTab({
 }) {
   let data: HomeData;
   try {
-    const [{ summaries, records, today }, mine] = await Promise.all([getMyJourneyData(name), listMyReflections(userId)]);
+    const [{ summaries, records, today }, mine, notes] = await Promise.all([
+      getMyJourneyData(name),
+      listMyReflections(userId),
+      listMyNotes(userId),
+    ]);
     const submitted = new Set(summaries.map((s) => `${s.subject}_${s.problem}`));
     const todaySubs = summaries.filter((s) => s.date === today);
     const recent = summaries.find((s) => s.hasLog) ?? null;
@@ -27,6 +32,7 @@ export default async function HomeTab({
       records,
       mine.reflections.map((r) => ({ date: r.classDate, savedAt: r.updatedAt })),
       unitProblemsOf(problems),
+      notes.notes,
     );
     const earned = achievements
       .flatMap((a) =>

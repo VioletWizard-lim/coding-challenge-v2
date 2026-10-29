@@ -305,7 +305,7 @@ function DayItem({ s, loadReplay }: { s: SubmissionSummary; loadReplay?: ReplayL
       </div>
       {/* 재생기를 열면 재생기 안에 같은 통계가 나오므로 여기서는 숨긴다 */}
       {!open && <Stats stats={s.stats} empty={!s.hasLog} />}
-      {open && loadReplay && <ReplaySection submissionId={s.id} autoStart loader={loadReplay} />}
+      {open && loadReplay && <ReplaySection submissionId={s.id} autoStart loader={loadReplay} noteRole="teacher" />}
     </li>
   );
 }

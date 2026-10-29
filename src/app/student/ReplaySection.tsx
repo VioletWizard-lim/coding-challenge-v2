@@ -2,25 +2,38 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Replayer from "@/components/Replayer";
-import { loadMyReplay, type ReplayResult } from "./actions";
+import type { NoteActions } from "@/components/ReplayNotes";
+import type { NoteAuthor } from "@/lib/timelineNotes";
+import { deleteFeedbackNote, saveFeedbackNote } from "../teacher/actions";
+import { deleteMyNote, loadMyReplay, saveMyNote, type ReplayResult } from "./actions";
 
 export type ReplayLoader = (submissionId: number) => Promise<ReplayResult>;
+
+/** 누가 메모를 쓰는지에 따라 저장·삭제 동작 (학생: 내 메모, 교사: 피드백) */
+function noteActionsFor(role: NoteAuthor, submissionId: number): NoteActions {
+  return role === "teacher"
+    ? { role, save: (d) => saveFeedbackNote({ submissionId, ...d }), remove: deleteFeedbackNote }
+    : { role, save: (d) => saveMyNote({ submissionId, ...d }), remove: deleteMyNote };
+}
 
 /**
  * 제출 펼침 안: 버튼을 누르면 그때 작성 기록을 불러와 재생기를 연다 (목록에서는 무거운 기록을 안 받음).
  * 학생은 내 기록(loadMyReplay), 교사는 학생 기록을 여는 loader를 넘긴다.
+ * noteRole: 학생은 내 메모(📌), 교사는 피드백(💬)을 타임라인에 남길 수 있다.
  */
 export default function ReplaySection({
   submissionId,
   autoStart = false,
   loader = loadMyReplay,
   startAt,
+  noteRole = "student",
 }: {
   submissionId: number;
   autoStart?: boolean;
   loader?: ReplayLoader;
   /** 이 순간(기록 안의 시각)까지 진행된 화면으로 연다 (업적에서 왔을 때) */
   startAt?: number;
+  noteRole?: NoteAuthor;
 }) {
   const [result, setResult] = useState<ReplayResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -32,7 +45,18 @@ export default function ReplaySection({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 처음 열릴 때 한 번만
   }, [autoStart]);
 
-  if (result?.ok) return <Replayer {...result.data} startAt={startAt} />;
+  if (result?.ok) {
+    const { notes, ...data } = result.data;
+    return (
+      <Replayer
+        {...data}
+        startAt={startAt}
+        notes={notes.notes}
+        // 메모 표가 아직 없으면(008 실행 전) 쓰기 버튼을 숨긴다
+        noteActions={notes.ready ? noteActionsFor(noteRole, submissionId) : undefined}
+      />
+    );
+  }
   return (
     <div className="flex items-center gap-3">
       <button

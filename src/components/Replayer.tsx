@@ -7,6 +7,8 @@ import { Decoration, EditorView, lineNumbers, type DecorationSet } from "@codemi
 import { useEffect, useMemo, useRef, useState } from "react";
 import { editRange, type EditEvent } from "@/lib/editLog";
 import { analyzeLog, formatDuration, type Mark, type MarkKind, type ReplayStats } from "@/lib/replay";
+import type { TimelineNote } from "@/lib/timelineNotes";
+import ReplayNotes, { NOTE_STYLE, type NoteActions, type NoteDraft } from "./ReplayNotes";
 
 type Props = {
   init: string;
@@ -15,7 +17,14 @@ type Props = {
   mode?: "code" | "text";
   /** 이 시각(기록 안의 ms)까지 진행된 화면으로 연다. 없으면 처음부터 */
   startAt?: number;
+  /** 타임라인 메모(학생 📌)·피드백(교사 💬) */
+  notes?: TimelineNote[];
+  /** 메모를 쓸 수 있으면 (학생: 내 제출, 교사: 피드백). 없으면 읽기만 */
+  noteActions?: NoteActions;
 };
+
+/** 메모를 남기기 좋은 순간: 오류, 오래 멈춤, 크게 지움 */
+const NOTE_WORTHY: MarkKind[] = ["run-error", "pause", "bigdelete"];
 
 /** 타임라인 표시: 흑백 인쇄에서도 구분되도록 색과 함께 모양이 다른 기호를 쓴다 */
 export const MARK_STYLE: Record<MarkKind, { glyph: string; label: string; color: string }> = {
@@ -60,7 +69,7 @@ function editSpec(state: EditorState, e: EditEvent) {
 }
 
 /** 작성 과정 재생기 (교사·학생 공용). v1 replay.html과 같은 기록을 읽는다. */
-export default function Replayer({ init, code, log, mode = "code", startAt }: Props) {
+export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions }: Props) {
   const analysis = useMemo(() => analyzeLog(init, log), [init, log]);
   const { edits, marks, stats, startTime } = analysis;
   // 업적에서 왔으면 그 순간까지의 편집을 적용한 화면에서 시작한다
@@ -79,6 +88,10 @@ export default function Replayer({ init, code, log, mode = "code", startAt }: Pr
   const [skipIdle, setSkipIdle] = useState(true);
   const settings = useRef({ speed, skipIdle });
   settings.current = { speed, skipIdle };
+  const [noteList, setNoteList] = useState(notes);
+  const [draft, setDraft] = useState<NoteDraft | null>(null);
+  /** 기록 시각 → 그때까지 적용된 편집 수 (타임라인 위치) */
+  const indexAt = (t: number) => edits.filter((e) => e[0] <= t).length;
 
   useEffect(() => {
     extensionsRef.current = [
@@ -147,6 +160,16 @@ export default function Replayer({ init, code, log, mode = "code", startAt }: Pr
   }
 
   const elapsed = index > 0 ? edits[index - 1][0] - startTime : 0;
+  const nowTime = index > 0 ? edits[index - 1][0] : startTime;
+  const seekTime = (t: number) => {
+    stop();
+    goTo(indexAt(t));
+  };
+  const startNote = (at: number) => {
+    seekTime(at);
+    setDraft({ at, text: "" });
+  };
+  const here = new Set(noteList.filter((n) => indexAt(n.at) === index).map((n) => n.id));
   const kindsUsed = Object.keys(MARK_STYLE).filter((k) => marks.some((m) => m.kind === k)) as MarkKind[];
 
   return (
@@ -179,6 +202,15 @@ export default function Replayer({ init, code, log, mode = "code", startAt }: Pr
               <input type="checkbox" checked={skipIdle} onChange={(e) => setSkipIdle(e.target.checked)} />
               멈춘 시간 줄이기
             </label>
+            {noteActions && (
+              <button
+                type="button"
+                onClick={() => startNote(nowTime)}
+                className="rounded-lg border border-brand px-3 py-1 font-bold text-brand hover:bg-brand-soft"
+              >
+                {NOTE_STYLE[noteActions.role].glyph} 이 순간에 {noteActions.role === "teacher" ? "피드백" : "메모"}
+              </button>
+            )}
             <span className="ml-auto tabular-nums text-muted">
               {index} / {edits.length} · {formatDuration(elapsed)}
             </span>
@@ -187,10 +219,26 @@ export default function Replayer({ init, code, log, mode = "code", startAt }: Pr
             marks={marks}
             total={edits.length}
             index={index}
+            pins={noteList.map((n) => ({
+              id: n.id,
+              at: indexAt(n.at),
+              glyph: NOTE_STYLE[n.author].glyph,
+              title: `${n.author === "teacher" ? "선생님" : "메모"}: ${n.text}`,
+            }))}
             onSeek={(n) => {
               stop();
               goTo(n);
             }}
+          />
+          <ReplayNotes
+            notes={noteList}
+            startTime={startTime}
+            actions={noteActions}
+            draft={draft}
+            setDraft={setDraft}
+            onSeek={seekTime}
+            onChange={setNoteList}
+            selected={here}
           />
           {kindsUsed.length > 0 && (
             <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
@@ -207,19 +255,28 @@ export default function Replayer({ init, code, log, mode = "code", startAt }: Pr
               <p className="text-muted">주요 순간 {marks.length}개 (누르면 그 순간으로 이동)</p>
               <ul className="mt-1 flex max-h-56 flex-col gap-0.5 overflow-auto">
                 {marks.map((m, i) => (
-                  <li key={i}>
+                  <li key={i} className="flex items-center gap-2 rounded hover:bg-page">
                     <button
                       type="button"
                       onClick={() => {
                         stop();
                         goTo(m.at);
                       }}
-                      className="flex w-full gap-2 rounded px-2 py-0.5 text-left hover:bg-page"
+                      className="flex min-w-0 flex-1 gap-2 px-2 py-0.5 text-left"
                     >
                       <span className="w-16 shrink-0 tabular-nums text-muted">{formatDuration(m.time - startTime)}</span>
                       <span className={MARK_STYLE[m.kind].color}>{MARK_STYLE[m.kind].glyph}</span>
                       <span>{m.detail}</span>
                     </button>
+                    {noteActions && NOTE_WORTHY.includes(m.kind) && (
+                      <button
+                        type="button"
+                        onClick={() => startNote(m.time)}
+                        className="shrink-0 px-2 text-xs font-bold text-brand hover:underline"
+                      >
+                        {NOTE_STYLE[noteActions.role].glyph} 여기에 {noteActions.role === "teacher" ? "피드백" : "메모"}
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -235,11 +292,14 @@ function Timeline({
   marks,
   total,
   index,
+  pins,
   onSeek,
 }: {
   marks: Mark[];
   total: number;
   index: number;
+  /** 타임라인 메모 표시 (막대 위쪽) */
+  pins: { id: number; at: number; glyph: string; title: string }[];
   onSeek: (n: number) => void;
 }) {
   const pct = (at: number) => (total ? at / total : 0) * 100;
@@ -265,7 +325,20 @@ function Timeline({
   });
   const rowCount = Math.max(1, rowEnds.length);
   return (
-    <div className="relative px-1" style={{ paddingBottom: rowCount * 16 + 4 }}>
+    <div className="relative px-1" style={{ paddingBottom: rowCount * 16 + 4, paddingTop: pins.length ? 20 : 0 }}>
+      {pins.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          title={p.title}
+          aria-label={p.title}
+          onClick={() => onSeek(p.at)}
+          style={{ left: `${pct(p.at)}%` }}
+          className="absolute top-0 -translate-x-1/2 text-sm leading-5"
+        >
+          {p.glyph}
+        </button>
+      ))}
       <input
         type="range"
         min={0}

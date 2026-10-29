@@ -54,6 +54,7 @@ export const ACHIEVEMENTS: Def[] = [
     tiers: [1, 5],
     desc: ["오늘의 성찰 처음 쓰기", "서로 다른 날 5일 성찰 쓰기"],
   },
+  { code: "found_stuck", area: "reflect", icon: "🔍", name: "막힌 곳 발견", desc: "내 재생을 보며 그 순간에 타임라인 메모 남기기" },
   { code: "focus10", area: "steady", icon: "🎧", name: "몰입 10분", desc: "창을 벗어나지 않고 10분 넘게 이어서 작업" },
   { code: "unit_master", area: "steady", icon: "🏔️", name: "단원 정복", desc: "한 단원의 공개된 문제를 모두 제출" },
   { code: "steady5", area: "steady", icon: "👣", name: "꾸준한 발걸음", tiers: [5], desc: ["서로 다른 날 5일 이상 제출"] },
@@ -206,11 +207,13 @@ const unitOf = (problem: string) => problem.split("-")[0];
  * @param subs 내 제출들 (순서는 상관없음)
  * @param reflectionDates 오늘의 성찰을 쓴 날들 [날짜, 저장 시각]
  * @param unitProblems "과목_단원" → 그 단원의 공개된 문제 번호들 (단원 정복 판정용)
+ * @param notes 학생이 직접 남긴 타임라인 메모 (막힌 곳 발견)
  */
 export function computeAchievements(
   subs: AchievementSubmission[],
   reflectionDates: { date: string; savedAt: string }[],
   unitProblems: Record<string, string[]>,
+  notes: { submissionId: number; at: number; createdAt: string }[] = [],
 ): AchievementStatus[] {
   const list = [...subs].sort((a, b) => a.submittedAt.localeCompare(b.submittedAt) || a.id - b.id);
   const found = new Map<string, Earned[]>(); // code → 단계별 달성
@@ -282,6 +285,12 @@ export function computeAchievements(
   for (const r of reflected) {
     reflectDays.add(r.date);
     def("reflector").tiers!.forEach((n, i) => reflectDays.size >= n && put("reflector", i, { earnedAt: r.savedAt }));
+  }
+
+  const firstNote = [...notes].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+  if (firstNote) {
+    const s = list.find((x) => x.id === firstNote.submissionId);
+    put("found_stuck", 0, s ? { ...at(s, firstNote.at), earnedAt: firstNote.createdAt } : { earnedAt: firstNote.createdAt });
   }
 
   counts.set("own_hands", direct);
