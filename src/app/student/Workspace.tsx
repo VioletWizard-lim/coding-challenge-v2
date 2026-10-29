@@ -39,7 +39,7 @@ export default function Workspace({ userId, subjects }: { userId: string; subjec
     startTransition(async () => {
       const result = await submitCode({ subject, problem, description, code: rec.code, init: rec.init, log: rec.log });
       if (!result.ok) return setMessage({ text: result.error, kind: "error" });
-      setMessage({ text: `✅ 제출 완료! (${problem}) 아래 '내 제출 현황'에서 확인할 수 있어요.`, kind: "ok" });
+      setMessage({ text: `✅ 제출 완료! (${problem}) '내 제출 현황' 탭에서 확인할 수 있어요.`, kind: "ok" });
       setCoolingDown(true);
       setTimeout(() => setCoolingDown(false), COOLDOWN_MS);
     });
@@ -47,7 +47,6 @@ export default function Workspace({ userId, subjects }: { userId: string; subjec
 
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-xl font-bold">📝 코드 작성</h2>
       <div className="flex flex-wrap gap-3">
         {subjects.length > 1 && (
           <label className="flex flex-col gap-1 text-sm text-muted">

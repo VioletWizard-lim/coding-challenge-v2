@@ -5,6 +5,7 @@ import { getUserProfile } from "@/lib/auth";
 import { allowedSubjects } from "@/lib/problems";
 import { requireRole } from "@/lib/session";
 import MySubmissions from "./MySubmissions";
+import StudentTabs from "./StudentTabs";
 import Workspace from "./Workspace";
 
 export default function StudentPage() {
@@ -24,13 +25,24 @@ async function StudentHome() {
   return (
     <>
       <Header name={profile.name} role="student" />
-      <Workspace userId={profile.id} subjects={allowedSubjects(profile.subjects)} />
-      <section className="flex flex-col gap-3">
-        <h2 className="text-xl font-bold">📊 내 제출 현황</h2>
-        <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
-          <MySubmissions name={profile.name} />
-        </Suspense>
-      </section>
+      <StudentTabs
+        tabs={[
+          {
+            id: "write",
+            label: "📝 코드 작성",
+            content: <Workspace userId={profile.id} subjects={allowedSubjects(profile.subjects)} />,
+          },
+          {
+            id: "submissions",
+            label: "📊 내 제출 현황",
+            content: (
+              <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                <MySubmissions name={profile.name} />
+              </Suspense>
+            ),
+          },
+        ]}
+      />
     </>
   );
 }
