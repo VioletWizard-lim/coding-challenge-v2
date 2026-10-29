@@ -6,6 +6,8 @@ import { getSession } from "@/lib/session";
 import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, saveProblem } from "@/lib/problemStore";
+import type { Reflection } from "@/lib/reflection";
+import { listReflectionsByDate } from "@/lib/reflectionStore";
 import { parseStudentCsv, type ParsedRow } from "@/lib/studentCsv";
 import { createStudents, findExistingIds, resetStudentPassword } from "@/lib/teacher";
 
@@ -264,4 +266,18 @@ export async function importProblems(csvText: string): Promise<ProblemImportResu
   }
   if (created || updated) refresh();
   return { ok: true, created, updated, skipped };
+}
+
+export type ReflectionsResult = { ok: true; ready: boolean; reflections: Reflection[] } | { ok: false; message: string };
+
+/** 한 날짜·과목에 학생들이 쓴 오늘의 성찰 */
+export async function loadReflections(classDate: string, subject: string): Promise<ReflectionsResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(classDate))) return { ok: false, message: "날짜를 고르세요." };
+  try {
+    return { ok: true, ...(await listReflectionsByDate(classDate, String(subject))) };
+  } catch (err) {
+    console.error("성찰 조회 오류:", err);
+    return { ok: false, message: "성찰을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
 }

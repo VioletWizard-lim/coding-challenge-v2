@@ -4,7 +4,9 @@ import { useState } from "react";
 import type { Journey as JourneyData, SubmissionSummary } from "@/lib/journey";
 import { Stats } from "@/components/Replayer";
 import { formatDuration } from "@/lib/replay";
+import ReflectionView from "@/components/ReflectionView";
 import { useStudentNav } from "@/components/SideTabs";
+import type { Reflection } from "@/lib/reflection";
 
 // 활동 달력 색: 한 가지 색(남색)의 밝기로 많고 적음을 나타낸다. 흑백 인쇄에서도 밝기 차이로 읽힌다.
 const HEAT = ["#eceef4", "#c7d2fe", "#818cf8", "#4f46e5", "#3730a3"];
@@ -18,9 +20,9 @@ const percent = (r: number | null) => (r === null ? "–" : `${Math.round(r * 10
 const DAYS_PAGE = 10;
 
 /** 나의 학습 여정: 언제, 무엇을, 어떻게 풀어 왔는지 */
-export default function Journey({ journey }: { journey: JourneyData }) {
+export default function Journey({ journey, reflections }: { journey: JourneyData; reflections: Reflection[] }) {
   const { totals, calendar, weekly, units, days } = journey;
-  if (!totals.submissions) {
+  if (!totals.submissions && !reflections.length) {
     return (
       <p className="rounded-xl border border-line bg-white p-5 text-muted">
         아직 제출한 과제가 없어요. 첫 제출을 하면 여기에 나의 학습 여정이 쌓여요.
@@ -72,7 +74,7 @@ export default function Journey({ journey }: { journey: JourneyData }) {
         </Card>
       )}
       <Card title="🗓 날짜별 기록" note="'과정 보기'를 누르면 내 제출 현황에서 그때의 작성 과정을 바로 보여 줘요">
-        <DayList days={days} />
+        <DayList days={days} reflections={reflections} />
       </Card>
     </div>
   );
@@ -211,27 +213,40 @@ function Units({ units }: { units: JourneyData["units"] }) {
   );
 }
 
-function DayList({ days }: { days: JourneyData["days"] }) {
+function DayList({ days, reflections }: { days: JourneyData["days"]; reflections: Reflection[] }) {
   const [shown, setShown] = useState(DAYS_PAGE);
+  const { problemLabel } = useStudentNav();
+  // 제출한 날 + 성찰만 쓴 날을 합쳐 최근 날짜부터
+  const items = new Map<string, SubmissionSummary[]>(days.map((d) => [d.date, d.items]));
+  for (const r of reflections) if (!items.has(r.classDate)) items.set(r.classDate, []);
+  const dates = [...items.keys()].sort().reverse();
   return (
     <div className="flex flex-col gap-4">
-      {days.slice(0, shown).map((day) => (
-        <div key={day.date} className="flex flex-col gap-1.5">
-          <h4 className="text-sm font-bold text-muted">{formatDay(day.date)}</h4>
+      {dates.slice(0, shown).map((date) => (
+        <div key={date} className="flex flex-col gap-1.5">
+          <h4 className="text-sm font-bold text-muted">{formatDay(date)}</h4>
           <ul className="flex flex-col gap-1.5">
-            {day.items.map((s) => (
+            {items.get(date)!.map((s) => (
               <DayItem key={s.id} s={s} />
             ))}
+            {reflections
+              .filter((r) => r.classDate === date)
+              .map((r) => (
+                <li key={r.subject} className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2.5">
+                  <span className="text-sm font-bold">💭 오늘의 성찰{reflections.some((o) => o.classDate === date && o.subject !== r.subject) ? ` (${r.subject})` : ""}</span>
+                  <ReflectionView reflection={r} hardestLabel={problemLabel(r.subject, r.hardestProblem)} />
+                </li>
+              ))}
           </ul>
         </div>
       ))}
-      {days.length > shown && (
+      {dates.length > shown && (
         <button
           type="button"
           onClick={() => setShown(shown + DAYS_PAGE)}
           className="self-center rounded-lg border border-line bg-white px-4 py-2 text-sm text-muted hover:bg-page"
         >
-          더 보기 (남은 {days.length - shown}일)
+          더 보기 (남은 {dates.length - shown}일)
         </button>
       )}
     </div>

@@ -47,3 +47,21 @@ export const problemLabel = (subject: string, problem: string) => {
   const name = SUBJECTS[subject]?.[problem];
   return !name || name === problem ? problem : `${problem}. ${name}`;
 };
+
+type ClassInfo = {
+  grade: number | string | null;
+  class: number | string | null;
+  programming_grade: number | string | null;
+  programming_class: number | string | null;
+};
+
+/** 과목이 "프로그래밍"이면 프로그래밍 수업 반(없으면 원래 반)을 쓴다 (v1과 같음). */
+export function gradeClassFor(profile: ClassInfo, subject: string) {
+  if (subject === "프로그래밍") {
+    return {
+      grade: profile.programming_grade ?? profile.grade,
+      class: profile.programming_class ?? profile.class,
+    };
+  }
+  return { grade: profile.grade, class: profile.class };
+}

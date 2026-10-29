@@ -5,6 +5,8 @@ import { getUserProfile } from "@/lib/auth";
 import { isValidLog } from "@/lib/editLog";
 import { allowedSubjects } from "@/lib/problems";
 import { findOpenProblem } from "@/lib/problemStore";
+import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
+import { saveTodayReflection } from "@/lib/reflectionStore";
 import { getSession } from "@/lib/session";
 import { getReplayData, insertSubmission, type ReplayData } from "@/lib/submissions";
 
@@ -79,5 +81,27 @@ export async function loadMyReplay(submissionId: number): Promise<ReplayResult> 
   } catch (err) {
     console.error("재생 기록 오류:", err);
     return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type ReflectionResult = { ok: true; reflection: Reflection } | { ok: false; error: string };
+
+/** 오늘의 성찰 저장. 날짜는 서버 시계(한국 시간)로 정하므로 지난 날 성찰은 고칠 수 없다. */
+export async function saveMyReflection(input: ReflectionInput): Promise<ReflectionResult> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인한 뒤 저장하세요." };
+  const reflection = normalizeReflection(input);
+  const invalid = validateReflection(reflection);
+  if (invalid) return { ok: false, error: invalid };
+  try {
+    const profile = await getUserProfile(session.id);
+    if (!profile) return { ok: false, error: "다시 로그인한 뒤 저장하세요." };
+    if (!allowedSubjects(profile.subjects).includes(reflection.subject)) return { ok: false, error: "과목이 맞지 않아요." };
+    const saved = await saveTodayReflection(profile, reflection);
+    refresh(); // 학습 여정의 날짜별 기록에도 바로 보이게
+    return { ok: true, reflection: saved };
+  } catch (err) {
+    console.error("성찰 저장 오류:", err);
+    return { ok: false, error: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
