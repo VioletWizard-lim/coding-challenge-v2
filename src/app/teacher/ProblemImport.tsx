@@ -2,6 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import type { Problem } from "@/lib/problemBank";
+import { SUBJECTS } from "@/lib/problems";
+import { MAX_WORKSHEET_BYTES, type ExtractedProblem } from "@/lib/worksheet";
 import { problemsToCsv } from "@/lib/problemCsv";
 import { decodeCsvFile } from "@/lib/studentCsv";
 import { importProblems, previewProblemImport, type ProblemImportResult, type ProblemPreviewRow } from "./actions";
@@ -24,7 +26,24 @@ const STATUS = {
   error: { text: "✖ 건너뜀", className: "text-danger" },
 } as const;
 
-/** 문제 일괄 등록: 지금 문제 내려받기(= 양식) → 엑셀에서 고치기 → 올리기 → 미리보기 → 반영 */
+/** 휴대폰 사진은 크기가 커서, 긴 변 2000px JPEG로 줄인다 (글자는 충분히 읽힌다) */
+async function shrinkImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.size < 1_000_000) return file;
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", 0.85));
+  return blob ? new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }) : file;
+}
+
+/**
+ * 문제 일괄 등록. 두 가지 길이 같은 미리보기 → 반영으로 이어진다.
+ * - CSV: 지금 문제 내려받기(= 양식) → 엑셀에서 고치기 → 올리기
+ * - 학습지(AI): PDF·사진을 올리면 AI가 읽어 문제로 옮김 → 교사가 확인 후 반영
+ */
 export default function ProblemImport({
   problems,
   now,
@@ -34,7 +53,8 @@ export default function ProblemImport({
   now: string;
   disabled: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"csv" | "ai" | null>(null);
+  const [aiSubject, setAiSubject] = useState(Object.keys(SUBJECTS)[0]);
   const [csvText, setCsvText] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<ProblemPreviewRow[] | null>(null);
@@ -52,16 +72,66 @@ export default function ProblemImport({
     if (fileInput.current) fileInput.current.value = "";
   }
 
+  /** CSV 글을 미리보기로 (CSV 파일과 AI 결과가 함께 쓰는 길) */
+  async function preview(text: string) {
+    const r = await previewProblemImport(text);
+    if (!r.ok) return setMessage(r.message);
+    setCsvText(text);
+    setRows(r.rows);
+  }
+
   async function pickFile(file: File | undefined) {
     if (!file) return;
     reset();
     setFileName(file.name);
     const text = decodeCsvFile(await file.arrayBuffer());
+    startTransition(() => preview(text));
+  }
+
+  /** 학습지 → AI → 문제 목록 → (공개 상태는 지금 그대로 두고) CSV 글로 바꿔 같은 미리보기에 */
+  async function pickWorksheet(list: FileList | null) {
+    if (!list?.length) return;
+    const picked = [...list]; // reset()이 파일 입력을 비우면 FileList도 비므로 먼저 복사
+    reset();
+    const files = await Promise.all(picked.map(shrinkImage));
+    setFileName(files.map((f) => f.name).join(", "));
+    if (files.reduce((n, f) => n + f.size, 0) > MAX_WORKSHEET_BYTES) {
+      return setMessage("파일이 너무 커요(모두 합쳐 4MB까지). PDF를 나누거나 사진 수를 줄여 주세요.");
+    }
     startTransition(async () => {
-      const r = await previewProblemImport(text);
-      if (!r.ok) return setMessage(r.message);
-      setCsvText(text);
-      setRows(r.rows);
+      const form = new FormData();
+      form.set("subject", aiSubject);
+      files.forEach((f) => form.append("files", f));
+      let data: { ok: boolean; message?: string; problems?: ExtractedProblem[] };
+      try {
+        const res = await fetch("/api/teacher/worksheet", { method: "POST", body: form });
+        data = await res.json();
+      } catch {
+        return setMessage("학습지를 보내지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.");
+      }
+      if (!data.ok || !data.problems) return setMessage(data.message ?? "학습지를 읽지 못했어요.");
+      if (!data.problems.length)
+        return setMessage("학습지에서 문제를 찾지 못했어요. 문제 표가 잘 보이는 파일인지 확인해 주세요.");
+      const nowDate = new Date(now);
+      const asProblems: Problem[] = data.problems.map((p) => {
+        const existing = problems.find((x) => x.subject === p.subject && x.number === p.number);
+        if (!existing) return { ...p, id: null, openAt: null }; // 새 문제는 비공개로
+        // 이미 있는 문제: AI가 못 읽은(빈) 칸과 학습지에 없는 시작 코드·공개 상태는 지금 값을 그대로 둔다
+        return {
+          ...p,
+          id: null,
+          title: p.title !== p.number ? p.title : existing.title,
+          difficulty: p.difficulty ?? existing.difficulty,
+          description: p.description || existing.description,
+          conditions: p.conditions || existing.conditions,
+          examples: p.examples.length ? p.examples : existing.examples,
+          goal: p.goal || existing.goal,
+          challenge: p.challenge || existing.challenge,
+          starterCode: existing.starterCode,
+          openAt: existing.openAt,
+        };
+      });
+      await preview(problemsToCsv(asProblems, nowDate));
     });
   }
 
@@ -82,7 +152,7 @@ export default function ProblemImport({
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-line bg-page/60 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto font-bold">📥 CSV로 한꺼번에 올리기</h3>
+        <h3 className="mr-auto font-bold">📥 한꺼번에 올리기</h3>
         <button
           type="button"
           onClick={() => download("문제목록.csv", "﻿" + problemsToCsv(problems, new Date(now)))}
@@ -90,19 +160,67 @@ export default function ProblemImport({
         >
           ⬇ 지금 문제 내려받기
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            setOpen(!open);
-            reset();
-          }}
-          disabled={disabled}
-          className="rounded-lg border border-brand bg-white px-3 py-1.5 text-sm font-bold text-brand disabled:opacity-50"
-        >
-          {open ? "닫기" : "⬆ CSV 올리기"}
-        </button>
+        {(["csv", "ai"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => {
+              setMode(mode === m ? null : m);
+              reset();
+            }}
+            disabled={disabled}
+            className={`rounded-lg border border-brand px-3 py-1.5 text-sm font-bold disabled:opacity-50 ${
+              mode === m ? "bg-brand text-white" : "bg-white text-brand"
+            }`}
+          >
+            {m === "csv" ? "⬆ CSV 올리기" : "📄 학습지로 만들기 (AI)"}
+          </button>
+        ))}
       </div>
-      {open && (
+      {mode === "ai" && (
+        <>
+          <ol className="list-decimal pl-5 text-sm text-muted">
+            <li>
+              학습지 <b>PDF</b>나 <b>사진</b>(jpg, png)을 올리면 AI가 난이도·문제·조건·예시·목표·도전 과제를 읽어 옮겨
+              줘요. 한글(HWP) 파일은 한글에서 <b>&lsquo;PDF로 저장&rsquo;</b>해서 올려 주세요.
+            </li>
+            <li>여러 장이면 한꺼번에 고를 수 있어요 (모두 합쳐 4MB까지). 읽는 데 1~3분 걸릴 수 있어요.</li>
+            <li>
+              AI가 틀릴 수 있으니 <b>미리보기를 꼭 확인</b>하고 반영하세요. 새 문제는 <b>비공개</b>로 들어가고, 이미
+              있는 문제는 공개 상태를 그대로 둬요.
+            </li>
+          </ol>
+          {!done && (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <select
+                value={aiSubject}
+                onChange={(e) => setAiSubject(e.target.value)}
+                aria-label="학습지 과목"
+                className="rounded-lg border border-line bg-white px-2 py-1.5"
+              >
+                {Object.keys(SUBJECTS).map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+              <label className="flex flex-wrap items-center gap-3">
+                <span className="cursor-pointer rounded-lg border border-brand bg-white px-3 py-1.5 font-bold text-brand hover:bg-brand-soft">
+                  학습지 파일 고르기
+                </span>
+                <span className="text-muted">{fileName || "선택한 파일 없음"}</span>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  accept="application/pdf,image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={(e) => pickWorksheet(e.target.files)}
+                />
+              </label>
+            </div>
+          )}
+        </>
+      )}
+      {mode === "csv" && (
         <>
           <ol className="list-decimal pl-5 text-sm text-muted">
             <li>
@@ -133,7 +251,15 @@ export default function ProblemImport({
               />
             </label>
           )}
-          {pending && <p className="text-sm text-muted">확인하는 중…</p>}
+        </>
+      )}
+      {mode && (
+        <>
+          {pending && (
+            <p className="text-sm text-muted">
+              {mode === "ai" ? "🤖 AI가 학습지를 읽는 중이에요… (1~3분 걸릴 수 있어요)" : "확인하는 중…"}
+            </p>
+          )}
           {message && (
             <p role="alert" className="text-sm text-danger">
               {message}
@@ -141,6 +267,20 @@ export default function ProblemImport({
           )}
           {rows && !pending && (
             <>
+              {mode === "ai" && (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                  <span>🤖 AI가 만든 결과입니다. 문제·예시가 학습지와 같은지 확인하고 반영하세요.</span>
+                  {csvText && (
+                    <button
+                      type="button"
+                      onClick={() => download("학습지_문제.csv", "\uFEFF" + csvText)}
+                      className="ml-auto rounded-md border border-blue-300 bg-white px-2 py-0.5"
+                    >
+                      CSV로 내려받아 고치기
+                    </button>
+                  )}
+                </div>
+              )}
               <p className="text-sm">
                 <b>
                   ✚ 새 문제 {count("new")}개 · ✎ 고침 {count("update")}개
