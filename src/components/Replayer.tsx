@@ -237,9 +237,21 @@ function Timeline({
   onSeek: (n: number) => void;
 }) {
   const pct = (at: number) => (total ? at / total : 0) * 100;
-  // 같은 자리에 겹치는 표시는 아래 줄로 내려 모두 보이게 한다
+  // 타임라인은 편집 순서로 나아가서, 코드를 안 바꾸는 동안 일어난 일은 같은 자리에 모인다.
+  // 같은 자리·같은 종류는 기호 하나에 횟수를 붙여 보여 준다 (예: ◇3)
+  const groups: { kind: MarkKind; at: number; details: string[] }[] = [];
+  for (const m of marks) {
+    const same = groups.find((g) => g.at === m.at && g.kind === m.kind);
+    if (same) same.details.push(m.detail);
+    else groups.push({ kind: m.kind, at: m.at, details: [m.detail] });
+  }
+  const titleOf = (g: (typeof groups)[number]) =>
+    g.details.length === 1
+      ? g.details[0]
+      : `${MARK_STYLE[g.kind].label} ${g.details.length}번: ${g.details.map((d) => d.replace(/^.*\((.*)\)$/, "$1")).join(", ")}`;
+  // 그래도 가까이 겹치는 표시는 아래 줄로 내려 모두 보이게 한다
   const rowEnds: number[] = [];
-  const rows = marks.map((m) => {
+  const rows = groups.map((m) => {
     let row = rowEnds.findIndex((end) => pct(m.at) - end >= 1.5);
     if (row < 0) row = rowEnds.length;
     rowEnds[row] = pct(m.at);
@@ -258,17 +270,18 @@ function Timeline({
         aria-label="재생 위치"
       />
       <div className="absolute inset-x-1 bottom-0" style={{ height: rowCount * 16 + 4 }}>
-        {marks.map((m, i) => (
+        {groups.map((g, i) => (
           <button
             key={i}
             type="button"
-            title={m.detail}
-            aria-label={m.detail}
-            onClick={() => onSeek(m.at)}
-            style={{ left: `${pct(m.at)}%`, top: rows[i] * 16 }}
-            className={`absolute -translate-x-1/2 text-xs leading-4 ${MARK_STYLE[m.kind].color}`}
+            title={titleOf(g)}
+            aria-label={titleOf(g)}
+            onClick={() => onSeek(g.at)}
+            style={{ left: `${pct(g.at)}%`, top: rows[i] * 16 }}
+            className={`absolute -translate-x-1/2 text-xs leading-4 whitespace-nowrap ${MARK_STYLE[g.kind].color}`}
           >
-            {MARK_STYLE[m.kind].glyph}
+            {MARK_STYLE[g.kind].glyph}
+            {g.details.length > 1 && <sub className="font-bold">{g.details.length}</sub>}
           </button>
         ))}
       </div>
