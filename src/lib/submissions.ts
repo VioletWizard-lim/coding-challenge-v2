@@ -2,19 +2,9 @@ import "server-only";
 import { db, fetchAll, type SubmissionRow, type UserRow } from "./db";
 import type { LogEvent } from "./editLog";
 import { kstDate, summarizeSubmission, type SubmissionSummary } from "./journey";
+import { gradeClassFor } from "./problems";
 
 type Profile = Pick<UserRow, "name" | "grade" | "class" | "programming_grade" | "programming_class">;
-
-/** 과목이 "프로그래밍"이면 프로그래밍 수업 반(없으면 원래 반)을 넣는다 (v1과 같음). */
-export function gradeClassFor(profile: Profile, subject: string) {
-  if (subject === "프로그래밍") {
-    return {
-      grade: profile.programming_grade ?? profile.grade,
-      class: profile.programming_class ?? profile.class,
-    };
-  }
-  return { grade: profile.grade, class: profile.class };
-}
 
 /** 한국 시간 기준 올해 */
 const koreanYear = () => Number(new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(new Date()));

@@ -5,7 +5,10 @@ import SideTabs from "@/components/SideTabs";
 import { listAllProblems } from "@/lib/problemStore";
 import { listStudents } from "@/lib/teacher";
 import HealthCard from "./HealthCard";
+import { kstDate } from "@/lib/journey";
+import { SUBJECTS } from "@/lib/problems";
 import ProblemManager from "./ProblemManager";
+import ReflectionBoard from "./ReflectionBoard";
 import StudentImport from "./StudentImport";
 import StudentManager from "./StudentManager";
 
@@ -55,9 +58,35 @@ async function TeacherHome() {
               </div>
             ),
           },
+          {
+            id: "reflections",
+            label: "💭 성찰 모아보기",
+            content: (
+              <div className="mx-auto max-w-5xl">
+                <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                  <Reflections />
+                </Suspense>
+              </div>
+            ),
+          },
         ]}
       />
     </>
+  );
+}
+
+async function Reflections() {
+  let students, problems;
+  try {
+    [students, { problems }] = await Promise.all([listStudents(), listAllProblems()]);
+  } catch (err) {
+    console.error(err);
+    return <p className="text-danger">학생 목록을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
+  }
+  const titles: Record<string, string> = {};
+  for (const p of problems) titles[`${p.subject}_${p.number}`] = p.title;
+  return (
+    <ReflectionBoard students={students} subjects={Object.keys(SUBJECTS)} today={kstDate(new Date())} titles={titles} />
   );
 }
 

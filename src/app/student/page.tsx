@@ -7,6 +7,7 @@ import { listOpenProblems } from "@/lib/problemStore";
 import { requireRole } from "@/lib/session";
 import JourneyTab from "./JourneyTab";
 import MySubmissions from "./MySubmissions";
+import ReflectionTab from "./ReflectionTab";
 import SideTabs from "@/components/SideTabs";
 import Workspace from "./Workspace";
 
@@ -55,12 +56,23 @@ async function StudentHome() {
             ),
           },
           {
+            id: "reflection",
+            label: "💭 오늘의 성찰",
+            content: (
+              <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                <div className="mx-auto max-w-3xl">
+                  <ReflectionTab userId={profile.id} name={profile.name} subjects={subjects} problems={problems} />
+                </div>
+              </Suspense>
+            ),
+          },
+          {
             id: "journey",
             label: "🧭 나의 학습 여정",
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
-                  <JourneyTab name={profile.name} />
+                  <JourneyTab userId={profile.id} name={profile.name} />
                 </div>
               </Suspense>
             ),
