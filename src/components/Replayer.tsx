@@ -197,9 +197,9 @@ export default function Replayer({ init, code, log, mode = "code" }: Props) {
             </p>
           )}
           {marks.length > 0 && (
-            <details className="text-sm">
-              <summary className="cursor-pointer text-muted">주요 순간 {marks.length}개 (누르면 그 순간으로 이동)</summary>
-              <ul className="mt-2 flex max-h-56 flex-col gap-0.5 overflow-auto">
+            <div className="text-sm">
+              <p className="text-muted">주요 순간 {marks.length}개 (누르면 그 순간으로 이동)</p>
+              <ul className="mt-1 flex max-h-56 flex-col gap-0.5 overflow-auto">
                 {marks.map((m, i) => (
                   <li key={i}>
                     <button
@@ -217,7 +217,7 @@ export default function Replayer({ init, code, log, mode = "code" }: Props) {
                   </li>
                 ))}
               </ul>
-            </details>
+            </div>
           )}
         </>
       )}
