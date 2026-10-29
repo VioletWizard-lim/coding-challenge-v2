@@ -7,29 +7,85 @@ import { resetPassword, type ResetResult } from "./actions";
 const SHOW_LIMIT = 50;
 
 const classOf = (grade: unknown, cls: unknown) => (grade || cls ? `${grade ?? "?"}-${cls ?? "?"}` : "");
+const byNumber = (a: string, b: string) => a.localeCompare(b, "ko", { numeric: true });
 
-/** 학생 계정 찾기 + 비밀번호 초기화 */
+/** 반 고르기 값: "class:2-3"(학년-반) 또는 "prog:2-5"(프로그래밍 반) */
+function inClass(s: StudentRow, picked: string) {
+  if (!picked) return true;
+  const [kind, value] = picked.split(":");
+  return kind === "prog"
+    ? classOf(s.programming_grade, s.programming_class) === value
+    : classOf(s.grade, s.class) === value;
+}
+
+/** 학생 계정 찾기(반별 보기, 학번·이름 찾기) + 비밀번호 초기화 */
 export default function StudentManager({ students }: { students: StudentRow[] }) {
   const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+
+  const classes = useMemo(() => {
+    const plain = new Set<string>(), prog = new Set<string>();
+    for (const s of students) {
+      if (classOf(s.grade, s.class)) plain.add(classOf(s.grade, s.class));
+      if (classOf(s.programming_grade, s.programming_class)) prog.add(classOf(s.programming_grade, s.programming_class));
+    }
+    return { plain: [...plain].sort(byNumber), prog: [...prog].sort(byNumber) };
+  }, [students]);
 
   const matched = useMemo(() => {
     const q = query.trim();
-    return q ? students.filter((s) => String(s.id).includes(q) || (s.name ?? "").includes(q)) : students;
-  }, [students, query]);
+    return students
+      .filter((s) => inClass(s, picked))
+      .filter((s) => !q || String(s.id).includes(q) || (s.name ?? "").includes(q))
+      .sort((a, b) => byNumber(String(a.id), String(b.id)));
+  }, [students, query, picked]);
 
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">👥 학생 계정</h2>
-        <span className="text-sm text-muted">전체 {students.length}명</span>
+        <span className="text-sm text-muted">
+          {picked || query.trim() ? `${matched.length}명 / ` : ""}전체 {students.length}명
+        </span>
       </div>
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="학번이나 이름으로 찾기"
-        className="rounded-lg border border-line px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-      />
+      <div className="flex flex-wrap gap-2">
+        <select
+          value={picked}
+          onChange={(e) => {
+            setPicked(e.target.value);
+            setOpenId(null);
+          }}
+          aria-label="반"
+          className="rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+        >
+          <option value="">전체 반</option>
+          {classes.plain.length > 0 && (
+            <optgroup label="학년-반">
+              {classes.plain.map((c) => (
+                <option key={c} value={`class:${c}`}>
+                  {c}반
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {classes.prog.length > 0 && (
+            <optgroup label="프로그래밍 반">
+              {classes.prog.map((c) => (
+                <option key={c} value={`prog:${c}`}>
+                  프로그래밍 {c}반
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="학번이나 이름으로 찾기"
+          className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+        />
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="text-muted">
@@ -57,7 +113,7 @@ export default function StudentManager({ students }: { students: StudentRow[] })
       {matched.length === 0 && <p className="text-sm text-muted">찾는 학생이 없어요.</p>}
       {matched.length > SHOW_LIMIT && (
         <p className="text-sm text-muted">
-          {matched.length}명 중 {SHOW_LIMIT}명만 보여요. 학번이나 이름으로 찾아 주세요.
+          {matched.length}명 중 {SHOW_LIMIT}명만 보여요. 반을 고르거나 학번·이름으로 찾아 주세요.
         </p>
       )}
     </section>

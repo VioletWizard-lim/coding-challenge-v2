@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, type ReactNode } from "react";
+import ScrollTopButton from "./ScrollTopButton";
 
 type Tab = { id: string; label: string; content: ReactNode };
 
@@ -83,6 +84,7 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
           ))}
         </div>
       </div>
+      <ScrollTopButton />
     </NavContext>
   );
 }
