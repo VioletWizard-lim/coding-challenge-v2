@@ -49,6 +49,9 @@ async function shrinkImage(file: File): Promise<File> {
   return blob ? new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" }) : file;
 }
 
+const fileSize = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+
 /** 워드(docx)는 브라우저에서 글(표 포함 HTML)만 뽑는다. 그림은 빼므로 파일이 커도 괜찮다 */
 async function docxToHtml(file: File): Promise<string> {
   const mammoth = await import("mammoth");
@@ -77,6 +80,8 @@ export default function ProblemImport({
   const [aiSubject, setAiSubject] = useState(Object.keys(SUBJECTS)[0]);
   const [csvText, setCsvText] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
+  /** 고른 학습지 파일: '확인'을 눌러야 AI에게 보낸다 */
+  const [aiFiles, setAiFiles] = useState<File[]>([]);
   const [rows, setRows] = useState<ProblemPreviewRow[] | null>(null);
   const [done, setDone] = useState<Extract<ProblemImportResult, { ok: true }> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -90,6 +95,7 @@ export default function ProblemImport({
     setDone(null);
     setMessage(null);
     setFileName("");
+    setAiFiles([]);
     if (fileInput.current) fileInput.current.value = "";
   }
 
@@ -109,12 +115,25 @@ export default function ProblemImport({
     startTransition(() => preview(text));
   }
 
-  /** 학습지 → AI → 문제 목록 → (공개 상태는 지금 그대로 두고) CSV 글로 바꿔 같은 미리보기에 */
-  async function pickWorksheet(list: FileList | null) {
+  /** 학습지 파일 고르기: 목록에만 담고, '확인'을 눌러야 보낸다 */
+  function pickWorksheet(list: FileList | null) {
     if (!list?.length) return;
     const picked = [...list]; // reset()이 파일 입력을 비우면 FileList도 비므로 먼저 복사
     reset();
-    setFileName(picked.map((f) => f.name).join(", "));
+    setAiFiles(picked);
+  }
+
+  function removeWorksheet(index: number) {
+    setMessage(null);
+    setAiFiles((files) => files.filter((_, i) => i !== index));
+    if (fileInput.current) fileInput.current.value = ""; // 같은 파일을 다시 고를 수 있게
+  }
+
+  /** 학습지 → AI → 문제 목록 → (공개 상태는 지금 그대로 두고) CSV 글로 바꿔 같은 미리보기에 */
+  function sendWorksheet() {
+    const picked = aiFiles;
+    if (!picked.length) return;
+    setMessage(null);
     if (picked.length > MAX_WORKSHEET_FILES) return setMessage(`한 번에 ${MAX_WORKSHEET_FILES}개 파일까지 올릴 수 있어요.`);
     startTransition(async () => {
       const form = new FormData();
@@ -228,7 +247,7 @@ export default function ProblemImport({
               줘요. 한글(HWP) 파일은 한글에서 <b>&lsquo;PDF로 저장&rsquo;</b>해서 올려 주세요.
             </li>
             <li>
-              여러 장이면 한꺼번에 고를 수 있어요. 사진은 자동으로 줄여서 보내고, 워드는 글만 뽑아 보내서 크기
+              파일을 고르고 <b>확인</b>을 누르면 AI가 읽기 시작해요. 여러 장이면 한꺼번에 고를 수 있어요. 사진은 자동으로 줄여서 보내고, 워드는 글만 뽑아 보내서 크기
               걱정이 없어요. PDF는 모두 합쳐 4MB까지예요. 읽는 데 1~3분 걸릴 수 있어요.
             </li>
             <li>
@@ -253,9 +272,9 @@ export default function ProblemImport({
               </select>
               <label className="flex flex-wrap items-center gap-3">
                 <span className="cursor-pointer rounded-lg border border-brand bg-white px-3 py-1.5 font-bold text-brand hover:bg-brand-soft">
-                  학습지 파일 고르기
+                  {aiFiles.length ? "파일 다시 고르기" : "학습지 파일 고르기"}
                 </span>
-                <span className="text-muted">{fileName || "선택한 파일 없음"}</span>
+                {!aiFiles.length && <span className="text-muted">선택한 파일 없음</span>}
                 <input
                   ref={fileInput}
                   type="file"
@@ -265,6 +284,49 @@ export default function ProblemImport({
                   onChange={(e) => pickWorksheet(e.target.files)}
                 />
               </label>
+            </div>
+          )}
+          {!done && aiFiles.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border border-line bg-white p-3 text-sm">
+              <p className="font-bold">고른 파일 {aiFiles.length}개 ({aiSubject})</p>
+              <ul className="flex flex-col gap-1">
+                {aiFiles.map((f, i) => (
+                  <li key={`${f.name}-${i}`} className="flex items-center gap-2">
+                    <span className="min-w-0 truncate">📎 {f.name}</span>
+                    <span className="shrink-0 text-muted">{fileSize(f.size)}</span>
+                    {!pending && !rows && (
+                      <button
+                        type="button"
+                        onClick={() => removeWorksheet(i)}
+                        aria-label={`${f.name} 빼기`}
+                        className="shrink-0 text-danger hover:underline"
+                      >
+                        빼기
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {!rows && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={sendWorksheet}
+                    disabled={pending}
+                    className="rounded-lg bg-brand px-4 py-2 font-bold text-white disabled:opacity-50"
+                  >
+                    확인 (AI에게 보내기)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    disabled={pending}
+                    className="rounded-lg border border-line bg-white px-4 py-2 disabled:opacity-50"
+                  >
+                    취소
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>
@@ -343,7 +405,7 @@ export default function ProblemImport({
                   주세요.
                 </p>
               )}
-              <div className="max-h-96 overflow-auto rounded-lg border border-line bg-white">
+              <div className="overflow-x-auto rounded-lg border border-line bg-white">
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-page text-muted">
                     <tr>
@@ -390,7 +452,7 @@ export default function ProblemImport({
                             <td colSpan={10} className="bg-page/60 p-3">
                               <div className="max-w-xl rounded-xl border border-line bg-white p-4">
                                 <p className="mb-2 text-xs text-muted">학생 화면에서 이렇게 보여요</p>
-                                <ProblemView problem={{ ...r.problem, id: null }} />
+                                <ProblemView problem={{ ...r.problem, id: null }} fit />
                               </div>
                             </td>
                           </tr>
