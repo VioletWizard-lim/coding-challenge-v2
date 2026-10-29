@@ -1,22 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { byNumber, classOf, classOptions, inClass } from "@/lib/classes";
 import type { StudentRow } from "@/lib/teacher";
 import { resetPassword, type ResetResult } from "./actions";
 
 const SHOW_LIMIT = 50;
-
-const classOf = (grade: unknown, cls: unknown) => (grade || cls ? `${grade ?? "?"}-${cls ?? "?"}` : "");
-const byNumber = (a: string, b: string) => a.localeCompare(b, "ko", { numeric: true });
-
-/** 반 고르기 값: "class:2-3"(학년-반) 또는 "prog:2-5"(프로그래밍 반) */
-function inClass(s: StudentRow, picked: string) {
-  if (!picked) return true;
-  const [kind, value] = picked.split(":");
-  return kind === "prog"
-    ? classOf(s.programming_grade, s.programming_class) === value
-    : classOf(s.grade, s.class) === value;
-}
 
 /** 학생 계정 찾기(반별 보기, 학번·이름 찾기) + 비밀번호 초기화 */
 export default function StudentManager({ students }: { students: StudentRow[] }) {
@@ -24,14 +13,7 @@ export default function StudentManager({ students }: { students: StudentRow[] })
   const [picked, setPicked] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
 
-  const classes = useMemo(() => {
-    const plain = new Set<string>(), prog = new Set<string>();
-    for (const s of students) {
-      if (classOf(s.grade, s.class)) plain.add(classOf(s.grade, s.class));
-      if (classOf(s.programming_grade, s.programming_class)) prog.add(classOf(s.programming_grade, s.programming_class));
-    }
-    return { plain: [...plain].sort(byNumber), prog: [...prog].sort(byNumber) };
-  }, [students]);
+  const classes = useMemo(() => classOptions(students), [students]);
 
   const matched = useMemo(() => {
     const q = query.trim();

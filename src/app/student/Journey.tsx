@@ -7,6 +7,7 @@ import { formatDuration } from "@/lib/replay";
 import ReflectionView from "@/components/ReflectionView";
 import { useStudentNav } from "@/components/SideTabs";
 import type { Reflection } from "@/lib/reflection";
+import ReplaySection, { type ReplayLoader } from "./ReplaySection";
 
 // 활동 달력 색: 한 가지 색(남색)의 밝기로 많고 적음을 나타낸다. 흑백 인쇄에서도 밝기 차이로 읽힌다.
 const HEAT = ["#eceef4", "#c7d2fe", "#818cf8", "#4f46e5", "#3730a3"];
@@ -20,12 +21,23 @@ const percent = (r: number | null) => (r === null ? "–" : `${Math.round(r * 10
 const DAYS_PAGE = 10;
 
 /** 나의 학습 여정: 언제, 무엇을, 어떻게 풀어 왔는지 */
-export default function Journey({ journey, reflections }: { journey: JourneyData; reflections: Reflection[] }) {
+export default function Journey({
+  journey,
+  reflections,
+  loadReplay,
+}: {
+  journey: JourneyData;
+  reflections: Reflection[];
+  /** 교사 화면: '과정 보기'를 그 자리에서 재생 (없으면 학생의 '내 제출 현황' 탭으로 이동) */
+  loadReplay?: ReplayLoader;
+}) {
   const { totals, calendar, weekly, units, days } = journey;
   if (!totals.submissions && !reflections.length) {
     return (
       <p className="rounded-xl border border-line bg-white p-5 text-muted">
-        아직 제출한 과제가 없어요. 첫 제출을 하면 여기에 나의 학습 여정이 쌓여요.
+        {loadReplay
+          ? "이 학생은 아직 제출한 과제가 없어요."
+          : "아직 제출한 과제가 없어요. 첫 제출을 하면 여기에 나의 학습 여정이 쌓여요."}
       </p>
     );
   }
@@ -73,8 +85,15 @@ export default function Journey({ journey, reflections }: { journey: JourneyData
           <Units units={units} />
         </Card>
       )}
-      <Card title="🗓 날짜별 기록" note="'과정 보기'를 누르면 내 제출 현황에서 그때의 작성 과정을 바로 보여 줘요">
-        <DayList days={days} reflections={reflections} />
+      <Card
+        title="🗓 날짜별 기록"
+        note={
+          loadReplay
+            ? "'과정 보기'를 누르면 그 자리에서 작성 과정을 재생해요"
+            : "'과정 보기'를 누르면 내 제출 현황에서 그때의 작성 과정을 바로 보여 줘요"
+        }
+      >
+        <DayList days={days} reflections={reflections} loadReplay={loadReplay} />
       </Card>
     </div>
   );
@@ -213,7 +232,15 @@ function Units({ units }: { units: JourneyData["units"] }) {
   );
 }
 
-function DayList({ days, reflections }: { days: JourneyData["days"]; reflections: Reflection[] }) {
+function DayList({
+  days,
+  reflections,
+  loadReplay,
+}: {
+  days: JourneyData["days"];
+  reflections: Reflection[];
+  loadReplay?: ReplayLoader;
+}) {
   const [shown, setShown] = useState(DAYS_PAGE);
   const { problemLabel } = useStudentNav();
   // 제출한 날 + 성찰만 쓴 날을 합쳐 최근 날짜부터
@@ -227,7 +254,7 @@ function DayList({ days, reflections }: { days: JourneyData["days"]; reflections
           <h4 className="text-sm font-bold text-muted">{formatDay(date)}</h4>
           <ul className="flex flex-col gap-1.5">
             {items.get(date)!.map((s) => (
-              <DayItem key={s.id} s={s} />
+              <DayItem key={s.id} s={s} loadReplay={loadReplay} />
             ))}
             {reflections
               .filter((r) => r.classDate === date)
@@ -253,8 +280,9 @@ function DayList({ days, reflections }: { days: JourneyData["days"]; reflections
   );
 }
 
-function DayItem({ s }: { s: SubmissionSummary }) {
+function DayItem({ s, loadReplay }: { s: SubmissionSummary; loadReplay?: ReplayLoader }) {
   const { showSubmission, problemLabel } = useStudentNav();
+  const [open, setOpen] = useState(false);
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-line px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -264,15 +292,20 @@ function DayItem({ s }: { s: SubmissionSummary }) {
             🔧 스스로 고침 {s.fixedErrors}번
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => showSubmission(`${s.subject}_${s.problem}`, s.id)}
-          className="ml-auto whitespace-nowrap text-sm font-bold text-brand hover:underline"
-        >
-          {s.hasLog ? "▶ 과정 보기" : "제출 보기"} →
-        </button>
+        {/* 교사 화면에서는 기록이 있는 제출만 그 자리에서 재생 */}
+        {(!loadReplay || s.hasLog) && (
+          <button
+            type="button"
+            onClick={() => (loadReplay ? setOpen(!open) : showSubmission(`${s.subject}_${s.problem}`, s.id))}
+            className="ml-auto whitespace-nowrap text-sm font-bold text-brand hover:underline"
+          >
+            {loadReplay ? (open ? "접기" : "▶ 과정 보기") : `${s.hasLog ? "▶ 과정 보기" : "제출 보기"} →`}
+          </button>
+        )}
       </div>
-      <Stats stats={s.stats} empty={!s.hasLog} />
+      {/* 재생기를 열면 재생기 안에 같은 통계가 나오므로 여기서는 숨긴다 */}
+      {!open && <Stats stats={s.stats} empty={!s.hasLog} />}
+      {open && loadReplay && <ReplaySection submissionId={s.id} autoStart loader={loadReplay} />}
     </li>
   );
 }

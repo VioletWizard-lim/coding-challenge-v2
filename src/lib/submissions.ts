@@ -66,6 +66,18 @@ export async function getReplayData(submissionId: number, name: string): Promise
   return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
 }
 
+/** 교사용 재생 기록: 어느 학생의 제출이든 id로 연다 (교사 확인은 부르는 쪽에서) */
+export async function getReplayDataById(submissionId: number): Promise<ReplayData | null> {
+  const { data, error } = await db()
+    .from("submissions")
+    .select("code, init_code, edit_log")
+    .eq("id", submissionId)
+    .maybeSingle<Pick<SubmissionRow, "code" | "init_code" | "edit_log">>();
+  if (error) throw new Error(`기록 조회 실패: ${error.message}`);
+  if (!data) return null;
+  return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
+}
+
 /**
  * 학습 여정용: 내 제출을 작성 기록까지 읽어 서버에서 요약만 만든다(무거운 기록은 브라우저로 보내지 않음).
  * 기록이 커서 100건씩 나눠 받는다.

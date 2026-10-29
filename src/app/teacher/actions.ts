@@ -6,8 +6,11 @@ import { getSession } from "@/lib/session";
 import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, saveProblem } from "@/lib/problemStore";
+import { getUserProfile } from "@/lib/auth";
+import { buildJourney, type Journey } from "@/lib/journey";
 import type { Reflection } from "@/lib/reflection";
-import { listReflectionsByDate } from "@/lib/reflectionStore";
+import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore";
+import { getMyJourneyData, getReplayDataById, type ReplayData } from "@/lib/submissions";
 import { parseStudentCsv, type ParsedRow } from "@/lib/studentCsv";
 import { createStudents, findExistingIds, resetStudentPassword } from "@/lib/teacher";
 
@@ -279,5 +282,38 @@ export async function loadReflections(classDate: string, subject: string): Promi
   } catch (err) {
     console.error("성찰 조회 오류:", err);
     return { ok: false, message: "성찰을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type StudentJourneyResult =
+  | { ok: true; journey: Journey; reflections: Reflection[] }
+  | { ok: false; message: string };
+
+/** 교사용: 한 학생의 학습 여정 (학생이 보는 화면과 같은 내용) */
+export async function loadStudentJourney(studentId: string): Promise<StudentJourneyResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const profile = await getUserProfile(String(studentId ?? ""));
+    if (!profile || profile.role !== "student") return { ok: false, message: "학생을 찾지 못했어요." };
+    const [{ summaries, today }, mine] = await Promise.all([getMyJourneyData(profile.name), listMyReflections(profile.id)]);
+    return { ok: true, journey: buildJourney(summaries, today), reflections: mine.reflections };
+  } catch (err) {
+    console.error("학습 여정 조회 오류:", err);
+    return { ok: false, message: "학습 여정을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type TeacherReplayResult = { ok: true; data: ReplayData } | { ok: false; error: string };
+
+/** 교사용: 아무 학생 제출의 작성 과정 기록 (재생용) */
+export async function loadStudentReplay(submissionId: number): Promise<TeacherReplayResult> {
+  if (!(await isTeacher())) return { ok: false, error: "교사 계정으로 다시 로그인하세요." };
+  if (!Number.isInteger(submissionId)) return { ok: false, error: "제출을 찾지 못했어요." };
+  try {
+    const data = await getReplayDataById(submissionId);
+    return data ? { ok: true, data } : { ok: false, error: "제출을 찾지 못했어요." };
+  } catch (err) {
+    console.error("재생 기록 오류:", err);
+    return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
