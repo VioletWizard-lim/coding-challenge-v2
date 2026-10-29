@@ -48,7 +48,7 @@ v1 사이트는 수업에서 계속 운영 중이다. v2 작업이 v1을 깨뜨�
 
 `submissions`: `id`, `submitted_at`, `name`, `subject`, `problem`(예: "2-3"), `code`, `description`, `grade`, `class`, `year`, `init_code`, `edit_log`(jsonb), `score_function`(0~40), `score_understanding`(0~40, 화면 표기 "코드 설명"), `score_challenge`(0~20), `score_total`, `feedback`, `wrong_reason`
 
-- v1은 학생 제출을 `name`으로 조회한다. v2도 당분간 같은 방식을 유지하되, 나중에 `user_id` 컬럼을 추가하는 것은 괜찮다.
+- v1은 학생 제출을 `name`으로 조회한다. v2는 `submissions.user_id`(009, 새 칸)에 학생 아이디를 함께 저장하고 **아이디로** 내 제출을 찾는다. `user_id`가 비어 있는 제출(지난 제출, v1 제출)은 이름으로 찾되, 동명이인이 있으면 제출할 때의 반까지 맞아야 내 것으로 본다(`src/lib/submissions.ts`의 `ownerFilter`).
 - 과목이 "프로그래밍"이면 `grade/class`에 `programming_grade/programming_class`(없으면 `grade/class`)를 넣는다.
 - Supabase API는 한 번에 최대 1000행만 준다. 목록 조회는 반드시 페이지를 나눠 끝까지 받는다(v1 `db_utils.fetch_all` 참고).
 

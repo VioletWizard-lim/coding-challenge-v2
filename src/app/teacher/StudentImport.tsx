@@ -62,7 +62,9 @@ export default function StudentImport() {
   }
 
   const newRows = preview?.filter((r) => !r.error && !r.exists) ?? [];
-  const existRows = preview?.filter((r) => !r.error && r.exists) ?? [];
+  const addRows = preview?.filter((r) => !r.error && r.plan?.kind === "add") ?? [];
+  const sameRows = preview?.filter((r) => !r.error && r.plan?.kind === "same") ?? [];
+  const conflictRows = preview?.filter((r) => !r.error && r.plan?.kind === "conflict") ?? [];
   const errorRows = preview?.filter((r) => r.error) ?? [];
 
   return (
@@ -80,7 +82,11 @@ export default function StudentImport() {
           → 엑셀에서 학생을 채우고 CSV로 저장 (한 번에 {MAX_ROWS}명까지)
         </li>
         <li>과목이 여러 개면 &lsquo;프로그래밍/정보&rsquo;처럼 / 로 나눠 적고, 비우면 모든 과목을 볼 수 있어요.</li>
-        <li>초기 비밀번호를 비우면 숫자 6자리를 만들어 줘요. 이미 있는 학번은 건너뛰고 바꾸지 않아요.</li>
+        <li>초기 비밀번호를 비우면 숫자 6자리를 만들어 줘요.</li>
+        <li>
+          이미 있는 학번이 같은 학생(이름이 같음)이면 <b>과목만 더해요</b>. 이름·비밀번호는 바꾸지 않아요. 이름이 다르면 다른
+          학생일 수 있어서 건드리지 않고 알려 줘요.
+        </li>
       </ol>
 
       {!done && (
@@ -109,9 +115,15 @@ export default function StudentImport() {
       {preview && !pending && (
         <>
           <p className="text-sm">
-            <b>✚ 새로 등록 {newRows.length}명</b> · ⏭ 이미 있는 학번 {existRows.length}명(건너뜀) · ✖ 오류{" "}
-            {errorRows.length}줄(건너뜀)
+            <b>✚ 새로 등록 {newRows.length}명</b> · <b className="text-brand">➕ 과목 추가 {addRows.length}명</b> · ⏭ 이미
+            있음 {sameRows.length}명 · ⚠️ 다른 학생일 수 있음 {conflictRows.length}명(건너뜀) · ✖ 오류 {errorRows.length}줄(건너뜀)
           </p>
+          {conflictRows.length > 0 && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              ⚠️ 이미 다른 사람이 쓰는 아이디가 있어요. 같은 학생이 맞다면 이름을 똑같이 적고, 다른 학생이라면 아이디를 바꿔서
+              다시 올려 주세요.
+            </p>
+          )}
           <div className="max-h-96 overflow-auto rounded-lg border border-line">
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 bg-page text-muted">
@@ -125,12 +137,21 @@ export default function StudentImport() {
               </thead>
               <tbody>
                 {preview.map((r) => (
-                  <tr key={r.line} className={`border-t border-line/60 ${r.error ? "bg-red-50" : r.exists ? "bg-page" : ""}`}>
+                  <tr
+                    key={r.line}
+                    className={`border-t border-line/60 ${
+                      r.error ? "bg-red-50" : r.plan?.kind === "conflict" ? "bg-amber-50" : r.plan?.kind === "same" ? "bg-page" : ""
+                    }`}
+                  >
                     <td className="px-2 py-1.5 text-muted">{r.line}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
                       {r.error ? (
                         <span className="text-danger">✖ {r.error}</span>
-                      ) : r.exists ? (
+                      ) : r.plan?.kind === "add" ? (
+                        <span className="font-bold text-brand">➕ 과목 추가: {r.plan.add.join(", ")}</span>
+                      ) : r.plan?.kind === "conflict" ? (
+                        <span className="text-amber-800">⚠️ {r.plan.reason}</span>
+                      ) : r.plan?.kind === "same" ? (
                         <span className="text-muted">⏭ 이미 있음</span>
                       ) : (
                         <span className="text-green-700">✚ 새로 등록</span>
@@ -151,10 +172,13 @@ export default function StudentImport() {
             <button
               type="button"
               onClick={register}
-              disabled={newRows.length === 0}
+              disabled={newRows.length + addRows.length === 0}
               className="rounded-lg bg-brand px-4 py-2 font-bold text-white disabled:opacity-50"
             >
-              {newRows.length}명 등록하기
+              {[newRows.length && `${newRows.length}명 등록`, addRows.length && `${addRows.length}명 과목 추가`]
+                .filter(Boolean)
+                .join(" · ") || "등록할 학생 없음"}
+              하기
             </button>
             <button type="button" onClick={reset} className="rounded-lg border border-line px-4 py-2">
               취소
@@ -167,6 +191,7 @@ export default function StudentImport() {
         <div className="flex flex-col gap-3">
           <p className="font-bold text-green-700" role="status">
             ✅ {done.created.length}명 등록했어요.
+            {done.updated.length > 0 && ` ${done.updated.length}명에게 과목을 더했어요.`}
             {done.skipped.length > 0 && ` (${done.skipped.length}줄 건너뜀)`}
           </p>
           {done.created.length > 0 && (
@@ -211,6 +236,15 @@ export default function StudentImport() {
                 </table>
               </div>
             </>
+          )}
+          {done.updated.length > 0 && (
+            <ul className="list-disc pl-5 text-sm">
+              {done.updated.map((u) => (
+                <li key={u.id}>
+                  {u.id} {u.name}: ➕ {u.added.join(", ")}
+                </li>
+              ))}
+            </ul>
           )}
           {done.skipped.length > 0 && (
             <details className="text-sm">

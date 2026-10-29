@@ -93,25 +93,6 @@ export async function saveTodayReflection(profile: Profile, input: ReflectionInp
   return fromRow(data);
 }
 
-/** 오늘(한국 시간) 내가 제출한 문제 번호들 (과목별, 처음 제출한 순서) */
-export async function todaysSubmittedProblems(name: string): Promise<Record<string, string[]>> {
-  const today = kstDate(new Date());
-  const rows = await fetchAll<{ subject: string; problem: string; id: number }>(() =>
-    db()
-      .from("submissions")
-      .select("id, subject, problem")
-      .eq("name", name)
-      .gte("submitted_at", `${today}T00:00:00+09:00`)
-      .order("id"),
-  );
-  const bySubject: Record<string, string[]> = {};
-  for (const r of rows) {
-    const list = (bySubject[r.subject] ??= []);
-    if (!list.includes(r.problem)) list.push(r.problem);
-  }
-  return bySubject;
-}
-
 export type ReflectionDay = { userId: string; subject: string; classDate: string; grade: string | null; class: string | null };
 
 /** 교사용: 누가 어느 날·과목에 성찰을 썼는지만 (날짜 고르기 목록을 '쓴 날'로만 채우려고) */

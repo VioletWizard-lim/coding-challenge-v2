@@ -80,3 +80,29 @@ describe("결과 CSV", () => {
     );
   });
 });
+
+describe("이미 있는 아이디", () => {
+  const csv = (subjects: string | null, name = "홍길동") => ({
+    id: "s203011234",
+    name,
+    grade: 2,
+    class: 3,
+    programmingGrade: null,
+    programmingClass: null,
+    subjects,
+    password: "",
+  });
+  const acc = (subjects: string | null, name = "홍길동", role = "student") => ({ name, role, subjects });
+  it("같은 학생이면 새 과목만 더한다", async () => {
+    const { planForExisting } = await import("./studentCsv");
+    expect(planForExisting(csv("프로그래밍"), acc("정보"))).toEqual({ kind: "add", add: ["프로그래밍"], next: "정보,프로그래밍" });
+    expect(planForExisting(csv("정보"), acc("정보,프로그래밍"))).toEqual({ kind: "same" });
+    expect(planForExisting(csv(null), acc("정보"))).toEqual({ kind: "add", add: ["프로그래밍"], next: "정보,프로그래밍" });
+    expect(planForExisting(csv("프로그래밍"), acc(null))).toEqual({ kind: "same" }); // 이미 모든 과목
+  });
+  it("이름이 다르거나 교사 계정이면 건드리지 않는다", async () => {
+    const { planForExisting } = await import("./studentCsv");
+    expect(planForExisting(csv("정보", "김철수"), acc("정보")).kind).toBe("conflict");
+    expect(planForExisting(csv("정보"), acc(null, "홍길동", "teacher")).kind).toBe("conflict");
+  });
+});

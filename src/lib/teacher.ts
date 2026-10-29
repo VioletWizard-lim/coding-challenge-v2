@@ -1,6 +1,7 @@
 import "server-only";
 import bcrypt from "bcryptjs";
 import { db, fetchAll, type UserRow } from "./db";
+import type { ExistingAccount } from "./studentCsv";
 
 export type HealthStatus = { checkedAt: string | null; ok: boolean; ageHours: number | null };
 
@@ -49,15 +50,24 @@ export async function resetStudentPassword(id: string, password: string): Promis
   return (data ?? []).length === 1;
 }
 
-/** 이미 있는 아이디(학생·교사 모두) 중에서 ids에 든 것 */
-export async function findExistingIds(ids: string[]): Promise<Set<string>> {
-  const found = new Set<string>();
+/** 이미 있는 계정(학생·교사 모두) 중에서 ids에 든 것: 아이디 → 이름·역할·과목 */
+export async function findExistingAccounts(ids: string[]): Promise<Map<string, ExistingAccount>> {
+  const found = new Map<string, ExistingAccount>();
   for (let i = 0; i < ids.length; i += 200) {
-    const { data, error } = await db().from("users").select("id").in("id", ids.slice(i, i + 200));
+    const { data, error } = await db().from("users").select("id, name, role, subjects").in("id", ids.slice(i, i + 200));
     if (error) throw new Error(`학번 확인 실패: ${error.message}`);
-    for (const row of data ?? []) found.add(String(row.id));
+    for (const row of data ?? []) {
+      found.set(String(row.id), { name: String(row.name ?? ""), role: String(row.role ?? ""), subjects: row.subjects ?? null });
+    }
   }
   return found;
+}
+
+/** 이미 있는 학생에게 과목을 더한다 (이름·비밀번호 등 다른 칸은 그대로). 학생 계정만 */
+export async function setStudentSubjects(id: string, subjects: string): Promise<boolean> {
+  const { data, error } = await db().from("users").update({ subjects }).eq("id", id).eq("role", "student").select("id");
+  if (error) throw new Error(`과목 저장 실패: ${error.message}`);
+  return (data ?? []).length === 1;
 }
 
 export type NewStudent = {

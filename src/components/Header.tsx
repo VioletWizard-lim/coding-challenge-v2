@@ -1,14 +1,14 @@
 import { SITE } from "@/lib/site";
+import Logo from "./Logo";
 
 /** 맨 위 막대: 왼쪽 사이트 이름, 오른쪽 위 이름·로그아웃 */
 export default function Header({ name, role }: { name: string; role: "student" | "teacher" }) {
   return (
     <header className="sticky top-0 z-20 border-b border-line bg-white/95 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-[1440px] items-center justify-between gap-3 px-4 md:px-6">
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate text-lg font-black">
-            {SITE.icon} {SITE.name}
-          </span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Logo className="h-7 w-7" />
+          <span className="truncate text-lg font-black">{SITE.name}</span>
           <span className="hidden truncate text-sm text-muted sm:inline">
             {SITE.nameKo} · {SITE.subtitle}
           </span>

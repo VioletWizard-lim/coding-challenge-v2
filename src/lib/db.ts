@@ -50,7 +50,7 @@ export type SubmissionRow = {
   wrong_reason: string | null;
 };
 
-type RangeQuery<T> = { range(from: number, to: number): PromiseLike<{ data: T[] | null; error: { message: string } | null }> };
+export type RangeQuery<T> = { range(from: number, to: number): PromiseLike<{ data: T[] | null; error: { message: string } | null }> };
 
 /**
  * 조건에 맞는 행을 모두 가져온다 (v1 db_utils.fetch_all과 같음).
