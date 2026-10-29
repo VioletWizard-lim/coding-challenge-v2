@@ -9,17 +9,18 @@ import Home, { type HomeData } from "./Home";
 export default async function HomeTab({
   userId,
   name,
+  subjects,
   problems,
 }: {
   userId: string;
   name: string;
+  subjects: string[];
   problems: Problem[];
 }) {
   let data: HomeData;
   try {
     const [{ summaries, records, today }, mine] = await Promise.all([getMyJourneyData(name), listMyReflections(userId)]);
     const submitted = new Set(summaries.map((s) => `${s.subject}_${s.problem}`));
-    const unsolved = problems.filter((p) => !submitted.has(`${p.subject}_${p.number}`));
     const todaySubs = summaries.filter((s) => s.date === today);
     const recent = summaries.find((s) => s.hasLog) ?? null;
     const achievements = computeAchievements(
@@ -36,9 +37,12 @@ export default async function HomeTab({
       .sort((a, b) => b.earnedAt.localeCompare(a.earnedAt));
     data = {
       today,
-      next: unsolved[0] ? { subject: unsolved[0].subject, number: unsolved[0].number } : null,
-      unsolvedCount: unsolved.length,
-      openCount: problems.length,
+      // 과목마다 따로: 공개됐지만 아직 안 낸 첫 문제
+      subjects: subjects.map((subject) => {
+        const open = problems.filter((p) => p.subject === subject);
+        const unsolved = open.filter((p) => !submitted.has(`${p.subject}_${p.number}`));
+        return { subject, next: unsolved[0]?.number ?? null, unsolvedCount: unsolved.length, openCount: open.length };
+      }),
       todaySubs: [...new Map(todaySubs.map((s) => [`${s.subject}_${s.problem}`, s])).values()]
         .reverse()
         .map((s) => ({ subject: s.subject, problem: s.problem })),

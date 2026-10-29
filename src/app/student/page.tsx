@@ -48,7 +48,7 @@ async function StudentHome() {
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
-                  <HomeTab userId={profile.id} name={profile.name} problems={problems} />
+                  <HomeTab userId={profile.id} name={profile.name} subjects={subjects} problems={problems} />
                 </div>
               </Suspense>
             ),

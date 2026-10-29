@@ -8,10 +8,8 @@ import ReplaySection from "./ReplaySection";
 
 export type HomeData = {
   today: string;
-  /** 다음에 풀 문제: 공개된 문제 중 아직 제출하지 않은 첫 문제 */
-  next: { subject: string; number: string } | null;
-  unsolvedCount: number;
-  openCount: number;
+  /** 과목마다 다음에 풀 문제: 공개된 문제 중 아직 제출하지 않은 첫 문제 */
+  subjects: { subject: string; next: string | null; unsolvedCount: number; openCount: number }[];
   todaySubs: { subject: string; problem: string }[];
   /** 오늘의 성찰을 썼는지 (성찰 기능이 준비 전이면 null) */
   reflectedToday: boolean | null;
@@ -40,35 +38,42 @@ export default function Home({ name, data }: { name: string; data: HomeData }) {
 
       <Card title="✅ 오늘 할 일">
         <ul className="flex flex-col gap-3">
-          <li className="flex flex-wrap items-center gap-3 rounded-lg bg-brand-soft/50 px-4 py-3">
-            <div className="mr-auto">
-              {data.next ? (
-                <>
-                  <p className="text-sm text-muted">다음에 풀 문제</p>
-                  <p className="text-lg font-bold text-brand">{problemLabel(data.next.subject, data.next.number)}</p>
-                  <p className="text-xs text-muted">
-                    공개된 {data.openCount}문제 중 아직 안 낸 문제 {data.unsolvedCount}개
-                  </p>
-                </>
-              ) : (
-                <p className="font-bold">
-                  {data.openCount ? "🎉 공개된 문제를 모두 냈어요! 고쳐서 다시 내 봐도 좋아요." : "아직 공개된 문제가 없어요."}
+          {data.subjects.map((s) => (
+            <li key={s.subject} className="flex flex-wrap items-center gap-3 rounded-lg bg-brand-soft/50 px-4 py-3">
+              <div className="mr-auto">
+                <p className="text-sm text-muted">
+                  <b className="text-ink">{s.subject}</b> · 다음에 풀 문제
                 </p>
+                {s.next ? (
+                  <>
+                    <p className="text-lg font-bold text-brand">{problemLabel(s.subject, s.next)}</p>
+                    <p className="text-xs text-muted">
+                      공개된 {s.openCount}문제 중 아직 안 낸 문제 {s.unsolvedCount}개
+                    </p>
+                  </>
+                ) : (
+                  <p className="font-bold">
+                    {s.openCount ? "🎉 공개된 문제를 모두 냈어요! 고쳐서 다시 내 봐도 좋아요." : "아직 공개된 문제가 없어요."}
+                  </p>
+                )}
+              </div>
+              {s.openCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => (s.next ? startWriting(s.subject, s.next) : showTab("write"))}
+                  className="rounded-lg bg-brand px-5 py-2.5 font-bold text-white"
+                >
+                  📝 {s.next ? "이 문제 풀러 가기" : "코드 작성하러 가기"} →
+                </button>
               )}
-            </div>
-            <button
-              type="button"
-              onClick={() => (data.next ? startWriting(data.next.subject, data.next.number) : showTab("write"))}
-              className="rounded-lg bg-brand px-5 py-2.5 font-bold text-white"
-            >
-              📝 코드 작성하러 가기 →
-            </button>
-          </li>
+            </li>
+          ))}
           <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-sm">
             <span className="font-bold">오늘 제출</span>
             {data.todaySubs.length ? (
               data.todaySubs.map((s) => (
                 <span key={`${s.subject}_${s.problem}`} className="rounded-full bg-page px-2.5 py-0.5">
+                  {data.subjects.length > 1 && `${s.subject} `}
                   {problemLabel(s.subject, s.problem)}
                 </span>
               ))
