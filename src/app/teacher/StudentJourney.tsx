@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import AchievementList from "@/components/AchievementList";
 import { byNumber, classOf, classOptions, inClass } from "@/lib/classes";
 import type { StudentRow } from "@/lib/teacher";
 import Journey from "../student/Journey";
@@ -110,7 +111,18 @@ export default function StudentJourney({ students }: { students: StudentRow[] })
             </span>
           </h3>
           {result.ok ? (
-            <Journey key={studentId} journey={result.journey} reflections={result.reflections} loadReplay={loadStudentReplay} />
+            <>
+              <details className="rounded-xl border border-line bg-white p-5">
+                <summary className="cursor-pointer font-bold">
+                  🏅 업적 {result.achievements.filter((a) => a.steps.some((s) => s.earned)).length}개 달성
+                  <span className="ml-2 text-sm font-normal text-muted">눌러서 펼치기</span>
+                </summary>
+                <div className="mt-4">
+                  <AchievementList list={result.achievements} />
+                </div>
+              </details>
+              <Journey key={studentId} journey={result.journey} reflections={result.reflections} loadReplay={loadStudentReplay} />
+            </>
           ) : (
             <p className="text-danger">{result.message}</p>
           )}

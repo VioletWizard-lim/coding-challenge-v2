@@ -1,6 +1,8 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { ACHIEVEMENTS } from "@/lib/achievements";
+import { saveAchievementsSeen } from "@/lib/achievementStore";
 import { getUserProfile } from "@/lib/auth";
 import { isValidLog } from "@/lib/editLog";
 import { allowedSubjects } from "@/lib/problems";
@@ -103,5 +105,19 @@ export async function saveMyReflection(input: ReflectionInput): Promise<Reflecti
   } catch (err) {
     console.error("성찰 저장 오류:", err);
     return { ok: false, error: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+const ACHIEVEMENT_KEY = new RegExp(`^(${ACHIEVEMENTS.map((a) => a.code).join("|")}):\\d$`);
+
+/** 새 업적 알림을 띄운 뒤, 이미 본 업적 목록을 DB에 남긴다 (어느 컴퓨터에서든 알림이 한 번만 뜨게) */
+export async function markAchievementsSeen(keys: string[]): Promise<void> {
+  const session = await getSession();
+  if (!session || session.role !== "student" || !Array.isArray(keys)) return;
+  const valid = [...new Set(keys.filter((k) => typeof k === "string" && ACHIEVEMENT_KEY.test(k)))].slice(0, 200);
+  try {
+    await saveAchievementsSeen(session.id, valid);
+  } catch (err) {
+    console.error("업적 알림 기록 오류:", err);
   }
 }

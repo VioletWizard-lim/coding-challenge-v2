@@ -14,10 +14,13 @@ export default function ReplaySection({
   submissionId,
   autoStart = false,
   loader = loadMyReplay,
+  startAt,
 }: {
   submissionId: number;
   autoStart?: boolean;
   loader?: ReplayLoader;
+  /** 이 순간(기록 안의 시각)까지 진행된 화면으로 연다 (업적에서 왔을 때) */
+  startAt?: number;
 }) {
   const [result, setResult] = useState<ReplayResult | null>(null);
   const [pending, startTransition] = useTransition();
@@ -29,7 +32,7 @@ export default function ReplaySection({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 처음 열릴 때 한 번만
   }, [autoStart]);
 
-  if (result?.ok) return <Replayer {...result.data} />;
+  if (result?.ok) return <Replayer {...result.data} startAt={startAt} />;
   return (
     <div className="flex items-center gap-3">
       <button

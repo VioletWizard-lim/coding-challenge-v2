@@ -5,6 +5,8 @@ import { getUserProfile } from "@/lib/auth";
 import { allowedSubjects, SUBJECTS } from "@/lib/problems";
 import { listOpenProblems } from "@/lib/problemStore";
 import { requireRole } from "@/lib/session";
+import { ACHIEVEMENTS_TAB } from "@/lib/achievements";
+import AchievementsTab from "./AchievementsTab";
 import JourneyTab from "./JourneyTab";
 import MySubmissions from "./MySubmissions";
 import ReflectionTab from "./ReflectionTab";
@@ -73,6 +75,17 @@ async function StudentHome() {
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
                   <JourneyTab userId={profile.id} name={profile.name} />
+                </div>
+              </Suspense>
+            ),
+          },
+          {
+            id: ACHIEVEMENTS_TAB,
+            label: "🏅 업적",
+            content: (
+              <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                <div className="mx-auto max-w-5xl">
+                  <AchievementsTab userId={profile.id} name={profile.name} problems={problems} />
                 </div>
               </Suspense>
             ),

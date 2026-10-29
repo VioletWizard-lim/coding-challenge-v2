@@ -5,9 +5,11 @@ import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
 import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
-import { deleteProblem, listAllProblems, saveProblem } from "@/lib/problemStore";
+import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
 import { getUserProfile } from "@/lib/auth";
+import { computeAchievements, unitProblemsOf, type AchievementStatus } from "@/lib/achievements";
 import { buildJourney, type Journey } from "@/lib/journey";
+import { allowedSubjects } from "@/lib/problems";
 import type { Reflection } from "@/lib/reflection";
 import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore";
 import { getMyJourneyData, getReplayDataById, type ReplayData } from "@/lib/submissions";
@@ -286,7 +288,7 @@ export async function loadReflections(classDate: string, subject: string): Promi
 }
 
 export type StudentJourneyResult =
-  | { ok: true; journey: Journey; reflections: Reflection[] }
+  | { ok: true; journey: Journey; reflections: Reflection[]; achievements: AchievementStatus[] }
   | { ok: false; message: string };
 
 /** 교사용: 한 학생의 학습 여정 (학생이 보는 화면과 같은 내용) */
@@ -295,8 +297,17 @@ export async function loadStudentJourney(studentId: string): Promise<StudentJour
   try {
     const profile = await getUserProfile(String(studentId ?? ""));
     if (!profile || profile.role !== "student") return { ok: false, message: "학생을 찾지 못했어요." };
-    const [{ summaries, today }, mine] = await Promise.all([getMyJourneyData(profile.name), listMyReflections(profile.id)]);
-    return { ok: true, journey: buildJourney(summaries, today), reflections: mine.reflections };
+    const [{ summaries, records, today }, mine, open] = await Promise.all([
+      getMyJourneyData(profile.name),
+      listMyReflections(profile.id),
+      listOpenProblems(allowedSubjects(profile.subjects)),
+    ]);
+    const achievements = computeAchievements(
+      records,
+      mine.reflections.map((r) => ({ date: r.classDate, savedAt: r.updatedAt })),
+      unitProblemsOf(open),
+    );
+    return { ok: true, journey: buildJourney(summaries, today), reflections: mine.reflections, achievements };
   } catch (err) {
     console.error("학습 여정 조회 오류:", err);
     return { ok: false, message: "학습 여정을 불러오지 못했어요. 잠시 후 다시 시도하세요." };

@@ -142,15 +142,15 @@ function ProblemItem({ group }: { group: Group }) {
 }
 
 function SubmissionCard({ s }: { s: MySubmission }) {
-  const { focusedSubmission, problemLabel } = useStudentNav();
+  const { focusedSubmission, focusedAt, problemLabel } = useStudentNav();
   const focused = focusedSubmission === s.id;
   const ref = useRef<HTMLDetailsElement>(null);
-  // 학습 여정에서 "과정 보기"로 왔으면 이 제출을 펼치고 화면에 보이게 한다
+  // 학습 여정·업적에서 왔으면 이 제출을 펼치고 화면에 보이게 한다
   useEffect(() => {
     if (!focused || !ref.current) return;
     ref.current.open = true;
     ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [focused]);
+  }, [focused, focusedAt]);
   return (
     <details ref={ref} className={`group rounded-xl border bg-white shadow-sm ${focused ? "border-brand" : "border-line"}`}>
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3.5">
@@ -190,7 +190,12 @@ function SubmissionCard({ s }: { s: MySubmission }) {
         <pre className="max-h-80 overflow-auto rounded-lg bg-page p-3 font-[family-name:var(--font-code)] text-sm">
           {s.code}
         </pre>
-        <ReplaySection key={focused ? "focused" : "normal"} submissionId={s.id} autoStart={focused} />
+        <ReplaySection
+          key={focused ? `focused-${focusedAt}` : "normal"}
+          submissionId={s.id}
+          autoStart={focused}
+          startAt={focused ? (focusedAt ?? undefined) : undefined}
+        />
       </div>
     </details>
   );

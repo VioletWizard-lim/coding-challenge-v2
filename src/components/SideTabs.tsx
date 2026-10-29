@@ -10,8 +10,12 @@ type StudentNav = {
   selectedProblem: string;
   setSelectedProblem: (key: string) => void;
   focusedSubmission: number | null;
+  /** 재생을 이 순간(기록 안의 시각)부터 연다 (업적에서 왔을 때) */
+  focusedAt: number | null;
   /** 내 제출 현황 탭으로 옮겨 그 문제를 고르고, 그 제출을 펼쳐 작성 과정을 바로 연다 */
-  showSubmission: (problemKey: string, submissionId: number) => void;
+  showSubmission: (problemKey: string, submissionId: number, at?: number) => void;
+  /** 다른 탭으로 옮긴다 (예: 새 업적 알림 → 업적 탭) */
+  showTab: (id: string) => void;
   /** 문제 이름 ("2-3. 용돈 확인하기"). 교사가 올린 문제 제목을 쓰고, 없으면 번호만 */
   problemLabel: (subject: string, number: string) => string;
 };
@@ -34,19 +38,27 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
   const [active, setActive] = useState(tabs[0].id);
   const [selectedProblem, setSelectedProblem] = useState("all");
   const [focusedSubmission, setFocusedSubmission] = useState<number | null>(null);
+  const [focusedAt, setFocusedAt] = useState<number | null>(null);
 
   const nav: StudentNav = {
     selectedProblem,
     setSelectedProblem,
     focusedSubmission,
+    focusedAt,
     problemLabel(subject, number) {
       const title = titles[`${subject}_${number}`];
       return !title || title === number ? number : `${number}. ${title}`;
     },
-    showSubmission(problemKey, submissionId) {
+    showSubmission(problemKey, submissionId, at) {
       setSelectedProblem(problemKey);
       setFocusedSubmission(submissionId);
+      setFocusedAt(at ?? null);
       setActive(SUBMISSIONS_TAB);
+      window.scrollTo({ top: 0 });
+    },
+    showTab(id) {
+      setActive(id);
+      window.scrollTo({ top: 0 });
     },
   };
 

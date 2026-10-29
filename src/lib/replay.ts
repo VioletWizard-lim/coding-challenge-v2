@@ -54,7 +54,7 @@ export function formatDuration(ms: number) {
 }
 
 /** 형식이 맞는 기록 항목만 (v1 valid_entries와 같음) */
-function validEntries(log: unknown): LogEvent[] {
+export function validEntries(log: unknown): LogEvent[] {
   if (!Array.isArray(log)) return [];
   return log.filter(
     (e): e is LogEvent => Array.isArray(e) && e.length >= 2 && typeof e[0] === "number" && typeof e[1] === "string",
