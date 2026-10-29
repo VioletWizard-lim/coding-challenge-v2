@@ -205,10 +205,22 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
             {noteActions && (
               <button
                 type="button"
-                onClick={() => startNote(nowTime)}
-                className="rounded-lg border border-brand px-3 py-1 font-bold text-brand hover:bg-brand-soft"
+                onClick={() => {
+                  // 쓰는 칸이 열려 있으면 다시 눌러 닫는다 (적은 내용이 있으면 한 번 물어봄)
+                  if (draft) {
+                    if (draft.text.trim() && !confirm("적은 내용이 있어요. 지우고 닫을까요?")) return;
+                    return setDraft(null);
+                  }
+                  startNote(nowTime);
+                }}
+                aria-expanded={!!draft}
+                className={`rounded-lg border border-brand px-3 py-1 font-bold ${
+                  draft ? "bg-brand text-white" : "text-brand hover:bg-brand-soft"
+                }`}
               >
-                {NOTE_STYLE[noteActions.role].glyph} 이 순간에 {noteActions.role === "teacher" ? "피드백" : "메모"}
+                {draft
+                  ? `✕ ${noteActions.role === "teacher" ? "피드백" : "메모"} 닫기`
+                  : `${NOTE_STYLE[noteActions.role].glyph} 이 순간에 ${noteActions.role === "teacher" ? "피드백" : "메모"}`}
               </button>
             )}
             <span className="ml-auto tabular-nums text-muted">
