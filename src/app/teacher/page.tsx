@@ -8,8 +8,8 @@ import StudentManager from "./StudentManager";
 
 export default function TeacherPage() {
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-10">
-      <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+    <main className="flex flex-1 flex-col">
+      <Suspense fallback={<p className="p-6 text-muted">불러오는 중…</p>}>
         <TeacherHome />
       </Suspense>
     </main>
@@ -21,6 +21,7 @@ async function TeacherHome() {
   return (
     <>
       <Header name={session.name} role="teacher" />
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-6">
       <Suspense fallback={<p className="text-muted">상태 확인 중…</p>}>
         <HealthCard />
       </Suspense>
@@ -29,6 +30,7 @@ async function TeacherHome() {
         <Students />
       </Suspense>
       <p className="text-sm text-muted">채점·제출 관리는 3단계에서 만들어요. 그동안은 기존(v1) 교사 화면을 써 주세요.</p>
+      </div>
     </>
   );
 }
