@@ -66,7 +66,7 @@ export async function submitCode(input: SubmitInput): Promise<SubmitResult> {
     return { ok: false, error: "제출하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 
-  refresh(); // 아래 "내 제출 현황"을 새로 불러온다
+  refresh(); // "내 기록 다시 보기"를 새로 불러온다
   return { ok: true };
 }
 

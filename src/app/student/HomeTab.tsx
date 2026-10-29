@@ -36,8 +36,8 @@ export default async function HomeTab({
     );
     const earned = achievements
       .flatMap((a) =>
-        a.steps.flatMap((s, i) =>
-          s.earned ? [{ icon: a.icon, name: a.steps.length > 1 ? `${a.name} ${i + 1}단계` : a.name, earnedAt: s.earned.earnedAt }] : [],
+        a.steps.flatMap((s) =>
+          s.earned ? [{ icon: a.icon, name: a.steps.length > 1 ? `${a.name} (${s.target}${a.unit})` : a.name, earnedAt: s.earned.earnedAt }] : [],
         ),
       )
       .sort((a, b) => b.earnedAt.localeCompare(a.earnedAt));

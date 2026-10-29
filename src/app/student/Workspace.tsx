@@ -69,7 +69,7 @@ export default function Workspace({
         log: rec.log,
       });
       if (!result.ok) return setMessage({ text: result.error, kind: "error" });
-      setMessage({ text: `✅ 제출 완료! (${current.number}) '내 제출 현황' 탭에서 확인할 수 있어요.`, kind: "ok" });
+      setMessage({ text: `✅ 제출 완료! (${current.number}) '▶ 내 기록 다시 보기'에서 내가 쓴 과정을 돌아볼 수 있어요.`, kind: "ok" });
       setCoolingDown(true);
       setTimeout(() => setCoolingDown(false), COOLDOWN_MS);
     });

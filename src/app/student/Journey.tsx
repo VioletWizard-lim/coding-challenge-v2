@@ -28,7 +28,7 @@ export default function Journey({
 }: {
   journey: JourneyData;
   reflections: Reflection[];
-  /** 교사 화면: '과정 보기'를 그 자리에서 재생 (없으면 학생의 '내 제출 현황' 탭으로 이동) */
+  /** 교사 화면: '과정 보기'를 그 자리에서 재생 (없으면 학생의 '내 기록 다시 보기' 탭으로 이동) */
   loadReplay?: ReplayLoader;
 }) {
   const { totals, calendar, weekly, units, days } = journey;
@@ -90,7 +90,7 @@ export default function Journey({
         note={
           loadReplay
             ? "'과정 보기'를 누르면 그 자리에서 작성 과정을 재생해요"
-            : "'과정 보기'를 누르면 내 제출 현황에서 그때의 작성 과정을 바로 보여 줘요"
+            : "'과정 보기'를 누르면 내 기록 다시 보기에서 그때의 작성 과정을 바로 보여 줘요"
         }
       >
         <DayList days={days} reflections={reflections} loadReplay={loadReplay} />

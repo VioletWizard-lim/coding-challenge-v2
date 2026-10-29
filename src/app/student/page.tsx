@@ -60,22 +60,11 @@ async function StudentHome() {
           },
           {
             id: "submissions",
-            label: "📊 내 제출 현황",
+            label: "▶ 내 기록 다시 보기",
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
                   <MySubmissions owner={profile} />
-                </div>
-              </Suspense>
-            ),
-          },
-          {
-            id: "reflection",
-            label: "💭 오늘의 성찰",
-            content: (
-              <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
-                <div className="mx-auto max-w-3xl">
-                  <ReflectionTab userId={profile.id} owner={profile} subjects={subjects} problems={problems} />
                 </div>
               </Suspense>
             ),
@@ -87,6 +76,17 @@ async function StudentHome() {
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                 <div className="mx-auto max-w-5xl">
                   <JourneyTab userId={profile.id} owner={profile} />
+                </div>
+              </Suspense>
+            ),
+          },
+          {
+            id: "reflection",
+            label: "💭 오늘의 성찰",
+            content: (
+              <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                <div className="mx-auto max-w-3xl">
+                  <ReflectionTab userId={profile.id} owner={profile} subjects={subjects} problems={problems} />
                 </div>
               </Suspense>
             ),
