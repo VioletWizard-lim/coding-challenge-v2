@@ -118,7 +118,7 @@ export default function StudentJourney({ students }: { students: StudentRow[] })
                   <span className="ml-2 text-sm font-normal text-muted">눌러서 펼치기</span>
                 </summary>
                 <div className="mt-4">
-                  <AchievementList list={result.achievements} />
+                  <AchievementList list={result.achievements} revealHidden />
                 </div>
               </details>
               <Journey key={studentId} journey={result.journey} reflections={result.reflections} loadReplay={loadStudentReplay} />
