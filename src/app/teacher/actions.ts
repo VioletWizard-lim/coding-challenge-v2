@@ -3,6 +3,8 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
+import { validateProblem, type ProblemInput } from "@/lib/problemBank";
+import { deleteProblem, saveProblem } from "@/lib/problemStore";
 import { parseStudentCsv, type ParsedRow } from "@/lib/studentCsv";
 import { createStudents, findExistingIds, resetStudentPassword } from "@/lib/teacher";
 
@@ -110,4 +112,43 @@ export async function importStudents(csvText: string): Promise<ImportResult> {
   skipped.sort((a, b) => a.line - b.line);
   if (created.length) refresh(); // 아래 학생 목록을 새로 불러온다
   return { ok: true, created, skipped };
+}
+
+export type ProblemResult = { ok: true; message: string } | { ok: false; message: string };
+
+/** 문제 저장 (id가 없으면 새 문제). 공개 시각은 그대로 저장하고, 학생 화면에서는 서버 시계로 공개 여부를 판단한다 */
+export async function saveProblemAction(id: number | null, input: ProblemInput): Promise<ProblemResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const p: ProblemInput = {
+    subject: String(input.subject ?? ""),
+    number: String(input.number ?? "").trim(),
+    title: String(input.title ?? ""),
+    description: String(input.description ?? ""),
+    starterCode: String(input.starterCode ?? ""),
+    openAt: input.openAt ? new Date(input.openAt).toISOString() : null,
+  };
+  const invalid = validateProblem(p);
+  if (invalid) return { ok: false, message: invalid };
+  try {
+    const result = await saveProblem(id, p);
+    if (result === "duplicate") return { ok: false, message: `${p.subject} ${p.number}번 문제가 이미 있어요.` };
+  } catch (err) {
+    console.error("문제 저장 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+  refresh();
+  return { ok: true, message: `${p.subject} ${p.number}번 문제를 저장했어요.` };
+}
+
+/** 문제 삭제. 이미 낸 제출(submissions)은 그대로 남는다 */
+export async function deleteProblemAction(id: number): Promise<ProblemResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    await deleteProblem(id);
+  } catch (err) {
+    console.error("문제 삭제 오류:", err);
+    return { ok: false, message: "지우지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+  refresh();
+  return { ok: true, message: "문제를 지웠어요." };
 }

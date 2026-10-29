@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import Header from "@/components/Header";
 import { getUserProfile } from "@/lib/auth";
-import { allowedSubjects } from "@/lib/problems";
+import { allowedSubjects, SUBJECTS } from "@/lib/problems";
+import { listOpenProblems } from "@/lib/problemStore";
 import { requireRole } from "@/lib/session";
 import JourneyTab from "./JourneyTab";
 import MySubmissions from "./MySubmissions";
-import StudentTabs from "./StudentTabs";
+import SideTabs from "@/components/SideTabs";
 import Workspace from "./Workspace";
 
 export default function StudentPage() {
@@ -23,15 +24,24 @@ async function StudentHome() {
   const session = await requireRole("student");
   const profile = await getUserProfile(session.id);
   if (!profile) redirect("/");
+  const subjects = allowedSubjects(profile.subjects);
+  const problems = await listOpenProblems(subjects);
+  // 제출 목록·학습 여정에 보일 문제 이름: 원래 목록 + 지금 공개된 문제 (공개 전 문제 제목은 학생에게 보내지 않음)
+  const titles: Record<string, string> = {};
+  for (const [subject, list] of Object.entries(SUBJECTS)) {
+    for (const [number, title] of Object.entries(list)) titles[`${subject}_${number}`] = title;
+  }
+  for (const p of problems) titles[`${p.subject}_${p.number}`] = p.title;
   return (
     <>
       <Header name={profile.name} role="student" />
-      <StudentTabs
+      <SideTabs
+        titles={titles}
         tabs={[
           {
             id: "write",
             label: "📝 코드 작성",
-            content: <Workspace userId={profile.id} subjects={allowedSubjects(profile.subjects)} />,
+            content: <Workspace userId={profile.id} subjects={subjects} problems={problems} />,
           },
           {
             id: "submissions",

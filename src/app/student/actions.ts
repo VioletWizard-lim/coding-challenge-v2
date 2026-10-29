@@ -3,7 +3,8 @@
 import { refresh } from "next/cache";
 import { getUserProfile } from "@/lib/auth";
 import { isValidLog } from "@/lib/editLog";
-import { allowedSubjects, SUBJECTS } from "@/lib/problems";
+import { allowedSubjects } from "@/lib/problems";
+import { findOpenProblem } from "@/lib/problemStore";
 import { getSession } from "@/lib/session";
 import { getReplayData, insertSubmission, type ReplayData } from "@/lib/submissions";
 
@@ -38,8 +39,12 @@ export async function submitCode(input: SubmitInput): Promise<SubmitResult> {
   try {
     const profile = await getUserProfile(session.id);
     if (!profile) return { ok: false, error: "다시 로그인한 뒤 제출하세요." };
-    if (!allowedSubjects(profile.subjects).includes(input.subject) || !(input.problem in SUBJECTS[input.subject])) {
-      return { ok: false, error: "과목이나 문제 번호가 맞지 않아요." };
+    if (!allowedSubjects(profile.subjects).includes(input.subject)) {
+      return { ok: false, error: "과목이 맞지 않아요." };
+    }
+    // 공개된 문제만 제출할 수 있다 (공개 시각은 서버 시계로 확인)
+    if (!(await findOpenProblem(input.subject, input.problem))) {
+      return { ok: false, error: "아직 공개되지 않았거나 없는 문제예요." };
     }
     await insertSubmission({
       profile,

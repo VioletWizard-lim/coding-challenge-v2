@@ -11,23 +11,25 @@ type StudentNav = {
   focusedSubmission: number | null;
   /** 내 제출 현황 탭으로 옮겨 그 문제를 고르고, 그 제출을 펼쳐 작성 과정을 바로 연다 */
   showSubmission: (problemKey: string, submissionId: number) => void;
+  /** 문제 이름 ("2-3. 용돈 확인하기"). 교사가 올린 문제 제목을 쓰고, 없으면 번호만 */
+  problemLabel: (subject: string, number: string) => string;
 };
 
 const NavContext = createContext<StudentNav | null>(null);
 
 export function useStudentNav() {
   const nav = useContext(NavContext);
-  if (!nav) throw new Error("StudentTabs 안에서만 쓸 수 있어요");
+  if (!nav) throw new Error("SideTabs 안에서만 쓸 수 있어요");
   return nav;
 }
 
 const SUBMISSIONS_TAB = "submissions";
 
 /**
- * 학생 화면: 왼쪽 메뉴 + 오른쪽 넓은 영역. 고르지 않은 메뉴도 화면에서 숨기기만 하고 그대로 두어서,
+ * 왼쪽 메뉴 + 오른쪽 넓은 영역 (학생·교사 화면 공용). 고르지 않은 메뉴도 화면에서 숨기기만 하고 그대로 두어서,
  * 탭을 오가도 작성 중인 편집기·실행 결과·펼친 제출이 사라지지 않는다.
  */
-export default function StudentTabs({ tabs }: { tabs: Tab[] }) {
+export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: Record<string, string> }) {
   const [active, setActive] = useState(tabs[0].id);
   const [selectedProblem, setSelectedProblem] = useState("all");
   const [focusedSubmission, setFocusedSubmission] = useState<number | null>(null);
@@ -36,6 +38,10 @@ export default function StudentTabs({ tabs }: { tabs: Tab[] }) {
     selectedProblem,
     setSelectedProblem,
     focusedSubmission,
+    problemLabel(subject, number) {
+      const title = titles[`${subject}_${number}`];
+      return !title || title === number ? number : `${number}. ${title}`;
+    },
     showSubmission(problemKey, submissionId) {
       setSelectedProblem(problemKey);
       setFocusedSubmission(submissionId);

@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { problemLabel } from "@/lib/problems";
 import type { MySubmission } from "@/lib/submissions";
 import ReplaySection from "./ReplaySection";
-import { useStudentNav } from "./StudentTabs";
+import { useStudentNav } from "@/components/SideTabs";
 
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -54,7 +53,7 @@ const problemOrder = (a: string, b: string) => {
 export default function SubmissionList({ rows }: { rows: MySubmission[] }) {
   const groups = groupByProblem(rows);
   const [shown, setShown] = useState(PAGE);
-  const { selectedProblem: selected, setSelectedProblem: setSelected } = useStudentNav();
+  const { selectedProblem: selected, setSelectedProblem: setSelected, problemLabel } = useStudentNav();
 
   const subjects = new Set(groups.map((g) => g.latest.subject));
   const options = [...groups].sort(
@@ -143,7 +142,7 @@ function ProblemItem({ group }: { group: Group }) {
 }
 
 function SubmissionCard({ s }: { s: MySubmission }) {
-  const { focusedSubmission } = useStudentNav();
+  const { focusedSubmission, problemLabel } = useStudentNav();
   const focused = focusedSubmission === s.id;
   const ref = useRef<HTMLDetailsElement>(null);
   // 학습 여정에서 "과정 보기"로 왔으면 이 제출을 펼치고 화면에 보이게 한다
