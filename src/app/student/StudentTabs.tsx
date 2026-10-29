@@ -24,7 +24,7 @@ export function useStudentNav() {
 const SUBMISSIONS_TAB = "submissions";
 
 /**
- * 학생 화면 탭. 고르지 않은 탭도 화면에서 숨기기만 하고 그대로 두어서,
+ * 학생 화면: 왼쪽 메뉴 + 오른쪽 넓은 영역. 고르지 않은 메뉴도 화면에서 숨기기만 하고 그대로 두어서,
  * 탭을 오가도 작성 중인 편집기·실행 결과·펼친 제출이 사라지지 않는다.
  */
 export default function StudentTabs({ tabs }: { tabs: Tab[] }) {
@@ -45,8 +45,13 @@ export default function StudentTabs({ tabs }: { tabs: Tab[] }) {
 
   return (
     <NavContext value={nav}>
-      <div className="flex flex-col gap-5">
-        <div role="tablist" className="flex gap-1 rounded-xl bg-[#e8eaf0] p-1">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col md:flex-row">
+        {/* 넓은 화면: 왼쪽 세로 메뉴 / 좁은 화면(휴대폰): 위쪽 가로 메뉴 */}
+        <nav
+          role="tablist"
+          aria-orientation="vertical"
+          className="flex gap-1 overflow-x-auto border-b border-line bg-white p-2 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-56 md:shrink-0 md:flex-col md:overflow-visible md:border-r md:border-b-0 md:p-3"
+        >
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -56,19 +61,21 @@ export default function StudentTabs({ tabs }: { tabs: Tab[] }) {
               aria-selected={active === t.id}
               aria-controls={`panel-${t.id}`}
               onClick={() => setActive(t.id)}
-              className={`flex-1 rounded-lg px-4 py-2.5 font-bold transition ${
-                active === t.id ? "bg-brand text-white shadow-sm" : "text-muted hover:bg-white/60"
+              className={`shrink-0 rounded-lg px-4 py-2.5 text-left whitespace-nowrap transition md:w-full ${
+                active === t.id ? "bg-brand-soft font-bold text-brand" : "text-muted hover:bg-page hover:text-ink"
               }`}
             >
               {t.label}
             </button>
           ))}
+        </nav>
+        <div className="min-w-0 flex-1 p-4 md:p-6">
+          {tabs.map((t) => (
+            <div key={t.id} role="tabpanel" id={`panel-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={active !== t.id}>
+              {t.content}
+            </div>
+          ))}
         </div>
-        {tabs.map((t) => (
-          <div key={t.id} role="tabpanel" id={`panel-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={active !== t.id}>
-            {t.content}
-          </div>
-        ))}
       </div>
     </NavContext>
   );

@@ -11,8 +11,8 @@ import Workspace from "./Workspace";
 
 export default function StudentPage() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-10">
-      <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+    <main className="flex flex-1 flex-col">
+      <Suspense fallback={<p className="p-6 text-muted">불러오는 중…</p>}>
         <StudentHome />
       </Suspense>
     </main>
@@ -38,7 +38,9 @@ async function StudentHome() {
             label: "📊 내 제출 현황",
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
-                <MySubmissions name={profile.name} />
+                <div className="mx-auto max-w-5xl">
+                  <MySubmissions name={profile.name} />
+                </div>
               </Suspense>
             ),
           },
@@ -47,7 +49,9 @@ async function StudentHome() {
             label: "🧭 나의 학습 여정",
             content: (
               <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
-                <JourneyTab name={profile.name} />
+                <div className="mx-auto max-w-5xl">
+                  <JourneyTab name={profile.name} />
+                </div>
               </Suspense>
             ),
           },

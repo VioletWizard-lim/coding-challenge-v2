@@ -224,7 +224,7 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
     <div className="flex flex-col gap-3">
       <div
         ref={parentRef}
-        className="h-[380px] overflow-hidden rounded-xl border border-line bg-white focus-within:border-brand"
+        className="h-[clamp(320px,55vh,620px)] overflow-hidden rounded-xl border border-line bg-white focus-within:border-brand"
       />
       <div className="flex flex-wrap items-center gap-3">
         {mode === "code" && (
