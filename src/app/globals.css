@@ -17,3 +17,11 @@ body {
   background: var(--color-page);
   color: var(--color-ink);
 }
+
+/* 스크롤은 되지만 막대는 보이지 않게 (마우스 휠·터치·드래그로 움직임) */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

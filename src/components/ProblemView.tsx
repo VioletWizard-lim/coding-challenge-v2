@@ -1,7 +1,10 @@
 import { conditionList, type Problem } from "@/lib/problemBank";
 
-/** 학생에게 보이는 문제: 난이도 · 문제 · 조건 · 예시 · 문제 목표 · 도전 과제 (빈 칸은 숨김) */
-export default function ProblemView({ problem: p }: { problem: Problem }) {
+/**
+ * 학생에게 보이는 문제: 난이도 · 문제 · 조건 · 예시 · 문제 목표 · 도전 과제 (빈 칸은 숨김)
+ * 학생 편집기 옆에서는 길면 안에서 스크롤, 교사 미리보기(fit)는 다 펼쳐서 바깥 페이지만 스크롤한다.
+ */
+export default function ProblemView({ problem: p, fit = false }: { problem: Problem; fit?: boolean }) {
   const conditions = conditionList(p.conditions);
   const empty = !p.description && !conditions.length && !p.examples.length && !p.goal && !p.challenge;
   return (
@@ -28,7 +31,7 @@ export default function ProblemView({ problem: p }: { problem: Problem }) {
           이 문제는 설명이 아직 없어요. 선생님이 안내한 문제를 보고 편집기에 코드를 작성하세요.
         </div>
       ) : (
-        <div className="flex max-h-[60vh] flex-col gap-4 overflow-auto pr-1 text-[15px] leading-7">
+        <div className={`flex flex-col gap-4 text-[15px] leading-7 ${fit ? "" : "scrollbar-none max-h-[60vh] overflow-auto"}`}>
           {p.description && (
             <Part title="📝 문제">
               <p className="whitespace-pre-wrap">{p.description}</p>
@@ -56,7 +59,7 @@ export default function ProblemView({ problem: p }: { problem: Problem }) {
                           {ex.input}
                         </p>
                       )}
-                      <pre className="overflow-x-auto px-3 py-2 font-[family-name:var(--font-code)] text-sm leading-6">
+                      <pre className="scrollbar-none overflow-x-auto px-3 py-2 font-[family-name:var(--font-code)] text-sm leading-6">
                         <span className="sr-only">출력: </span>
                         {ex.output}
                       </pre>
