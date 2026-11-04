@@ -109,7 +109,8 @@ const HELPER_SYSTEM = `당신은 한국 고등학교 정보 수업의 파이썬 
 
 export type HelperTurn = { question: string; answer: string };
 
-export type HelperAnswer = { text: string; model: string; inputTokens: number; outputTokens: number };
+/** retried: 정답 수준의 코드가 있어서 한 번 다시 받은 답인지 */
+export type HelperAnswer = { text: string; model: string; inputTokens: number; outputTokens: number; retried: boolean };
 
 /**
  * 학생 질문에 답한다. 작성 과정 요약(processSummaryText)이 반드시 함께 간다 — 과정 없이 "지금 코드 + 질문"만
@@ -120,6 +121,8 @@ export async function askHelper(input: {
   processText: string;
   history: HelperTurn[];
   question: string;
+  /** 답이 정답을 대신 써 주는지 검사 (걸리면 이유를 돌려줌 → 한 번 다시 요청) */
+  leaks?: (answer: string) => string | null;
 }): Promise<HelperAnswer> {
   const model = helperModel();
   const messages: Anthropic.Beta.BetaMessageParam[] = [];
@@ -137,25 +140,42 @@ export async function askHelper(input: {
 
   // 안전 분류기가 거절하면 다른 모델로 다시 시도 (Haiku는 이 기능이 없음)
   const fallback = /haiku/.test(model) ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
-  const message = await aiClient().beta.messages.create({
-    model,
-    max_tokens: 4000,
-    ...fallback,
-    output_config: { effort: "low" },
-    system: HELPER_SYSTEM,
-    messages,
-  });
+  const call = async (msgs: Anthropic.Beta.BetaMessageParam[]) => {
+    const message = await aiClient().beta.messages.create({
+      model,
+      max_tokens: 4000,
+      ...fallback,
+      output_config: { effort: "low" },
+      system: HELPER_SYSTEM,
+      messages: msgs,
+    });
+    if (message.stop_reason === "refusal") throw new AiRefusedError("AI가 이 질문에 답하지 않았어요.");
+    const text = message.content
+      .flatMap((b) => (b.type === "text" ? [b.text] : []))
+      .join("")
+      .trim();
+    if (!text) throw new Error("AI 답이 비어 있어요.");
+    return { text, model: message.model ?? model, inputTokens: message.usage?.input_tokens ?? 0, outputTokens: message.usage?.output_tokens ?? 0 };
+  };
 
-  if (message.stop_reason === "refusal") throw new AiRefusedError("AI가 이 질문에 답하지 않았어요.");
-  const text = message.content
-    .flatMap((b) => (b.type === "text" ? [b.text] : []))
-    .join("")
-    .trim();
-  if (!text) throw new Error("AI 답이 비어 있어요.");
+  const first = await call(messages);
+  const leak = input.leaks?.(first.text);
+  if (!leak) return { ...first, retried: false };
+
+  // 정답 수준의 코드가 있으면 한 번 다시 요청한다 (보여 주기 전에 서버에서 검사)
+  const second = await call([
+    ...messages,
+    { role: "assistant", content: first.text },
+    {
+      role: "user",
+      content: `(도우미 규칙 확인) 방금 답에 ${leak === "완성 코드" ? "완성 코드에 가까운 코드" : "학생 코드를 고친 줄"}이 들어 있어요. 학생이 스스로 고칠 수 있게, 코드는 빼고 어디를 보면 되는지와 생각할 질문으로만 다시 답해 주세요. 문법 설명이 꼭 필요하면 이 문제와 상관없는 1~2줄 예시만 쓰세요. 이 안내는 학생에게 말하지 마세요.`,
+    },
+  ]);
   return {
-    text,
-    model: message.model ?? model,
-    inputTokens: message.usage?.input_tokens ?? 0,
-    outputTokens: message.usage?.output_tokens ?? 0,
+    text: second.text,
+    model: second.model,
+    inputTokens: first.inputTokens + second.inputTokens,
+    outputTokens: first.outputTokens + second.outputTokens,
+    retried: true,
   };
 }

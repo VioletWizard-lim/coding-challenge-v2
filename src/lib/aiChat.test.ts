@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { dailyLimit, dropUnknownRefs, estimateCost, kstDayStart, kstMonthStart, momentsUsed, problemForAi, validateQuestion } from "./aiChat";
+import {
+  dailyLimit,
+  dropUnknownRefs,
+  estimateCost,
+  kstDayStart,
+  kstMonthStart,
+  leaksAnswer,
+  momentsUsed,
+  problemForAi,
+  similarity,
+  stripAnswerCode,
+  validateQuestion,
+} from "./aiChat";
 import type { Moment } from "./process-summary";
 
 const moments: Moment[] = [
@@ -55,5 +67,37 @@ describe("aiChat", () => {
     expect(text).toContain("1. print를 쓸 것");
     expect(text).toContain("입력: 카레");
     expect(text).toContain("문제 목표: 변수 이해");
+  });
+});
+
+describe("답 검사 (정답 수준의 코드)", () => {
+  const student = 'menu = "카레"\nprint("오늘은 " + menuu)';
+  it("힌트만 있으면 통과", () => {
+    expect(leaksAnswer("[[M1]] 이후 바뀐 줄의 변수 이름을 위에서 만든 이름과 비교해 볼래요?", student)).toBeNull();
+  });
+  it("학생 줄을 그대로 가리키는 것은 괜찮다 (띄어쓰기 차이도)", () => {
+    expect(leaksAnswer('`print("오늘은 "+menuu)` 줄을 다시 보세요.', student)).toBeNull();
+  });
+  it("상관없는 1~2줄 문법 예시는 괜찮다", () => {
+    expect(leaksAnswer("예를 들면:\n```python\nx = 3\nprint(x)\n```", student)).toBeNull();
+  });
+  it("코드 블록이 3줄 이상이면 완성 코드", () => {
+    expect(leaksAnswer("```python\na = 1\nb = 2\nprint(a + b)\n```", student)).toBe("완성 코드");
+  });
+  it("학생 줄을 고친 버전이 있으면 걸린다", () => {
+    expect(leaksAnswer('이렇게 바꿔 보세요: `print("오늘은 " + menu)`', student)).toBe("고친 줄");
+    expect(leaksAnswer('```\nprint("오늘은 " + menu)\n```', student)).toBe("고친 줄");
+  });
+  it("마지막 안전장치: 코드 블록과 고친 줄을 지운다", () => {
+    const out = stripAnswerCode('바꿔 보세요: `print("오늘은 " + menu)` 그리고\n```\na\nb\nc\n```\n`len()`도 있어요', student);
+    expect(out).not.toContain("menu)");
+    expect(out).toContain("(이 부분은 직접 고쳐 보세요)");
+    expect(out).toContain("(코드는 직접 써 보세요)");
+    expect(out).toContain("`len()`");
+  });
+  it("비슷한 정도", () => {
+    expect(similarity("abc", "abc")).toBe(1);
+    expect(similarity("print(menu)", "print(menuu)")).toBeGreaterThan(0.9);
+    expect(similarity("abc", "xyz")).toBe(0);
   });
 });

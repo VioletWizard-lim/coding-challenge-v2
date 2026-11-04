@@ -114,3 +114,65 @@ export function problemForAi(p: Pick<Problem, "number" | "title" | "description"
   if (p.goal.trim()) lines.push("", `문제 목표: ${p.goal.trim()}`);
   return lines.join("\n").slice(0, 6000);
 }
+
+/* ───────── 답 검사: 정답 수준의 코드가 들어 있는지 ───────── */
+
+/** 코드 블록(```) 안의 줄이 이만큼 이상이면 "완성 코드"로 본다 (짧은 문법 예시 1~2줄은 괜찮음) */
+export const MAX_EXAMPLE_LINES = 2;
+
+const FENCE = /```[^\n]*\n?([\s\S]*?)```/g;
+
+/** 두 글의 비슷한 정도 (0~1, 편집 거리 기준) */
+export function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+
+/** 띄어쓰기 차이는 무시하고 비교한다 (`print( menu )`와 `print(menu)`는 같은 줄) */
+const squash = (s: string) => s.replace(/\s+/g, "");
+
+/** 답 속의 코드 조각: 코드 블록의 줄들과 `백틱` 조각 */
+function codePieces(answer: string): { blockLines: string[]; pieces: string[] } {
+  const blockLines: string[] = [];
+  for (const m of answer.matchAll(FENCE)) blockLines.push(...m[1].split("\n").map(squash).filter(Boolean));
+  const inline = [...answer.replace(FENCE, "").matchAll(/`([^`\n]+)`/g)].map((m) => squash(m[1]));
+  return { blockLines, pieces: [...blockLines, ...inline] };
+}
+
+/**
+ * AI 답이 정답을 대신 써 주는지 검사한다.
+ * - 코드 블록이 3줄 이상 (완성 코드)
+ * - 학생 코드의 한 줄을 "고친 버전"이 들어 있음 (거의 같지만 다른 줄 = 고칠 곳을 그대로 알려 줌)
+ * 학생 코드 줄을 그대로 가리키는 것(같은 줄)은 괜찮다.
+ */
+export function leaksAnswer(answer: string, studentCode: string): string | null {
+  const { blockLines, pieces } = codePieces(answer);
+  if (blockLines.length > MAX_EXAMPLE_LINES) return "완성 코드";
+  const studentLines = studentCode.split("\n").map(squash).filter((l) => l.length >= 5);
+  for (const piece of pieces) {
+    if (piece.length < 5) continue;
+    for (const line of studentLines) {
+      if (piece !== line && similarity(piece, line) >= 0.75) return "고친 줄";
+    }
+  }
+  return null;
+}
+
+/** 다시 물어도 걸리면: 코드 블록과 고친 줄을 지운다 (마지막 안전장치) */
+export function stripAnswerCode(answer: string, studentCode: string): string {
+  const studentLines = studentCode.split("\n").map(squash).filter((l) => l.length >= 5);
+  const isFix = (s: string) => studentLines.some((l) => s !== l && similarity(s, l) >= 0.75);
+  return answer
+    .replace(FENCE, "(코드는 직접 써 보세요)")
+    .replace(/`([^`\n]+)`/g, (all, code: string) => (isFix(squash(code)) ? "(이 부분은 직접 고쳐 보세요)" : all))
+    .trim();
+}

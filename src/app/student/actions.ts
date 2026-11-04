@@ -2,7 +2,17 @@
 
 import { refresh } from "next/cache";
 import { AiNotConfiguredError, AiRefusedError, askHelper } from "@/lib/ai";
-import { dailyLimit, dropUnknownRefs, HISTORY_TURNS, momentsUsed, problemForAi, validateQuestion, type AiChat } from "@/lib/aiChat";
+import {
+  dailyLimit,
+  dropUnknownRefs,
+  HISTORY_TURNS,
+  leaksAnswer,
+  momentsUsed,
+  problemForAi,
+  stripAnswerCode,
+  validateQuestion,
+  type AiChat,
+} from "@/lib/aiChat";
 import { AiChatsNotReadyError, countTodayChats, insertChat, listChatsForProblem, setChatFlag } from "@/lib/aiChatStore";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { saveAchievementsSeen } from "@/lib/achievementStore";
@@ -225,8 +235,11 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
       processText: processSummaryText(summary),
       history: history.map((c) => ({ question: c.question, answer: c.answer })),
       question,
+      leaks: (text) => leaksAnswer(text, summary.currentCode),
     });
-    const answer = dropUnknownRefs(reply.text, summary.moments);
+    // 다시 받은 답에도 남아 있으면 코드 부분을 지워서 보여 준다 (마지막 안전장치)
+    const checked = reply.retried && leaksAnswer(reply.text, summary.currentCode) ? stripAnswerCode(reply.text, summary.currentCode) : reply.text;
+    const answer = dropUnknownRefs(checked, summary.moments);
     const chat = await insertChat({
       userId: session.id,
       subject: input.subject,
