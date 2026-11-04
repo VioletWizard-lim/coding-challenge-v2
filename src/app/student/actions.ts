@@ -13,7 +13,8 @@ import {
   validateQuestion,
   type AiChat,
 } from "@/lib/aiChat";
-import { AiChatsNotReadyError, countTodayChats, insertChat, listChatsForProblem, setChatFlag } from "@/lib/aiChatStore";
+import { AiChatsNotReadyError, chatsForReplay, countTodayChats, insertChat, listChatsForProblem, setChatFlag } from "@/lib/aiChatStore";
+import type { HelpChat } from "@/lib/helpTrail";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { saveAchievementsSeen } from "@/lib/achievementStore";
 import { getUserProfile } from "@/lib/auth";
@@ -85,7 +86,10 @@ export async function submitCode(input: SubmitInput): Promise<SubmitResult> {
 }
 
 /** 재생 기록 + 그 제출의 타임라인 메모·피드백 */
-export type ReplayResult = { ok: true; data: ReplayData & { notes: NotesBundle } } | { ok: false; error: string };
+/** chats: 이 제출의 작성 중에 AI 도우미와 나눈 대화 (재생 타임라인의 "AI 도움 요청"과 잇는다) */
+export type ReplayResult =
+  | { ok: true; data: ReplayData & { notes: NotesBundle; chats: HelpChat[] } }
+  | { ok: false; error: string };
 
 /** 내 제출의 작성 과정 기록 (재생용). 다른 학생의 제출은 볼 수 없다. */
 export async function loadMyReplay(submissionId: number): Promise<ReplayResult> {
@@ -94,9 +98,11 @@ export async function loadMyReplay(submissionId: number): Promise<ReplayResult> 
   if (!Number.isInteger(submissionId)) return { ok: false, error: "제출을 찾지 못했어요." };
   try {
     const profile = await getUserProfile(session.id);
-    const data = profile ? await getReplayData(submissionId, profile) : null;
-    if (!data) return { ok: false, error: "제출을 찾지 못했어요." };
-    return { ok: true, data: { ...data, notes: await listNotesForSubmission(submissionId, session.id) } };
+    const found = profile ? await getReplayData(submissionId, profile) : null;
+    if (!found) return { ok: false, error: "제출을 찾지 못했어요." };
+    const { owner, ...data } = found;
+    const [notes, chats] = await Promise.all([listNotesForSubmission(submissionId, session.id), chatsForReplay(owner, data.log)]);
+    return { ok: true, data: { ...data, notes, chats } };
   } catch (err) {
     console.error("재생 기록 오류:", err);
     return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };

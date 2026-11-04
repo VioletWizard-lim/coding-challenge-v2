@@ -7,7 +7,9 @@ import { Decoration, EditorView, lineNumbers, type DecorationSet } from "@codemi
 import { useEffect, useMemo, useRef, useState } from "react";
 import { editRange, type EditEvent } from "@/lib/editLog";
 import { analyzeLog, formatDuration, type Mark, type MarkKind, type ReplayStats } from "@/lib/replay";
+import { helpTrail, type HelpChat, type HelpStep } from "@/lib/helpTrail";
 import type { TimelineNote } from "@/lib/timelineNotes";
+import AiAnswer from "./AiAnswer";
 import ReplayNotes, { NOTE_STYLE, type NoteActions, type NoteDraft } from "./ReplayNotes";
 
 type Props = {
@@ -21,6 +23,8 @@ type Props = {
   notes?: TimelineNote[];
   /** 메모를 쓸 수 있으면 (학생: 내 제출, 교사: 피드백). 없으면 읽기만 */
   noteActions?: NoteActions;
+  /** 작성 중 AI 도우미와 나눈 대화: "AI 도움 요청" 순간에 질문·답과 그 뒤 행동을 보여 준다 */
+  chats?: HelpChat[];
 };
 
 /** 메모를 남기기 좋은 순간: 오류, 오래 멈춤, 크게 지움 */
@@ -69,9 +73,22 @@ function editSpec(state: EditorState, e: EditEvent) {
 }
 
 /** 작성 과정 재생기 (교사·학생 공용). v1 replay.html과 같은 기록을 읽는다. */
-export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions }: Props) {
+const NO_CHATS: HelpChat[] = [];
+
+export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions, chats = NO_CHATS }: Props) {
   const analysis = useMemo(() => analyzeLog(init, log), [init, log]);
-  const { edits, marks, stats, startTime } = analysis;
+  const { edits, stats, startTime } = analysis;
+  // 도움도 과정의 일부: AI 도움 요청 ↔ 그때의 대화, AI 답 붙여넣기, 도움 뒤 첫 실행
+  const trail = useMemo(() => helpTrail(log, chats), [log, chats]);
+  const marks = useMemo(() => {
+    const aiPastes = new Set(trail.flatMap((s) => s.aiPastes));
+    return analysis.marks.map((m) => {
+      if (m.kind === "paste" && aiPastes.has(m.time)) return { ...m, detail: `${m.detail} · AI 답에서` };
+      const chat = m.kind === "ask" ? trail.find((s) => s.askAt === m.time)?.chat : null;
+      if (chat) return { ...m, detail: `AI에게 도움 요청: “${chat.question.length > 40 ? `${chat.question.slice(0, 40)}…` : chat.question}”` };
+      return m;
+    });
+  }, [analysis.marks, trail]);
   // 업적에서 왔으면 그 순간까지의 편집을 적용한 화면에서 시작한다
   const startIndex = useMemo(
     () => (startAt === undefined ? 0 : edits.filter((e) => e[0] <= startAt).length),
@@ -242,6 +259,11 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
               goTo(n);
             }}
           />
+          {(() => {
+            // 지금 재생 위치까지 가장 최근의 AI 도움 요청
+            const step = [...trail].reverse().find((s) => indexAt(s.askAt) <= index);
+            return step ? <HelpBox step={step} startTime={startTime} total={trail.length} order={trail.indexOf(step) + 1} onSeek={seekTime} /> : null;
+          })()}
           <ReplayNotes
             notes={noteList}
             startTime={startTime}
@@ -411,5 +433,87 @@ export function Stats({ stats: s, empty }: { stats: ReplayStats; empty: boolean 
         </div>
       ))}
     </dl>
+  );
+}
+
+/** 재생 위치의 가장 최근 AI 도움: 무엇을 물었고 AI가 뭐라고 했는지, 그 뒤 학생이 어떻게 했는지 (사실만) */
+function HelpBox({
+  step,
+  startTime,
+  total,
+  order,
+  onSeek,
+}: {
+  step: HelpStep;
+  startTime: number;
+  total: number;
+  order: number;
+  onSeek: (t: number) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const after = (t: number) => formatDuration(t - step.askAt);
+  return (
+    <section aria-label="이 순간의 AI 도움" className="flex flex-col gap-2 rounded-xl border border-blue-200 bg-blue-50/40 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-bold text-blue-800">
+          ? AI 도움 요청 {total > 1 ? `${order}/${total}` : ""}
+        </span>
+        <button type="button" onClick={() => onSeek(step.askAt)} className="tabular-nums text-muted hover:text-ink hover:underline">
+          {formatDuration(step.askAt - startTime)} 때
+        </button>
+        <button type="button" onClick={() => setOpen(!open)} className="ml-auto text-xs text-muted hover:text-ink">
+          {open ? "접기" : "펼치기"}
+        </button>
+      </div>
+      {open && (
+        <>
+          {step.chat ? (
+            <>
+              <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2">
+                <b>질문</b> {step.chat.question}
+              </p>
+              <div className="rounded-lg border border-line bg-white px-3 py-2">
+                <p className="text-xs font-bold text-blue-700">🤖 AI가 만든 답변입니다</p>
+                <p className="whitespace-pre-wrap leading-7">
+                  <AiAnswer chat={step.chat} onMoment={(m) => onSeek(m.at)} />
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-muted">이때 나눈 대화 내용은 저장되어 있지 않아요.</p>
+          )}
+          <div className="flex flex-col gap-1">
+            <p className="font-bold text-muted">도움 받은 뒤</p>
+            <ul className="flex flex-col gap-0.5">
+              {step.aiPastes.map((t) => (
+                <li key={t}>
+                  <button type="button" onClick={() => onSeek(t)} className="text-left hover:underline">
+                    <span className="text-amber-600">▼</span> {after(t)} 뒤 AI 답에 있던 내용을 붙여넣음
+                  </button>
+                </li>
+              ))}
+              {step.nextRun ? (
+                <li>
+                  <button type="button" onClick={() => onSeek(step.nextRun!.at)} className="text-left hover:underline">
+                    {step.nextRun.ok ? (
+                      <>
+                        <span className="text-green-600">●</span> {after(step.nextRun.at)} 뒤 실행 성공
+                        {step.aiPastes.length === 0 && " (AI 답을 붙여넣지 않고 직접 고침)"}
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-danger">✕</span> {after(step.nextRun.at)} 뒤 다음 실행: {step.nextRun.error}
+                      </>
+                    )}
+                  </button>
+                </li>
+              ) : (
+                <li className="text-muted">그 뒤로 실행한 기록이 없어요.</li>
+              )}
+            </ul>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

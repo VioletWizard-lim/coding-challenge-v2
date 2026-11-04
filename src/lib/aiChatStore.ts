@@ -1,7 +1,10 @@
 import "server-only";
 import { db, fetchAll, type RangeQuery } from "./db";
 import { kstDayStart, kstMonthStart, type AiChat, type Usage } from "./aiChat";
+import type { HelpChat } from "./helpTrail";
 import type { Moment } from "./process-summary";
+import { validEntries } from "./replay";
+import type { ReplayOwner } from "./submissions";
 
 type ChatRow = {
   id: number;
@@ -171,4 +174,39 @@ export async function aiUsageSummary(): Promise<{ ready: boolean; today: Usage[]
     if (aiTableMissing(err)) return { ready: false, today: [], month: [] };
     throw err;
   }
+}
+
+/** 재생용: 이 학생이 이 문제에서 기록 시간(fromMs~toMs) 안에 물어본 대화. 표가 없으면 빈 목록 */
+export async function listChatsForReplay(
+  userId: string,
+  subject: string,
+  problem: string,
+  fromMs: number,
+  toMs: number,
+): Promise<{ at: number; question: string; answer: string; moments: Moment[] }[]> {
+  try {
+    const { data, error } = await db()
+      .from("ai_chats")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("subject", subject)
+      .eq("problem", problem)
+      .gte("at_ms", Math.floor(fromMs) - 5000)
+      .lte("at_ms", Math.ceil(toMs) + 5000)
+      .order("at_ms");
+    check(error, "AI 대화 조회 실패");
+    return ((data ?? []) as ChatRow[]).map(fromRow).map((c) => ({ at: c.at ?? 0, question: c.question, answer: c.answer, moments: c.moments }));
+  } catch (err) {
+    if (err instanceof AiChatsNotReadyError) return [];
+    throw err;
+  }
+}
+
+/** 재생 기록에 이어 붙일 AI 대화 (작성 기록의 처음~끝 시각 안). 학생 아이디를 모르면(v1 제출) 빈 목록 */
+export async function chatsForReplay(owner: ReplayOwner, log: unknown): Promise<HelpChat[]> {
+  const events = validEntries(log);
+  // 도움 요청이 없는 기록이면 찾을 필요가 없다
+  if (!owner.userId || !events.some((e) => e[1] === "q")) return [];
+  const times = events.map((e) => e[0]);
+  return listChatsForReplay(owner.userId, owner.subject, owner.problem, Math.min(...times), Math.max(...times));
 }

@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
 import type { AiChat } from "@/lib/aiChat";
-import { listChatsSince, setChatFlag } from "@/lib/aiChatStore";
+import { chatsForReplay, listChatsSince, setChatFlag } from "@/lib/aiChatStore";
 import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
@@ -351,9 +351,11 @@ export async function loadStudentReplay(submissionId: number): Promise<ReplayRes
   if (session?.role !== "teacher") return { ok: false, error: "교사 계정으로 다시 로그인하세요." };
   if (!Number.isInteger(submissionId)) return { ok: false, error: "제출을 찾지 못했어요." };
   try {
-    const data = await getReplayDataById(submissionId);
-    if (!data) return { ok: false, error: "제출을 찾지 못했어요." };
-    return { ok: true, data: { ...data, notes: await listNotesForSubmission(submissionId, session.id) } };
+    const found = await getReplayDataById(submissionId);
+    if (!found) return { ok: false, error: "제출을 찾지 못했어요." };
+    const { owner, ...data } = found;
+    const [notes, chats] = await Promise.all([listNotesForSubmission(submissionId, session.id), chatsForReplay(owner, data.log)]);
+    return { ok: true, data: { ...data, notes, chats } };
   } catch (err) {
     console.error("재생 기록 오류:", err);
     return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };

@@ -139,17 +139,25 @@ export async function listMySubmissions(owner: Owner): Promise<MySubmission[]> {
 
 export type ReplayData = { init: string; code: string; log: unknown };
 
+/** 재생할 때 AI 대화를 찾는 데 쓰는 제출 정보 (누가, 어느 문제) */
+export type ReplayOwner = { userId: string | null; subject: string; problem: string };
+
 /** 재생용 기록. 내 제출만 돌려준다(학생은 자기 제출만). 없거나 남의 것이면 null. */
-export async function getReplayData(submissionId: number, owner: Owner): Promise<ReplayData | null> {
+export async function getReplayData(submissionId: number, owner: Owner): Promise<(ReplayData & { owner: ReplayOwner }) | null> {
   const f = await ownerFilter(owner);
   const { data, error } = await db()
     .from("submissions")
-    .select(["code, init_code, edit_log", f.columns].join(", "))
+    .select(["code, init_code, edit_log, subject, problem", f.columns].join(", "))
     .eq("id", submissionId)
-    .maybeSingle<Pick<SubmissionRow, "code" | "init_code" | "edit_log"> & OwnedRow>();
+    .maybeSingle<Pick<SubmissionRow, "code" | "init_code" | "edit_log" | "subject" | "problem"> & OwnedRow>();
   if (error) throw new Error(`기록 조회 실패: ${error.message}`);
   if (!data || !f.mine(data)) return null;
-  return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
+  return {
+    init: data.init_code ?? "",
+    code: data.code ?? "",
+    log: data.edit_log ?? [],
+    owner: { userId: owner.id, subject: data.subject, problem: data.problem },
+  };
 }
 
 /** 이 제출이 이 학생 것인지 (메모를 남길 때 확인용) */
@@ -168,15 +176,22 @@ export async function submissionExists(submissionId: number): Promise<boolean> {
 }
 
 /** 교사용 재생 기록: 어느 학생의 제출이든 id로 연다 (교사 확인은 부르는 쪽에서) */
-export async function getReplayDataById(submissionId: number): Promise<ReplayData | null> {
+export async function getReplayDataById(submissionId: number): Promise<(ReplayData & { owner: ReplayOwner }) | null> {
+  const withUserId = await hasUserIdColumn();
   const { data, error } = await db()
     .from("submissions")
-    .select("code, init_code, edit_log")
+    .select(withUserId ? "code, init_code, edit_log, subject, problem, user_id" : "code, init_code, edit_log, subject, problem")
     .eq("id", submissionId)
-    .maybeSingle<Pick<SubmissionRow, "code" | "init_code" | "edit_log">>();
+    .maybeSingle<Pick<SubmissionRow, "code" | "init_code" | "edit_log" | "subject" | "problem"> & { user_id?: string | null }>();
   if (error) throw new Error(`기록 조회 실패: ${error.message}`);
   if (!data) return null;
-  return { init: data.init_code ?? "", code: data.code ?? "", log: data.edit_log ?? [] };
+  return {
+    init: data.init_code ?? "",
+    code: data.code ?? "",
+    log: data.edit_log ?? [],
+    // user_id가 없는 제출(지난 제출·v1)은 AI 대화를 이을 수 없다 (AI 도우미는 v2에서만 쓰므로 괜찮음)
+    owner: { userId: data.user_id ?? null, subject: data.subject, problem: data.problem },
+  };
 }
 
 type JourneyRow = Pick<
