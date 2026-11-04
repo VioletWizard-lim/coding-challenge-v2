@@ -36,24 +36,24 @@ export default function Workspace({
   const recorder = useRef<RecorderHandle>(null);
 
   // 제출하지 않은 코드가 있으면 다른 탭으로 가거나 페이지를 떠날 때 알려 준다 (코드는 브라우저에 저장돼 있음)
+  // 이동할 때마다 묻는다. 제출했거나, '다시 묻지 않기'를 고른 코드면 더 묻지 않는다 (고치면 다시 물음)
   const submittedCode = useRef<string | null>(null);
-  const acknowledgedCode = useRef<string | null>(null);
+  const quietCode = useRef<string | null>(null);
   const unsentCode = () => {
     const rec = recorder.current?.getRecording();
-    if (!rec || !rec.code.trim() || rec.code === rec.init) return null;
-    if (rec.code === submittedCode.current || rec.code === acknowledgedCode.current) return null;
+    if (!rec || !rec.code.trim() || rec.code === rec.init || rec.code === submittedCode.current) return null;
     return rec.code;
   };
   const { writeTarget, setLeaveGuard } = useStudentNav();
   useEffect(() => {
     setLeaveGuard("write", () => {
       const code = unsentCode();
-      if (code === null) return null;
+      if (code === null || code === quietCode.current) return null;
       return {
         message:
           "아직 제출하지 않은 코드가 있어요.\n코드는 이 브라우저에 저장돼서 돌아오면 그대로 있어요.\n다른 화면으로 이동할까요?",
-        onLeave: () => {
-          acknowledgedCode.current = code; // 더 고치기 전까지는 다시 묻지 않는다
+        onLeave: (dontAskAgain) => {
+          if (dontAskAgain) quietCode.current = code;
         },
       };
     });

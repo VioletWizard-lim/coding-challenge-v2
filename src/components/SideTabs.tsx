@@ -7,7 +7,7 @@ import ScrollTopButton from "./ScrollTopButton";
 type Tab = { id: string; label: string; content: ReactNode };
 
 /** 탭을 떠나기 전에 확인할 것 (예: 제출하지 않은 코드). 물을 게 없으면 null */
-export type LeaveGuard = () => { message: string; onLeave: () => void } | null;
+export type LeaveGuard = () => { message: string; onLeave: (dontAskAgain: boolean) => void } | null;
 
 /** 탭끼리 주고받는 상태: 내 기록 다시 보기에서 고른 문제와, 다른 탭에서 "이 제출 보기"로 연 제출 */
 type StudentNav = {
@@ -53,14 +53,16 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
 
   // 탭을 떠나기 전 확인 (코드 작성 탭: 제출하지 않은 코드). 사이트 안의 창으로 물어서 작성 기록에 '창 이탈'이 찍히지 않게 한다
   const guards = useRef(new Map<string, LeaveGuard>());
-  const [asking, setAsking] = useState<{ message: string; leave: () => void } | null>(null);
+  const [asking, setAsking] = useState<{ message: string; leave: (dontAskAgain: boolean) => void } | null>(null);
+  const [dontAskAgain, setDontAskAgain] = useState(false);
   const leaveThen = useCallback((go: () => void) => {
     const check = guards.current.get(activeRef.current)?.();
     if (!check) return go();
+    setDontAskAgain(false);
     setAsking({
       message: check.message,
-      leave: () => {
-        check.onLeave();
+      leave: (dontAsk) => {
+        check.onLeave(dontAsk);
         go();
       },
     });
@@ -159,6 +161,10 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
             <p id="leave-title" className="whitespace-pre-line leading-7">
               {asking.message}
             </p>
+            <label className="flex items-center gap-2 text-sm text-muted">
+              <input type="checkbox" checked={dontAskAgain} onChange={(e) => setDontAskAgain(e.target.checked)} />
+              다시 묻지 않기 (코드를 더 고치면 다시 물어요)
+            </label>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -173,7 +179,7 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
                 onClick={() => {
                   const leave = asking.leave;
                   setAsking(null);
-                  leave();
+                  leave(dontAskAgain);
                 }}
                 className="rounded-lg border border-line bg-white px-4 py-2"
               >
