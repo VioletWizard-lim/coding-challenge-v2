@@ -1,10 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { GO_HOME_EVENT } from "./HomeLink";
 import ScrollTopButton from "./ScrollTopButton";
 
 type Tab = { id: string; label: string; content: ReactNode };
+
+/** 탭을 떠나기 전에 확인할 것 (예: 제출하지 않은 코드). 물을 게 없으면 null */
+export type LeaveGuard = () => { message: string; onLeave: () => void } | null;
 
 /** 탭끼리 주고받는 상태: 내 기록 다시 보기에서 고른 문제와, 다른 탭에서 "이 제출 보기"로 연 제출 */
 type StudentNav = {
@@ -15,6 +18,8 @@ type StudentNav = {
   focusedAt: number | null;
   /** 내 기록 다시 보기 탭으로 옮겨 그 문제를 고르고, 그 제출을 펼쳐 작성 과정을 바로 연다 */
   showSubmission: (problemKey: string, submissionId: number, at?: number) => void;
+  /** 이 탭을 떠날 때 확인할 것을 등록한다 (null이면 지움) */
+  setLeaveGuard: (tabId: string, guard: LeaveGuard | null) => void;
   /** 다른 탭으로 옮긴다 (예: 새 업적 알림 → 업적 탭) */
   showTab: (id: string) => void;
   /** 코드 작성 탭에서 이 문제를 골라 연다 (첫 화면의 "코드 작성하러 가기"). n은 같은 문제를 다시 눌러도 바뀌게 */
@@ -41,16 +46,37 @@ const WRITE_TAB = "write";
  */
 export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: Record<string, string> }) {
   const [active, setActive] = useState(tabs[0].id);
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  // 탭을 떠나기 전 확인 (코드 작성 탭: 제출하지 않은 코드). 사이트 안의 창으로 물어서 작성 기록에 '창 이탈'이 찍히지 않게 한다
+  const guards = useRef(new Map<string, LeaveGuard>());
+  const [asking, setAsking] = useState<{ message: string; leave: () => void } | null>(null);
+  const leaveThen = useCallback((go: () => void) => {
+    const check = guards.current.get(activeRef.current)?.();
+    if (!check) return go();
+    setAsking({
+      message: check.message,
+      leave: () => {
+        check.onLeave();
+        go();
+      },
+    });
+  }, []);
+
   // 위쪽 로고를 누르면 처음 화면(첫 탭)으로
   const homeTab = tabs[0].id;
   useEffect(() => {
-    const goHome = () => {
-      setActive(homeTab);
-      window.scrollTo({ top: 0 });
-    };
+    const goHome = () =>
+      leaveThen(() => {
+        setActive(homeTab);
+        window.scrollTo({ top: 0 });
+      });
     window.addEventListener(GO_HOME_EVENT, goHome);
     return () => window.removeEventListener(GO_HOME_EVENT, goHome);
-  }, [homeTab]);
+  }, [homeTab, leaveThen]);
   const [selectedProblem, setSelectedProblem] = useState("all");
   const [focusedSubmission, setFocusedSubmission] = useState<number | null>(null);
   const [focusedAt, setFocusedAt] = useState<number | null>(null);
@@ -66,15 +92,23 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
       return !title || title === number ? number : `${number}. ${title}`;
     },
     showSubmission(problemKey, submissionId, at) {
-      setSelectedProblem(problemKey);
-      setFocusedSubmission(submissionId);
-      setFocusedAt(at ?? null);
-      setActive(SUBMISSIONS_TAB);
-      window.scrollTo({ top: 0 });
+      leaveThen(() => {
+        setSelectedProblem(problemKey);
+        setFocusedSubmission(submissionId);
+        setFocusedAt(at ?? null);
+        setActive(SUBMISSIONS_TAB);
+        window.scrollTo({ top: 0 });
+      });
+    },
+    setLeaveGuard(tabId, guard) {
+      if (guard) guards.current.set(tabId, guard);
+      else guards.current.delete(tabId);
     },
     showTab(id) {
-      setActive(id);
-      window.scrollTo({ top: 0 });
+      leaveThen(() => {
+        setActive(id);
+        window.scrollTo({ top: 0 });
+      });
     },
     writeTarget,
     startWriting(subject, number) {
@@ -101,7 +135,7 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
               id={`tab-${t.id}`}
               aria-selected={active === t.id}
               aria-controls={`panel-${t.id}`}
-              onClick={() => setActive(t.id)}
+              onClick={() => t.id !== active && leaveThen(() => setActive(t.id))}
               className={`shrink-0 rounded-lg px-4 py-2.5 text-left whitespace-nowrap transition md:w-full ${
                 active === t.id ? "bg-brand-soft font-bold text-brand" : "text-muted hover:bg-page hover:text-ink"
               }`}
@@ -119,6 +153,36 @@ export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: 
         </div>
       </div>
       <ScrollTopButton />
+      {asking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" role="presentation">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="leave-title" className="flex w-full max-w-md flex-col gap-4 rounded-2xl bg-white p-6 shadow-xl">
+            <p id="leave-title" className="whitespace-pre-line leading-7">
+              {asking.message}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setAsking(null)}
+                className="rounded-lg bg-brand px-4 py-2 font-bold text-white"
+              >
+                계속 작성하기
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const leave = asking.leave;
+                  setAsking(null);
+                  leave();
+                }}
+                className="rounded-lg border border-line bg-white px-4 py-2"
+              >
+                이동하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </NavContext>
   );
 }

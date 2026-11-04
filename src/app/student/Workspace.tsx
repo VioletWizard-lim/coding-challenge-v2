@@ -35,8 +35,42 @@ export default function Workspace({
   const [coolingDown, setCoolingDown] = useState(false);
   const recorder = useRef<RecorderHandle>(null);
 
+  // 제출하지 않은 코드가 있으면 다른 탭으로 가거나 페이지를 떠날 때 알려 준다 (코드는 브라우저에 저장돼 있음)
+  const submittedCode = useRef<string | null>(null);
+  const acknowledgedCode = useRef<string | null>(null);
+  const unsentCode = () => {
+    const rec = recorder.current?.getRecording();
+    if (!rec || !rec.code.trim() || rec.code === rec.init) return null;
+    if (rec.code === submittedCode.current || rec.code === acknowledgedCode.current) return null;
+    return rec.code;
+  };
+  const { writeTarget, setLeaveGuard } = useStudentNav();
+  useEffect(() => {
+    setLeaveGuard("write", () => {
+      const code = unsentCode();
+      if (code === null) return null;
+      return {
+        message:
+          "아직 제출하지 않은 코드가 있어요.\n코드는 이 브라우저에 저장돼서 돌아오면 그대로 있어요.\n다른 화면으로 이동할까요?",
+        onLeave: () => {
+          acknowledgedCode.current = code; // 더 고치기 전까지는 다시 묻지 않는다
+        },
+      };
+    });
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (unsentCode() === null) return;
+      e.preventDefault();
+      e.returnValue = ""; // 브라우저 기본 경고 창 (새로고침·창 닫기·로그아웃)
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => {
+      setLeaveGuard("write", null);
+      window.removeEventListener("beforeunload", onUnload);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 처음 한 번 등록 (ref로 최신 상태를 읽음)
+  }, []);
+
   // 첫 화면에서 "코드 작성하러 가기"를 누르면 그 문제를 골라 둔다
-  const { writeTarget } = useStudentNav();
   useEffect(() => {
     if (!writeTarget || !allProblems.some((p) => p.subject === writeTarget.subject && p.number === writeTarget.number)) return;
     /* eslint-disable react-hooks/set-state-in-effect -- 다른 탭에서 고른 문제를 받아 오는 것 */
@@ -69,6 +103,7 @@ export default function Workspace({
         log: rec.log,
       });
       if (!result.ok) return setMessage({ text: result.error, kind: "error" });
+      submittedCode.current = rec.code;
       setMessage({ text: `✅ 제출 완료! (${current.number}) '▶ 내 기록 다시 보기'에서 내가 쓴 과정을 돌아볼 수 있어요.`, kind: "ok" });
       setCoolingDown(true);
       setTimeout(() => setCoolingDown(false), COOLDOWN_MS);
