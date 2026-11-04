@@ -209,12 +209,15 @@ export default function AiHelper({
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask();
+              // Enter: 보내기 / Shift+Enter: 줄 바꾸기. 한글을 조합하는 중의 Enter는 글자 확정이라 보내지 않는다
+              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+              e.preventDefault();
+              ask();
             }}
             rows={3}
             maxLength={MAX_QUESTION}
             disabled={outOfQuestions}
-            placeholder={outOfQuestions ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요." : "무엇이 막히나요? (Ctrl+Enter로 보내기)"}
+            placeholder={outOfQuestions ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요." : "무엇이 막히나요? (Enter로 보내기, Shift+Enter로 줄 바꾸기)"}
             className="rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:bg-page"
           />
           <button
