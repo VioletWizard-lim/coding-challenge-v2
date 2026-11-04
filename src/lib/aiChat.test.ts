@@ -101,3 +101,18 @@ describe("답 검사 (정답 수준의 코드)", () => {
     expect(similarity("abc", "xyz")).toBe(0);
   });
 });
+
+describe("답 검사: 학생이 쓴 코드를 가리키는 것은 괜찮다", () => {
+  const current = 'score = int(input("점수: "))\nif score > 60:\n    print("합격입니다!")';
+  it("학생 줄의 일부를 짚으며 칭찬", () => {
+    expect(leaksAnswer("`int(input())`로 숫자로 바꾼 것과 `print(\"합격입니다!\")`를 들여쓰기한 것 좋아요", current)).toBeNull();
+    expect(leaksAnswer('`int(input("점수: "))`로 숫자로 바꾼 것 좋아요', current)).toBeNull();
+  });
+  it("조건을 고친 줄은 걸린다", () => {
+    expect(leaksAnswer("`if score >= 60:`로 바꿔 보세요", current)).toBe("고친 줄");
+  });
+  it("마지막 성공 코드에 있던 줄도 학생이 쓴 코드", () => {
+    const own = `${current}\nscore = input("점수: ")`;
+    expect(leaksAnswer('처음엔 `score = input("점수: ")`였죠', own)).toBeNull();
+  });
+});

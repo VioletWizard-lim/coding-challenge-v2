@@ -229,16 +229,18 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
 
     // 과정 기록 요약: 마지막 성공 코드, 그 뒤 바뀐 줄, 반복된 오류, 멈춘 구간, 막힌 개념 (CLAUDE.md 규칙 1)
     const summary = summarizeProcess(String(input.init ?? ""), input.log, at);
+    // 학생이 직접 쓴 코드: 이 안의 코드를 AI가 가리키는 것은 정답 알려 주기가 아니다
+    const ownCode = `${summary.currentCode}\n${summary.lastSuccess?.code ?? ""}`;
     const history = await listChatsForProblem(session.id, input.subject, input.problem, HISTORY_TURNS);
     const reply = await askHelper({
       problemText: problemForAi(problem),
       processText: processSummaryText(summary),
       history: history.map((c) => ({ question: c.question, answer: c.answer })),
       question,
-      leaks: (text) => leaksAnswer(text, summary.currentCode),
+      leaks: (text) => leaksAnswer(text, ownCode),
     });
     // 다시 받은 답에도 남아 있으면 코드 부분을 지워서 보여 준다 (마지막 안전장치)
-    const checked = reply.retried && leaksAnswer(reply.text, summary.currentCode) ? stripAnswerCode(reply.text, summary.currentCode) : reply.text;
+    const checked = reply.retried && leaksAnswer(reply.text, ownCode) ? stripAnswerCode(reply.text, ownCode) : reply.text;
     const answer = dropUnknownRefs(checked, summary.moments);
     const chat = await insertChat({
       userId: session.id,
