@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import AiAnswer from "@/components/AiAnswer";
 import { useStudentNav } from "@/components/SideTabs";
 import type { AiChat } from "@/lib/aiChat";
 import { classOptions, inClass } from "@/lib/classes";
@@ -18,13 +19,6 @@ const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   minute: "2-digit",
   hour12: false,
 });
-
-/** 교사 화면에서는 [[M3]]을 그 순간의 설명으로 바꿔 보여 준다 */
-const readable = (c: AiChat) =>
-  c.answer.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\[\[(M\d+)\]\]/g, (all, id: string) => {
-    const m = c.moments.find((x) => x.id === id);
-    return m ? `‹${m.label}›` : "";
-  });
 
 /**
  * 교사용 학생 AI 대화 열람 (미성년자 보호 규칙). 반·학생·기간으로 고르고,
@@ -144,7 +138,8 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
             >
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <span className="font-bold">
-                  {c.userId} {s?.name ?? ""}
+                  {c.userId}
+                  {s?.name && s.name !== c.userId && ` ${s.name}`}
                 </span>
                 <span className="text-muted">
                   {c.subject} {problemLabel(c.subject, c.problem)}
@@ -167,7 +162,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                 <b>질문</b> {c.question}
               </p>
               <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
-                <b className="text-blue-700">🤖 AI 답</b> {readable(c)}
+                <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c} />
               </p>
             </li>
           );

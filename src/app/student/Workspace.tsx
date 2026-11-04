@@ -7,7 +7,7 @@ import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEdit
 import { storageKeyFor } from "@/lib/editLog";
 import { labelOf, type Problem } from "@/lib/problemBank";
 import AiHelper from "./AiHelper";
-import { submitCode } from "./actions";
+import { checkSubmitted, submitCode } from "./actions";
 
 const selectClass =
   "rounded-lg border border-line bg-white px-3 py-2 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
@@ -15,6 +15,26 @@ const selectClass =
 const COOLDOWN_MS = 5000; // 같은 제출이 여러 번 들어가지 않게 (v1과 같음)
 
 type Message = { text: string; kind: "ok" | "error" };
+
+/** 이 창에서 고른 과목·문제 (화면이 새로 고쳐져도 같은 문제로) */
+const PICK_KEY = "write:pick";
+/** 제출 버튼을 누른 뒤 결과를 받기 전 (그 사이 화면이 새로 고쳐지면 저장됐는지 확인) */
+const PENDING_KEY = "write:pending";
+type Pending = { subject: string; problem: string; at: number; description: string; code: string };
+
+const readSession = <T,>(key: string): T | null => {
+  try {
+    return JSON.parse(sessionStorage.getItem(key) ?? "null") as T | null;
+  } catch {
+    return null;
+  }
+};
+const writeSession = (key: string, value: unknown) => {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
 
 /** 과목·문제를 고르고, 기록 편집기에서 코드를 쓰고, 코드 설명과 함께 제출한다. 공개된 문제만 받는다. */
 export default function Workspace({
@@ -83,6 +103,45 @@ export default function Workspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 새로 고를 때(n)만
   }, [writeTarget?.n]);
 
+  // 처음 열 때: 화면이 새로 고쳐졌으면(새 버전 배포 등) 보던 문제로 돌아가고, 제출 중이었으면 저장됐는지 확인한다
+  useEffect(() => {
+    const pick = readSession<{ subject: string; problem: string }>(PICK_KEY);
+    const pending = readSession<Pending>(PENDING_KEY);
+    const target = pending ?? pick;
+    /* eslint-disable react-hooks/set-state-in-effect -- 브라우저에만 있는 값을 처음 한 번 읽어 옴 */
+    if (target && allProblems.some((p) => p.subject === target.subject && p.number === target.problem)) {
+      setSubject(target.subject);
+      setProblem(target.problem);
+    }
+    if (!pending) return;
+    if (Date.now() - pending.at > 30 * 60_000) return writeSession(PENDING_KEY, null);
+    setDescription(pending.description);
+    setMessage({ text: "제출이 저장됐는지 확인하는 중…", kind: "ok" });
+    /* eslint-enable react-hooks/set-state-in-effect */
+    checkSubmitted(pending.subject, pending.problem, pending.at).then((saved) => {
+      // 확인이 끝난 뒤에 지운다 (새로 고침이 두 번 이어져도 다시 확인할 수 있게)
+      writeSession(PENDING_KEY, null);
+      if (saved) {
+        submittedCode.current = pending.code;
+        setMessage({
+          text: `✅ 제출 완료! (${pending.problem}) 제출하는 동안 화면이 새로 고쳐졌지만 제출은 저장됐어요.`,
+          kind: "ok",
+        });
+      } else {
+        setMessage({
+          text: "제출하는 동안 화면이 새로 고쳐져서 제출되지 않았어요. 코드와 설명은 그대로 있으니 다시 제출해 주세요.",
+          kind: "error",
+        });
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 처음 한 번만
+  }, []);
+
+  // 고른 문제를 이 창에 기억해 둔다 (위에서 먼저 읽은 뒤)
+  useEffect(() => {
+    if (current) writeSession(PICK_KEY, { subject, problem: current.number });
+  }, [subject, current]);
+
   function changeSubject(next: string) {
     setSubject(next);
     setProblem(allProblems.find((p) => p.subject === next)?.number ?? "");
@@ -95,6 +154,7 @@ export default function Workspace({
     if (!rec.code.trim()) return setMessage({ text: "코드를 입력하세요.", kind: "error" });
     if (!description.trim()) return setMessage({ text: "코드 설명을 입력하세요.", kind: "error" });
     setMessage(null);
+    writeSession(PENDING_KEY, { subject, problem: current.number, at: Date.now(), description, code: rec.code } satisfies Pending);
     startTransition(async () => {
       const result = await submitCode({
         subject,
@@ -104,7 +164,13 @@ export default function Workspace({
         init: rec.init,
         log: rec.log,
       });
-      if (!result.ok) return setMessage({ text: result.error, kind: "error" });
+      if (!result.ok) {
+        writeSession(PENDING_KEY, null);
+        return setMessage({ text: result.error, kind: "error" });
+      }
+      // 성공해도 바로 지우지 않는다: 새 버전이 배포된 직후면 답을 받자마자 화면이 새로 고쳐질 수 있어서,
+      // 새로 고친 화면이 이 표시를 보고 "제출 완료"를 다시 보여 준다
+      setTimeout(() => writeSession(PENDING_KEY, null), 5000);
       submittedCode.current = rec.code;
       setMessage({ text: `✅ 제출 완료! (${current.number}) '▶ 내 기록 다시 보기'에서 내가 쓴 과정을 돌아볼 수 있어요.`, kind: "ok" });
       setCoolingDown(true);

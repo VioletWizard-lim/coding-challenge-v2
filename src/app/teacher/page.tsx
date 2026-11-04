@@ -43,6 +43,7 @@ async function TeacherHome() {
     <>
       <Header name={session.name} role="teacher" />
       <SideTabs
+        rememberAs="teacher"
         titles={titles}
         tabs={[
           {

@@ -258,3 +258,18 @@ export async function todaysSubmittedProblems(owner: Owner): Promise<Record<stri
   }
   return bySubject;
 }
+
+/** 이 시각 뒤에 이 문제를 제출했는지 (제출 중에 화면이 새로 고쳐졌을 때 저장됐는지 확인) */
+export async function submittedSince(owner: Owner, subject: string, problem: string, sinceIso: string): Promise<boolean> {
+  const f = await ownerFilter(owner);
+  const rows = await fetchAll<{ id: number } & OwnedRow>(
+    () =>
+      f
+        .apply(db().from("submissions").select(["id", f.columns].join(", ")))
+        .eq("subject", subject)
+        .eq("problem", problem)
+        .gte("submitted_at", sinceIso)
+        .order("id") as unknown as RangeQuery<{ id: number } & OwnedRow>,
+  );
+  return rows.some(f.mine);
+}
