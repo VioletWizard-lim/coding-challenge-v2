@@ -6,6 +6,7 @@ import type { NoteActions } from "@/components/ReplayNotes";
 import type { NoteAuthor } from "@/lib/timelineNotes";
 import { deleteFeedbackNote, saveFeedbackNote } from "../teacher/actions";
 import { deleteMyNote, loadMyReplay, saveMyNote, type ReplayResult } from "./actions";
+import ReviewPanel from "./ReviewPanel";
 
 export type ReplayLoader = (submissionId: number) => Promise<ReplayResult>;
 
@@ -54,10 +55,19 @@ export default function ReplaySection({
   }, [autoStart]);
 
   if (result?.ok) {
-    const { notes, ...data } = result.data;
+    const { notes, review, ...data } = result.data;
     return (
       <Replayer
         {...data}
+        extra={(seek) => (
+          <ReviewPanel
+            submissionId={submissionId}
+            role={noteRole}
+            ready={review.ready}
+            initial={review.review}
+            seek={seek}
+          />
+        )}
         startAt={startAt}
         notes={notes.notes}
         // 메모 표가 아직 없으면(008 실행 전) 쓰기 버튼을 숨긴다

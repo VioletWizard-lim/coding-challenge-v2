@@ -5,6 +5,8 @@ import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
 import type { AiChat } from "@/lib/aiChat";
 import { chatsForReplay, listChatsSince, setChatFlag } from "@/lib/aiChatStore";
+import type { AiReview } from "@/lib/aiReview";
+import { getReview, listReviewsSince, setReviewFlag } from "@/lib/aiReviewStore";
 import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
@@ -354,8 +356,12 @@ export async function loadStudentReplay(submissionId: number): Promise<ReplayRes
     const found = await getReplayDataById(submissionId);
     if (!found) return { ok: false, error: "제출을 찾지 못했어요." };
     const { owner, ...data } = found;
-    const [notes, chats] = await Promise.all([listNotesForSubmission(submissionId, session.id), chatsForReplay(owner, data.log)]);
-    return { ok: true, data: { ...data, notes, chats } };
+    const [notes, chats, review] = await Promise.all([
+      listNotesForSubmission(submissionId, session.id),
+      chatsForReplay(owner, data.log),
+      getReview(submissionId),
+    ]);
+    return { ok: true, data: { ...data, notes, chats, review } };
   } catch (err) {
     console.error("재생 기록 오류:", err);
     return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
@@ -400,7 +406,7 @@ export async function deleteFeedbackNote(id: number): Promise<{ ok: boolean; err
 }
 
 export type TeacherChatsResult =
-  | { ok: true; ready: boolean; chats: AiChat[] }
+  | { ok: true; ready: boolean; chats: AiChat[]; reviews: AiReview[] }
   | { ok: false; message: string };
 
 /** 학생 AI 대화 열람 (최근 days일). 미성년자 보호: 교사는 모든 학생의 AI 대화를 볼 수 있다 */
@@ -409,7 +415,8 @@ export async function loadAiChats(days: number): Promise<TeacherChatsResult> {
   const span = [7, 30, 180].includes(Number(days)) ? Number(days) : 7;
   try {
     const since = new Date(Date.now() - span * 86_400_000).toISOString();
-    return { ok: true, ...(await listChatsSince(since)) };
+    const [chats, reviews] = await Promise.all([listChatsSince(since), listReviewsSince(since)]);
+    return { ok: true, ...chats, reviews: reviews.reviews };
   } catch (err) {
     console.error("AI 대화 열람 오류:", err);
     return { ok: false, message: "AI 대화를 불러오지 못했어요. 잠시 후 다시 시도하세요." };
@@ -424,6 +431,17 @@ export async function flagAiChat(id: number, flag: boolean): Promise<{ ok: boole
     return done ? { ok: true } : { ok: false, message: "대화를 찾지 못했어요." };
   } catch (err) {
     console.error("AI 대화 표시 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 되돌아보기 부적절 표시하기(flag=true)·풀기(false) */
+export async function flagAiReview(id: number, flag: boolean): Promise<{ ok: boolean; message?: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return (await setReviewFlag(Number(id), flag ? "teacher" : null)) ? { ok: true } : { ok: false, message: "찾지 못했어요." };
+  } catch (err) {
+    console.error("되돌아보기 표시 오류:", err);
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

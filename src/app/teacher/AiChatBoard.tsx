@@ -4,9 +4,22 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
 import { useStudentNav } from "@/components/SideTabs";
 import type { AiChat } from "@/lib/aiChat";
+import type { AiReview } from "@/lib/aiReview";
+
+type Common = Pick<AiChat, "id" | "userId" | "subject" | "problem" | "createdAt" | "flaggedBy">;
+/** 목록 한 줄: AI 도우미 대화 또는 AI 되돌아보기 */
+type Item = Common & { key: string } & ({ type: "chat"; chat: AiChat } | { type: "review"; review: AiReview });
+const pick = (x: Common): Common => ({
+  id: x.id,
+  userId: x.userId,
+  subject: x.subject,
+  problem: x.problem,
+  createdAt: x.createdAt,
+  flaggedBy: x.flaggedBy,
+});
 import { classOptions, inClass } from "@/lib/classes";
 import type { StudentRow } from "@/lib/teacher";
-import { flagAiChat, loadAiChats } from "./actions";
+import { flagAiChat, flagAiReview, loadAiChats } from "./actions";
 
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
@@ -30,7 +43,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   const [picked, setPicked] = useState("");
   const [studentId, setStudentId] = useState("");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
-  const [data, setData] = useState<{ ready: boolean; chats: AiChat[] } | null>(null);
+  const [data, setData] = useState<{ ready: boolean; chats: AiChat[]; reviews: AiReview[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [reload, setReload] = useState(0);
@@ -40,7 +53,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
       const r = await loadAiChats(days);
       if (!r.ok) return setError(r.message);
       setError(null);
-      setData({ ready: r.ready, chats: r.chats });
+      setData({ ready: r.ready, chats: r.chats, reviews: r.reviews });
     });
   }, [days, reload]);
 
@@ -48,17 +61,28 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   const options = useMemo(() => classOptions(students), [students]);
   const inPicked = useMemo(() => students.filter((s) => inClass(s, picked)), [students, picked]);
   const ids = new Set(inPicked.map((s) => String(s.id)));
-  const chats = (data?.chats ?? []).filter(
+  // 도우미 대화와 되돌아보기를 함께, 최근 것부터
+  const all: Item[] = [
+    ...(data?.chats ?? []).map((c) => ({ type: "chat" as const, key: `c${c.id}`, ...pick(c), chat: c })),
+    ...(data?.reviews ?? []).map((r) => ({ type: "review" as const, key: `r${r.id}`, ...pick(r), review: r })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const chats = all.filter(
     (c) => (!picked || ids.has(c.userId)) && (!studentId || c.userId === studentId) && (!flaggedOnly || c.flaggedBy),
   );
-  const flaggedCount = (data?.chats ?? []).filter((c) => c.flaggedBy).length;
+  const flaggedCount = all.filter((c) => c.flaggedBy).length;
 
-  function toggleFlag(c: AiChat) {
-    const next = !c.flaggedBy;
-    flagAiChat(c.id, next).then((r) => {
+  function toggleFlag(item: Item) {
+    const next = !item.flaggedBy;
+    const flagged = next ? ("teacher" as const) : null;
+    (item.type === "chat" ? flagAiChat(item.id, next) : flagAiReview(item.id, next)).then((r) => {
       if (!r.ok) return setError(r.message ?? "저장하지 못했어요.");
-      setData((d) =>
-        d && { ...d, chats: d.chats.map((x) => (x.id === c.id ? { ...x, flaggedBy: next ? "teacher" : null } : x)) },
+      setData(
+        (d) =>
+          d && {
+            ...d,
+            chats: item.type === "chat" ? d.chats.map((x) => (x.id === item.id ? { ...x, flaggedBy: flagged } : x)) : d.chats,
+            reviews: item.type === "review" ? d.reviews.map((x) => (x.id === item.id ? { ...x, flaggedBy: flagged } : x)) : d.reviews,
+          },
       );
     });
   }
@@ -126,14 +150,14 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
         </p>
       )}
       {data?.ready && (
-        <p className="text-sm text-muted">{pending ? "불러오는 중…" : `대화 ${chats.length}개`}</p>
+        <p className="text-sm text-muted">{pending ? "불러오는 중…" : `${chats.length}개 (도우미 대화·되돌아보기)`}</p>
       )}
       <ul className={`flex flex-col gap-3 ${pending ? "opacity-50" : ""}`}>
         {chats.map((c) => {
           const s = byId.get(c.userId);
           return (
             <li
-              key={c.id}
+              key={c.key}
               className={`flex flex-col gap-2 rounded-lg border px-4 py-3 ${c.flaggedBy ? "border-rose-300 bg-rose-50/40" : "border-line"}`}
             >
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -145,6 +169,9 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                   {c.subject} {problemLabel(c.subject, c.problem)}
                 </span>
                 <span className="text-muted tabular-nums">{timeFormat.format(new Date(c.createdAt))}</span>
+                {c.type === "review" && (
+                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-700">🔁 되돌아보기</span>
+                )}
                 {c.flaggedBy && (
                   <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">
                     🚩 {c.flaggedBy === "student" ? "학생이 알림" : "교사 표시"}
@@ -155,15 +182,39 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                   onClick={() => toggleFlag(c)}
                   className="ml-auto rounded-lg border border-line px-2 py-1 text-xs hover:bg-page"
                 >
-                  {c.flaggedBy ? "표시 풀기" : "🚩 부적절한 대화로 표시"}
+                  {c.flaggedBy ? "표시 풀기" : "🚩 부적절한 내용으로 표시"}
                 </button>
               </div>
-              <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
-                <b>질문</b> {c.question}
-              </p>
-              <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
-                <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c} />
-              </p>
+              {c.type === "chat" ? (
+                <>
+                  <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
+                    <b>질문</b> {c.chat.question}
+                  </p>
+                  <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
+                    <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c.chat} />
+                  </p>
+                </>
+              ) : (
+                <div className="flex flex-col gap-1.5 text-sm">
+                  {c.review.intro && (
+                    <p className="rounded-lg bg-page px-3 py-2 leading-6">
+                      <b className="text-blue-700">🤖 AI</b> <AiAnswer chat={{ answer: c.review.intro, moments: [] }} />
+                    </p>
+                  )}
+                  {c.review.questions.map((q, i) => (
+                    <div key={i} className="grid gap-1 rounded-lg border border-line px-3 py-2">
+                      <p className="leading-6">
+                        <b className="text-violet-700">질문 {i + 1}</b>
+                        {q.moment && <span className="text-blue-800"> ‹{q.moment.label}›</span>}{" "}
+                        <AiAnswer chat={{ answer: q.question, moments: [] }} />
+                      </p>
+                      <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
+                        <b>학생 답</b> {q.answer || <span className="text-muted">(아직 안 씀)</span>}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </li>
           );
         })}

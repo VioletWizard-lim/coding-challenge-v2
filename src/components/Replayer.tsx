@@ -4,7 +4,7 @@ import { python } from "@codemirror/lang-python";
 import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorState, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, lineNumbers, type DecorationSet } from "@codemirror/view";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { editRange, type EditEvent } from "@/lib/editLog";
 import { analyzeLog, formatDuration, type Mark, type MarkKind, type ReplayStats } from "@/lib/replay";
 import { helpTrail, type HelpChat, type HelpStep } from "@/lib/helpTrail";
@@ -25,6 +25,8 @@ type Props = {
   noteActions?: NoteActions;
   /** 작성 중 AI 도우미와 나눈 대화: "AI 도움 요청" 순간에 질문·답과 그 뒤 행동을 보여 준다 */
   chats?: HelpChat[];
+  /** 재생기 아래에 붙일 내용 (예: AI 되돌아보기). seek로 재생기를 그 시각으로 옮길 수 있다 */
+  extra?: (seek: (t: number) => void) => ReactNode;
 };
 
 /** 메모를 남기기 좋은 순간: 오류, 오래 멈춤, 크게 지움 */
@@ -75,7 +77,7 @@ function editSpec(state: EditorState, e: EditEvent) {
 /** 작성 과정 재생기 (교사·학생 공용). v1 replay.html과 같은 기록을 읽는다. */
 const NO_CHATS: HelpChat[] = [];
 
-export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions, chats = NO_CHATS }: Props) {
+export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions, chats = NO_CHATS, extra }: Props) {
   const analysis = useMemo(() => analyzeLog(init, log), [init, log]);
   const { edits, stats, startTime } = analysis;
   // 도움도 과정의 일부: AI 도움 요청 ↔ 그때의 대화, AI 답 붙여넣기, 도움 뒤 첫 실행
@@ -264,6 +266,10 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
             const step = [...trail].reverse().find((s) => indexAt(s.askAt) <= index);
             return step ? <HelpBox step={step} startTime={startTime} total={trail.length} order={trail.indexOf(step) + 1} onSeek={seekTime} /> : null;
           })()}
+          {extra?.((t) => {
+            seekTime(t);
+            parentRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+          })}
           <ReplayNotes
             notes={noteList}
             startTime={startTime}
