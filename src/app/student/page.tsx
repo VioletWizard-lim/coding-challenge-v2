@@ -40,6 +40,7 @@ async function StudentHome() {
     <>
       <Header name={profile.name} role="student" />
       <SideTabs
+        rememberAs="student"
         titles={titles}
         tabs={[
           {

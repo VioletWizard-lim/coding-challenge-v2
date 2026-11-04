@@ -44,12 +44,36 @@ const WRITE_TAB = "write";
  * 왼쪽 메뉴 + 오른쪽 넓은 영역 (학생·교사 화면 공용). 고르지 않은 메뉴도 화면에서 숨기기만 하고 그대로 두어서,
  * 탭을 오가도 작성 중인 편집기·실행 결과·펼친 제출이 사라지지 않는다.
  */
-export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: Record<string, string> }) {
+export default function SideTabs({
+  tabs,
+  titles = {},
+  rememberAs,
+}: {
+  tabs: Tab[];
+  titles?: Record<string, string>;
+  /** 보던 메뉴를 이 이름으로 기억해, 화면이 새로 고쳐져도(새 버전 배포 등) 같은 메뉴로 돌아온다 */
+  rememberAs?: string;
+}) {
   const [active, setActive] = useState(tabs[0].id);
   const activeRef = useRef(active);
+  const storageKey = rememberAs ? `tab:${rememberAs}` : null;
+  // 처음 열 때(기억하기보다 먼저 읽어야 함): 이 창에서 보던 메뉴가 있으면 그 메뉴로 (같은 창 안에서만 기억, 로그인하면 처음 화면부터)
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 브라우저에만 있는 값을 처음 한 번 읽어 옴
+      if (saved && tabs.some((t) => t.id === saved)) setActive(saved);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 처음 한 번만
+  }, []);
   useEffect(() => {
     activeRef.current = active;
-  }, [active]);
+    if (!storageKey) return;
+    try {
+      sessionStorage.setItem(storageKey, active);
+    } catch {}
+  }, [active, storageKey]);
 
   // 탭을 떠나기 전 확인 (코드 작성 탭: 제출하지 않은 코드). 사이트 안의 창으로 물어서 작성 기록에 '창 이탈'이 찍히지 않게 한다
   const guards = useRef(new Map<string, LeaveGuard>());

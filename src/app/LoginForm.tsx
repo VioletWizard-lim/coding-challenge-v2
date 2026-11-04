@@ -1,10 +1,16 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { login, type LoginState } from "./actions";
 
 export default function LoginForm() {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
+  // 로그인 화면에 오면 이 창에서 기억하던 메뉴·문제를 지운다 (다른 사람이 로그인해도 처음 화면부터)
+  useEffect(() => {
+    try {
+      sessionStorage.clear();
+    } catch {}
+  }, []);
   return (
     <form action={action} className="flex flex-col gap-4">
       <label className="flex flex-col gap-1 text-sm text-muted">

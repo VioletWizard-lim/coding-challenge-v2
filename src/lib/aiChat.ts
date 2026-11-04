@@ -179,3 +179,13 @@ export function stripAnswerCode(answer: string, studentCode: string): string {
     .replace(/`([^`\n]+)`/g, (all, code: string) => (isFix(squash(code)) ? "(이 부분은 직접 고쳐 보세요)" : all))
     .trim();
 }
+
+/** 모델별로 나눈 사용량 (콘솔 Usage 화면과 맞춰 볼 수 있게) */
+export function usageByModel(rows: Usage[]) {
+  const groups = new Map<string, Usage[]>();
+  for (const r of rows) {
+    const key = r.model ?? "(모름)";
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  return [...groups.entries()].map(([model, list]) => ({ model, count: list.length, ...estimateCost(list) }));
+}

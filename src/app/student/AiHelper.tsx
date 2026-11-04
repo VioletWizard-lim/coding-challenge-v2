@@ -1,51 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import AiAnswer from "@/components/AiAnswer";
 import Replayer from "@/components/Replayer";
 import type { RecorderHandle } from "@/components/RecordingEditor";
 import { MAX_QUESTION, type AiChat } from "@/lib/aiChat";
 import type { Recording } from "@/lib/editLog";
-import { splitMomentRefs, type Moment } from "@/lib/process-summary";
+import type { Moment } from "@/lib/process-summary";
 import { askAiHelper, flagMyAiChat, loadMyAiChats } from "./actions";
 
 /** 자주 묻는 질문 (눌러서 바로 쓰기) */
 const STARTERS = ["오류가 왜 나는지 모르겠어요", "어디서부터 고쳐야 할까요?", "다음에 무엇을 해야 할지 모르겠어요"];
 
-/** `print()` 같은 백틱 부분은 코드 글꼴로, **굵게**는 굵은 글씨로 (AI 답의 마크다운 표시를 그대로 보이지 않게) */
-function withCode(text: string, keyBase: string): ReactNode[] {
-  return text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/).map((part, i) => {
-    const key = `${keyBase}-${i}`;
-    if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code key={key} className="rounded bg-page px-1 font-[family-name:var(--font-code)] text-[0.92em]">
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-    if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) return <strong key={key}>{part.slice(2, -2)}</strong>;
-    return part.replace(/^#{1,6}\s+/gm, ""); // 제목 표시(#)가 섞여 와도 글자만
-  });
-}
-
 /** AI 답: [[M3]]은 누르면 그 순간의 재생으로 가는 버튼이 된다 */
 function Answer({ chat, onMoment }: { chat: AiChat; onMoment: (m: Moment) => void }) {
   return (
     <p className="whitespace-pre-wrap leading-7">
-      {splitMomentRefs(chat.answer, chat.moments).map((part, i) =>
-        "moment" in part ? (
-          <button
-            key={i}
-            type="button"
-            onClick={() => onMoment(part.moment)}
-            title="눌러서 이 순간의 재생 보기"
-            className="mx-0.5 inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 align-baseline text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            ⏪ {part.moment.label}
-          </button>
-        ) : (
-          withCode(part.text, String(i))
-        ),
-      )}
+      <AiAnswer chat={chat} onMoment={onMoment} />
     </p>
   );
 }
@@ -209,12 +180,15 @@ export default function AiHelper({
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask();
+              // Enter: 보내기 / Shift+Enter: 줄 바꾸기. 한글을 조합하는 중의 Enter는 글자 확정이라 보내지 않는다
+              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+              e.preventDefault();
+              ask();
             }}
             rows={3}
             maxLength={MAX_QUESTION}
             disabled={outOfQuestions}
-            placeholder={outOfQuestions ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요." : "무엇이 막히나요? (Ctrl+Enter로 보내기)"}
+            placeholder={outOfQuestions ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요." : "무엇이 막히나요? (Enter로 보내기, Shift+Enter로 줄 바꾸기)"}
             className="rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:bg-page"
           />
           <button

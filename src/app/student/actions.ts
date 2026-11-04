@@ -24,7 +24,7 @@ import { normalizeReflection, validateReflection, type Reflection, type Reflecti
 import { saveTodayReflection } from "@/lib/reflectionStore";
 import { processSummaryText, summarizeProcess } from "@/lib/process-summary";
 import { getSession } from "@/lib/session";
-import { getReplayData, insertSubmission, isMySubmission, type ReplayData } from "@/lib/submissions";
+import { getReplayData, insertSubmission, isMySubmission, submittedSince, type ReplayData } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote, type NotesBundle, type TimelineNote } from "@/lib/timelineNotes";
 import { countNotes, deleteNote, insertNote, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 
@@ -298,5 +298,20 @@ export async function flagMyAiChat(id: number): Promise<{ ok: boolean; error?: s
   } catch (err) {
     console.error("AI 대화 표시 오류:", err);
     return { ok: false, error: "알리지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 제출 중에 화면이 새로 고쳐졌을 때(새 버전 배포 등): 그 제출이 저장됐는지 확인한다 */
+export async function checkSubmitted(subject: string, problem: string, sinceMs: number): Promise<boolean | null> {
+  const session = await getSession();
+  if (!session || session.role !== "student" || !Number.isFinite(sinceMs)) return null;
+  try {
+    const profile = await getUserProfile(session.id);
+    if (!profile) return null;
+    // 브라우저와 서버 시계가 조금 달라도 찾도록 1분 여유
+    return await submittedSince(profile, String(subject), String(problem), new Date(sinceMs - 60_000).toISOString());
+  } catch (err) {
+    console.error("제출 확인 오류:", err);
+    return null;
   }
 }
