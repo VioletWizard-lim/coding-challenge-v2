@@ -2,6 +2,7 @@
 
 import { Fragment, useRef, useState, useTransition } from "react";
 import ProblemView from "@/components/ProblemView";
+import ProblemForm from "./ProblemForm";
 import { compareNumber, type Problem } from "@/lib/problemBank";
 import { SUBJECTS } from "@/lib/problems";
 import {
@@ -98,6 +99,8 @@ export default function ProblemImport({
   /** 학습지(AI) 결과: 공개 상태를 고르면 이것으로 미리보기를 다시 만든다 */
   const [aiDraft, setAiDraft] = useState<AiDraft | null>(null);
   const [choices, setChoices] = useState<OpenChoice[]>([]);
+  /** 반영 전에 고치는 중인 문제 (학습지 결과의 몇 번째) */
+  const [editIndex, setEditIndex] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -110,6 +113,7 @@ export default function ProblemImport({
     setAiFiles([]);
     setAiDraft(null);
     setChoices([]);
+    setEditIndex(null);
     if (fileInput.current) fileInput.current.value = "";
   }
 
@@ -238,6 +242,36 @@ export default function ProblemImport({
     setAiDraft(draft);
     setChoices(next);
     await preview(problemsToCsv(withOpen, nowDate));
+  }
+
+  /** 반영 전에 고친 문제를 미리보기에 넣는다 (번호를 바꾸면 이미 있는 문제인지 다시 보고, 순서도 다시 맞춘다) */
+  function editDraft(index: number, edited: Problem) {
+    if (!aiDraft) return;
+    const items = aiDraft.problems.map((p, i) => ({ p, existing: aiDraft.existingOpen[i], choice: choices[i] }));
+    const existing = problems.find((x) => x.subject === edited.subject && x.number === edited.number)?.openAt;
+    const old = items[index];
+    const choice: OpenChoice =
+      existing === undefined
+        ? old.choice.kind === "keep"
+          ? { kind: "hidden" }
+          : old.choice
+        : old.existing === undefined && old.choice.kind === "hidden"
+          ? { kind: "keep" }
+          : old.choice;
+    items[index] = { p: edited, existing, choice };
+    if (items.some((x, i) => i !== index && x.p.subject === edited.subject && x.p.number === edited.number)) {
+      return setMessage(`${edited.number}번이 이 학습지에 이미 있어요. 다른 번호로 고쳐 주세요.`);
+    }
+    items.sort((a, b) => a.p.subject.localeCompare(b.p.subject) || compareNumber(a.p.number, b.p.number));
+    setMessage(null);
+    setEditIndex(null);
+    setOpenRow(items.findIndex((x) => x.p === edited) + 2); // 고친 문제를 펼친 채로
+    startTransition(() =>
+      previewDraft(
+        { problems: items.map((x) => x.p), existingOpen: items.map((x) => x.existing) },
+        items.map((x) => x.choice),
+      ),
+    );
   }
 
   function choose(index: number, choice: OpenChoice) {
@@ -557,10 +591,31 @@ export default function ProblemImport({
                         {openRow === r.line && (
                           <tr className="border-t border-line/60">
                             <td colSpan={9} className="bg-page/60 p-3">
-                              <div className="max-w-xl rounded-xl border border-line bg-white p-4">
-                                <p className="mb-2 text-xs text-muted">학생 화면에서 이렇게 보여요</p>
-                                <ProblemView problem={{ ...r.problem, id: null }} fit />
-                              </div>
+                              {aiDraft && editIndex === r.line - 2 ? (
+                                <ProblemForm
+                                  problem={{ ...aiDraft.problems[r.line - 2], id: null }}
+                                  now={new Date(now)}
+                                  onDraft={(p) => editDraft(r.line - 2, p)}
+                                  onCancel={() => setEditIndex(null)}
+                                />
+                              ) : (
+                                <div className="max-w-xl rounded-xl border border-line bg-white p-4">
+                                  <div className="mb-2 flex items-center gap-2">
+                                    <p className="text-xs text-muted">학생 화면에서 이렇게 보여요</p>
+                                    {aiDraft && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditIndex(r.line - 2)}
+                                        disabled={pending}
+                                        className="ml-auto rounded-lg border border-brand bg-white px-3 py-1 text-sm font-bold text-brand hover:bg-brand-soft"
+                                      >
+                                        ✎ 반영 전에 고치기
+                                      </button>
+                                    )}
+                                  </div>
+                                  <ProblemView problem={{ ...r.problem, id: null }} fit />
+                                </div>
+                              )}
                             </td>
                           </tr>
                         )}

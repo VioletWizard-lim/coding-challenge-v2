@@ -1,17 +1,20 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Pager from "@/components/Pager";
 import { byNumber, classOf, classOptions, inClass } from "@/lib/classes";
 import type { StudentRow } from "@/lib/teacher";
 import { resetPassword, type ResetResult } from "./actions";
 
-const SHOW_LIMIT = 50;
+/** 한 쪽에 보이는 학생 수 (한 반이 보통 30명 안쪽이라 한 반이 한 쪽에 들어가게) */
+const PAGE_SIZE = 40;
 
 /** 학생 계정 찾기(반별 보기, 학번·이름 찾기) + 비밀번호 초기화 */
 export default function StudentManager({ students }: { students: StudentRow[] }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const classes = useMemo(() => classOptions(students), [students]);
 
@@ -22,6 +25,13 @@ export default function StudentManager({ students }: { students: StudentRow[] })
       .filter((s) => !q || String(s.id).includes(q) || (s.name ?? "").includes(q))
       .sort((a, b) => byNumber(String(a.id), String(b.id)));
   }, [students, query, picked]);
+  const pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
+  const current = Math.min(page, pages);
+  const shown = matched.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+  const goPage = (p: number) => {
+    setPage(p);
+    setOpenId(null);
+  };
 
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
@@ -36,7 +46,7 @@ export default function StudentManager({ students }: { students: StudentRow[] })
           value={picked}
           onChange={(e) => {
             setPicked(e.target.value);
-            setOpenId(null);
+            goPage(1);
           }}
           aria-label="반"
           className="rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
@@ -63,7 +73,10 @@ export default function StudentManager({ students }: { students: StudentRow[] })
         </select>
         <input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            goPage(1);
+          }}
           placeholder="아이디나 이름으로 찾기"
           className="min-w-48 flex-1 rounded-lg border border-line px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
         />
@@ -81,7 +94,7 @@ export default function StudentManager({ students }: { students: StudentRow[] })
             </tr>
           </thead>
           <tbody>
-            {matched.slice(0, SHOW_LIMIT).map((s) => (
+            {shown.map((s) => (
               <StudentItem
                 key={s.id}
                 student={s}
@@ -93,10 +106,13 @@ export default function StudentManager({ students }: { students: StudentRow[] })
         </table>
       </div>
       {matched.length === 0 && <p className="text-sm text-muted">찾는 학생이 없어요.</p>}
-      {matched.length > SHOW_LIMIT && (
-        <p className="text-sm text-muted">
-          {matched.length}명 중 {SHOW_LIMIT}명만 보여요. 반을 고르거나 아이디·이름으로 찾아 주세요.
-        </p>
+      {pages > 1 && (
+        <div className="flex flex-col items-center gap-1.5">
+          <Pager page={current} pages={pages} onPage={goPage} />
+          <p className="text-xs text-muted">
+            {matched.length}명 중 {(current - 1) * PAGE_SIZE + 1}~{Math.min(current * PAGE_SIZE, matched.length)}번째
+          </p>
+        </div>
       )}
     </section>
   );
