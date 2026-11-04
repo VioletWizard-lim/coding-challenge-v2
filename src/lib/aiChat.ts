@@ -1,0 +1,116 @@
+/**
+ * AI 도우미 대화: 브라우저·서버가 함께 쓰는 순수 함수와 타입. (DB는 aiChatStore.ts, AI 호출은 ai.ts)
+ * 단위 테스트: aiChat.test.ts
+ */
+import { conditionList, type Problem } from "./problemBank";
+import type { Moment } from "./process-summary";
+
+export type AiChat = {
+  id: number;
+  userId: string;
+  subject: string;
+  problem: string;
+  /** 기록 안의 질문 시각 (edit_log의 [시각, "q"]) */
+  at: number | null;
+  question: string;
+  answer: string;
+  /** 답에 나온 과정의 순간 ([[M3]] → 재생기의 그 시각) */
+  moments: Moment[];
+  flaggedBy: "student" | "teacher" | null;
+  flagNote: string | null;
+  createdAt: string;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+};
+
+export const MAX_QUESTION = 1000;
+/** 학생 한 명이 하루에 물어볼 수 있는 횟수 (환경변수 AI_DAILY_LIMIT_PER_STUDENT로 바꿈) */
+export const DEFAULT_DAILY_LIMIT = 50;
+/** AI에 함께 보낼 이전 대화 수 (같은 문제, 최근 것부터) */
+export const HISTORY_TURNS = 3;
+
+export function dailyLimit(value = process.env.AI_DAILY_LIMIT_PER_STUDENT): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_DAILY_LIMIT;
+}
+
+export function validateQuestion(text: string): string | null {
+  if (!text.trim()) return "궁금한 점을 적어 주세요.";
+  if (text.length > MAX_QUESTION) return `질문은 ${MAX_QUESTION}자까지 쓸 수 있어요.`;
+  return null;
+}
+
+/** 답에 실제로 나온 순간만 (저장·화면용). 없는 번호는 버린다 */
+export function momentsUsed(answer: string, moments: Moment[]): Moment[] {
+  const ids = new Set([...answer.matchAll(/\[\[(M\d+)\]\]/g)].map((m) => m[1]));
+  return moments.filter((m) => ids.has(m.id));
+}
+
+/** 없는 순간 번호([[M99]])는 글에서 지운다 (AI가 번호를 지어냈을 때) */
+export function dropUnknownRefs(answer: string, moments: Moment[]): string {
+  const ids = new Set(moments.map((m) => m.id));
+  return answer.replace(/\[\[(M\d+)\]\]/g, (all, id: string) => (ids.has(id) ? all : ""));
+}
+
+/** 한국 시간 오늘 0시 (ISO). 하루 질문 수를 셀 때 쓴다 */
+export function kstDayStart(now = new Date()): string {
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(now);
+  return `${date}T00:00:00+09:00`;
+}
+
+/** 한국 시간 이번 달 1일 0시 (ISO) */
+export function kstMonthStart(now = new Date()): string {
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(now);
+  return `${date.slice(0, 7)}-01T00:00:00+09:00`;
+}
+
+/**
+ * 모델별 1백만 토큰당 가격(달러, 입력/출력). 교사 화면의 "예상 비용"에만 쓰는 어림값이다.
+ * 정확한 금액은 Anthropic 콘솔(Usage)에서 확인한다. 모르는 모델이면 비용 대신 토큰 수만 보여 준다.
+ */
+const PRICES: [RegExp, number, number][] = [
+  [/haiku-5-5/, 0.1, 0.5],
+  [/sonnet-5/, 2, 10],
+  [/opus-5-5/, 4, 20],
+  [/opus-5(?!-5)/, 5, 25],
+  [/haiku-4-5/, 1, 5],
+];
+
+export type Usage = { model: string | null; inputTokens: number | null; outputTokens: number | null };
+
+/** 대화들의 예상 비용(달러). 가격을 모르는 모델이 섞이면 known=false */
+export function estimateCost(rows: Usage[]): { dollars: number; known: boolean; inputTokens: number; outputTokens: number } {
+  let dollars = 0;
+  let known = true;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (const r of rows) {
+    const input = r.inputTokens ?? 0;
+    const output = r.outputTokens ?? 0;
+    inputTokens += input;
+    outputTokens += output;
+    const price = PRICES.find(([p]) => p.test(r.model ?? ""));
+    if (!price) {
+      if (input || output) known = false;
+      continue;
+    }
+    dollars += (input * price[1] + output * price[2]) / 1_000_000;
+  }
+  return { dollars, known, inputTokens, outputTokens };
+}
+
+/** AI에 보낼 문제 설명 (제목·본문·조건·예시·목표). 시작 코드는 과정 요약에 들어가므로 뺀다 */
+export function problemForAi(p: Pick<Problem, "number" | "title" | "description" | "conditions" | "examples" | "goal">): string {
+  const lines = [`${p.number} ${p.title}`.trim()];
+  if (p.description.trim()) lines.push("", p.description.trim());
+  const conditions = conditionList(p.conditions);
+  if (conditions.length) lines.push("", "조건:", ...conditions.map((c, i) => `${i + 1}. ${c}`));
+  p.examples.forEach((e, i) => {
+    lines.push("", `예시 ${i + 1}`);
+    if (e.input) lines.push(`입력: ${e.input}`);
+    lines.push(`출력:\n${e.output}`);
+  });
+  if (p.goal.trim()) lines.push("", `문제 목표: ${p.goal.trim()}`);
+  return lines.join("\n").slice(0, 6000);
+}

@@ -3,6 +3,8 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
+import type { AiChat } from "@/lib/aiChat";
+import { listChatsSince, setChatFlag } from "@/lib/aiChatStore";
 import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
@@ -392,5 +394,34 @@ export async function deleteFeedbackNote(id: number): Promise<{ ok: boolean; err
   } catch (err) {
     console.error("피드백 삭제 오류:", err);
     return { ok: false, error: "피드백을 지우지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type TeacherChatsResult =
+  | { ok: true; ready: boolean; chats: AiChat[] }
+  | { ok: false; message: string };
+
+/** 학생 AI 대화 열람 (최근 days일). 미성년자 보호: 교사는 모든 학생의 AI 대화를 볼 수 있다 */
+export async function loadAiChats(days: number): Promise<TeacherChatsResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const span = [7, 30, 180].includes(Number(days)) ? Number(days) : 7;
+  try {
+    const since = new Date(Date.now() - span * 86_400_000).toISOString();
+    return { ok: true, ...(await listChatsSince(since)) };
+  } catch (err) {
+    console.error("AI 대화 열람 오류:", err);
+    return { ok: false, message: "AI 대화를 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 부적절한 대화 표시하기(flag=true)·풀기(false) */
+export async function flagAiChat(id: number, flag: boolean): Promise<{ ok: boolean; message?: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const done = await setChatFlag(Number(id), flag ? "teacher" : null, flag ? "교사가 표시함" : null);
+    return done ? { ok: true } : { ok: false, message: "대화를 찾지 못했어요." };
+  } catch (err) {
+    console.error("AI 대화 표시 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

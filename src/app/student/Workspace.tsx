@@ -6,6 +6,7 @@ import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
 import { storageKeyFor } from "@/lib/editLog";
 import { labelOf, type Problem } from "@/lib/problemBank";
+import AiHelper from "./AiHelper";
 import { submitCode } from "./actions";
 
 const selectClass =
@@ -34,6 +35,7 @@ export default function Workspace({
   const [pending, startTransition] = useTransition();
   const [coolingDown, setCoolingDown] = useState(false);
   const recorder = useRef<RecorderHandle>(null);
+  const [aiOpen, setAiOpen] = useState(false);
 
   // 제출하지 않은 코드가 있으면 다른 탭으로 가거나 페이지를 떠날 때 알려 준다 (코드는 브라우저에 저장돼 있음)
   // 이동할 때마다 묻는다. 제출했거나, '다시 묻지 않기'를 고른 코드면 더 묻지 않는다 (고치면 다시 물음)
@@ -111,7 +113,11 @@ export default function Workspace({
   }
 
   return (
-    <section className="grid gap-5 lg:grid-cols-[minmax(300px,2fr)_3fr]">
+    <section
+      className={`grid gap-5 lg:grid-cols-[minmax(300px,2fr)_3fr] ${
+        aiOpen && current ? "xl:grid-cols-[minmax(260px,1.5fr)_2.5fr_minmax(300px,1.6fr)]" : ""
+      }`}
+    >
       {/* 왼쪽: 문제 (나중에 교사가 올린 문제 설명이 이 자리에 나온다) */}
       <aside className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5 lg:sticky lg:top-20 lg:self-start">
         <div className="flex flex-wrap gap-3">
@@ -159,6 +165,16 @@ export default function Workspace({
 
       {/* 오른쪽: 코드 작성 */}
       <div className="flex min-w-0 flex-col gap-4">
+        {current && !aiOpen && (
+          <button
+            type="button"
+            onClick={() => setAiOpen(true)}
+            title="내가 코드를 써 온 과정을 보고 AI가 힌트를 줘요"
+            className="self-end rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+          >
+            🤖 AI 도우미에게 물어보기
+          </button>
+        )}
         {current && (
           <RecordingEditor
             key={`${subject}_${current.number}`}
@@ -197,6 +213,19 @@ export default function Workspace({
           )}
         </div>
       </div>
+
+      {/* 맨 오른쪽: 과정 기반 AI 도우미 (넓은 화면은 세 번째 칸, 좁으면 아래) */}
+      {current && aiOpen && (
+        <div className="min-w-0 lg:col-span-2 xl:col-span-1">
+          <AiHelper
+            key={`${subject}_${current.number}`}
+            subject={subject}
+            problem={current.number}
+            recorder={recorder}
+            onClose={() => setAiOpen(false)}
+          />
+        </div>
+      )}
     </section>
   );
 }

@@ -37,6 +37,8 @@ type Props = {
 export type RecorderHandle = {
   /** 지금 코드와 작성 기록을 저장한 뒤 복사본을 돌려준다 */
   getRecording(): Recording | null;
+  /** 길이 2짜리 표시 이벤트를 기록에 남긴다 (예: AI 도움 요청 "q"). 남긴 시각을 돌려준다 */
+  addMark(kind: string): number | null;
 };
 
 type PyStatus = "loading" | "ready" | "error";
@@ -89,6 +91,14 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       if (!rec) return null;
       saveRef.current();
       return { init: rec.init, code: rec.code, log: [...rec.log] };
+    },
+    addMark(kind) {
+      const rec = recRef.current;
+      if (!rec) return null;
+      const time = Date.now();
+      rec.log.push([time, kind]);
+      saveRef.current();
+      return time;
     },
   }));
 

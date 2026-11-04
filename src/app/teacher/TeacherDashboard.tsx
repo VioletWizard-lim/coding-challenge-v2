@@ -16,7 +16,18 @@ const openFormat = new Intl.DateTimeFormat("ko-KR", {
 });
 
 /** 교사 첫 화면: 오늘 수업 현황, 오늘 많이 푼 문제, 채점 대기, 문제 공개 일정, 바로 가기 */
-export default function TeacherDashboard({ name, data, status }: { name: string; data: TeacherHomeData; status?: ReactNode }) {
+export default function TeacherDashboard({
+  name,
+  data,
+  status,
+  aiUsage,
+}: {
+  name: string;
+  data: TeacherHomeData;
+  status?: ReactNode;
+  /** AI 도우미 사용량 카드 (서버에서 따로 불러옴) */
+  aiUsage?: ReactNode;
+}) {
   const { showTab, problemLabel } = useStudentNav();
   const subjects = [...new Set(data.classes.map((c) => c.subject))];
 
@@ -31,6 +42,7 @@ export default function TeacherDashboard({ name, data, status }: { name: string;
           ["📚 문제 관리", "problems"],
           ["🧭 학생별 학습 여정", "journey"],
           ["💭 성찰 모아보기", "reflections"],
+          ["🤖 AI 대화", "ai"],
         ].map(([label, tab]) => (
           <button
             key={tab}
@@ -74,7 +86,7 @@ export default function TeacherDashboard({ name, data, status }: { name: string;
         )}
       </section>
 
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
           <h3 className="font-bold">🔥 오늘 많이 푼 문제</h3>
           {data.problems.length ? (
@@ -100,6 +112,8 @@ export default function TeacherDashboard({ name, data, status }: { name: string;
           </p>
           <p className="text-xs text-muted">채점은 3단계에서 만들 때까지 기존(v1) 교사 화면에서 해 주세요.</p>
         </section>
+
+        {aiUsage}
       </div>
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">

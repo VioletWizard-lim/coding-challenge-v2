@@ -7,6 +7,8 @@ import { listReflectionDays } from "@/lib/reflectionStore";
 import { getTeacherHome } from "@/lib/teacherHome";
 import TeacherDashboard from "./TeacherDashboard";
 import { listStudents } from "@/lib/teacher";
+import AiChatBoard from "./AiChatBoard";
+import AiUsageCard from "./AiUsageCard";
 import HealthCard from "./HealthCard";
 import { SUBJECTS } from "@/lib/problems";
 import ProblemManager from "./ProblemManager";
@@ -102,6 +104,17 @@ async function TeacherHome() {
               </div>
             ),
           },
+          {
+            id: "ai",
+            label: "🤖 AI 대화",
+            content: (
+              <div className="mx-auto max-w-5xl">
+                <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
+                  <AiChats />
+                </Suspense>
+              </div>
+            ),
+          },
         ]}
       />
     </>
@@ -158,8 +171,24 @@ async function Dashboard({ name }: { name: string }) {
           <HealthCard />
         </Suspense>
       }
+      aiUsage={
+        <Suspense fallback={null}>
+          <AiUsageCard />
+        </Suspense>
+      }
     />
   );
+}
+
+async function AiChats() {
+  let students;
+  try {
+    students = await listStudents();
+  } catch (err) {
+    console.error(err);
+    return <p className="text-danger">학생 목록을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
+  }
+  return <AiChatBoard students={students} />;
 }
 
 async function Journeys() {

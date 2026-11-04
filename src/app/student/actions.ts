@@ -1,6 +1,9 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { AiNotConfiguredError, AiRefusedError, askHelper } from "@/lib/ai";
+import { dailyLimit, dropUnknownRefs, HISTORY_TURNS, momentsUsed, problemForAi, validateQuestion, type AiChat } from "@/lib/aiChat";
+import { AiChatsNotReadyError, countTodayChats, insertChat, listChatsForProblem, setChatFlag } from "@/lib/aiChatStore";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { saveAchievementsSeen } from "@/lib/achievementStore";
 import { getUserProfile } from "@/lib/auth";
@@ -9,6 +12,7 @@ import { allowedSubjects } from "@/lib/problems";
 import { findOpenProblem } from "@/lib/problemStore";
 import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
 import { saveTodayReflection } from "@/lib/reflectionStore";
+import { processSummaryText, summarizeProcess } from "@/lib/process-summary";
 import { getSession } from "@/lib/session";
 import { getReplayData, insertSubmission, isMySubmission, type ReplayData } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote, type NotesBundle, type TimelineNote } from "@/lib/timelineNotes";
@@ -163,5 +167,121 @@ export async function deleteMyNote(id: number): Promise<{ ok: boolean; error?: s
   } catch (err) {
     console.error("메모 삭제 오류:", err);
     return { ok: false, error: "메모를 지우지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/* ───────────── AI 도우미 ───────────── */
+
+export type AskInput = {
+  subject: string;
+  problem: string;
+  question: string;
+  /** 질문 직전까지의 작성 기록 (브라우저 localStorage에 있는 것) */
+  init: string;
+  log: unknown;
+  /** 기록 안의 질문 시각 (edit_log에 [at, "q"]로 남김) */
+  at: number;
+};
+
+export type AskResult =
+  | { ok: true; chat: AiChat; remaining: number }
+  | { ok: false; error: string; remaining?: number; notReady?: boolean };
+
+const MAX_LOG_EVENTS = 200_000;
+
+/**
+ * AI 도우미에게 묻는다. 서버가 작성 기록으로 과정 요약(process-summary)을 만들어 질문과 함께 보낸다.
+ * 학생 이름·아이디는 AI에 보내지 않는다. 하루 질문 수는 학생마다 정해진 만큼만.
+ */
+export async function askAiHelper(input: AskInput): Promise<AskResult> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인한 뒤 물어보세요." };
+  const question = String(input.question ?? "").trim();
+  const invalid = validateQuestion(question);
+  if (invalid) return { ok: false, error: invalid };
+  if (!isValidLog(input.log) || (input.log as unknown[]).length > MAX_LOG_EVENTS || String(input.init ?? "").length > MAX_CODE) {
+    return { ok: false, error: "작성 기록을 읽지 못했어요. 새로고침 후 다시 물어보세요." };
+  }
+  const at = Number.isFinite(input.at) ? Number(input.at) : Date.now();
+
+  try {
+    const profile = await getUserProfile(session.id);
+    if (!profile) return { ok: false, error: "다시 로그인한 뒤 물어보세요." };
+    if (!allowedSubjects(profile.subjects).includes(input.subject)) return { ok: false, error: "과목이 맞지 않아요." };
+    const problem = await findOpenProblem(input.subject, input.problem);
+    if (!problem) return { ok: false, error: "아직 공개되지 않았거나 없는 문제예요." };
+
+    const limit = dailyLimit();
+    const used = await countTodayChats(session.id);
+    if (used >= limit) {
+      return { ok: false, error: `오늘 질문 ${limit}번을 모두 썼어요. 내일 다시 물어볼 수 있어요.`, remaining: 0 };
+    }
+
+    // 과정 기록 요약: 마지막 성공 코드, 그 뒤 바뀐 줄, 반복된 오류, 멈춘 구간, 막힌 개념 (CLAUDE.md 규칙 1)
+    const summary = summarizeProcess(String(input.init ?? ""), input.log, at);
+    const history = await listChatsForProblem(session.id, input.subject, input.problem, HISTORY_TURNS);
+    const reply = await askHelper({
+      problemText: problemForAi(problem),
+      processText: processSummaryText(summary),
+      history: history.map((c) => ({ question: c.question, answer: c.answer })),
+      question,
+    });
+    const answer = dropUnknownRefs(reply.text, summary.moments);
+    const chat = await insertChat({
+      userId: session.id,
+      subject: input.subject,
+      problem: input.problem,
+      at,
+      question,
+      answer,
+      moments: momentsUsed(answer, summary.moments),
+      model: reply.model,
+      inputTokens: reply.inputTokens,
+      outputTokens: reply.outputTokens,
+    });
+    return { ok: true, chat, remaining: Math.max(0, limit - used - 1) };
+  } catch (err) {
+    if (err instanceof AiChatsNotReadyError) {
+      return { ok: false, notReady: true, error: "선생님이 AI 도우미를 준비하고 있어요. 조금만 기다려 주세요." };
+    }
+    if (err instanceof AiNotConfiguredError) return { ok: false, error: "선생님이 AI 도우미를 준비하고 있어요." };
+    if (err instanceof AiRefusedError) return { ok: false, error: "AI가 이 질문에는 답하지 않았어요. 문제와 관련된 질문으로 다시 물어봐 주세요." };
+    console.error("AI 도우미 오류:", err);
+    return { ok: false, error: "AI가 답하지 못했어요. 잠시 후 다시 물어보세요." };
+  }
+}
+
+export type ChatsResult =
+  | { ok: true; chats: AiChat[]; remaining: number; limit: number }
+  | { ok: false; error: string; notReady?: boolean };
+
+/** 이 문제에서 나눈 AI 대화와 오늘 남은 질문 수 */
+export async function loadMyAiChats(subject: string, problem: string): Promise<ChatsResult> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
+  try {
+    const limit = dailyLimit();
+    const [chats, used] = await Promise.all([
+      listChatsForProblem(session.id, String(subject), String(problem)),
+      countTodayChats(session.id),
+    ]);
+    return { ok: true, chats, remaining: Math.max(0, limit - used), limit };
+  } catch (err) {
+    if (err instanceof AiChatsNotReadyError) return { ok: false, notReady: true, error: "선생님이 AI 도우미를 준비하고 있어요." };
+    console.error("AI 대화 조회 오류:", err);
+    return { ok: false, error: "AI 대화를 불러오지 못했어요." };
+  }
+}
+
+/** 이상한 AI 답을 선생님께 알린다 (내 대화만) */
+export async function flagMyAiChat(id: number): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
+  try {
+    const done = await setChatFlag(Number(id), "student", "학생이 이상한 답이라고 알림", session.id);
+    return done ? { ok: true } : { ok: false, error: "대화를 찾지 못했어요." };
+  } catch (err) {
+    console.error("AI 대화 표시 오류:", err);
+    return { ok: false, error: "알리지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
