@@ -9,6 +9,7 @@ import {
   momentsUsed,
   problemForAi,
   similarity,
+  usageByModel,
   stripAnswerCode,
   validateQuestion,
 } from "./aiChat";
@@ -114,5 +115,17 @@ describe("답 검사: 학생이 쓴 코드를 가리키는 것은 괜찮다", ()
   it("마지막 성공 코드에 있던 줄도 학생이 쓴 코드", () => {
     const own = `${current}\nscore = input("점수: ")`;
     expect(leaksAnswer('처음엔 `score = input("점수: ")`였죠', own)).toBeNull();
+  });
+});
+
+describe("모델별 사용량", () => {
+  it("모델마다 나눠 합친다", () => {
+    const list = usageByModel([
+      { model: "claude-opus-5-5", inputTokens: 5000, outputTokens: 1000 },
+      { model: "claude-opus-5-5", inputTokens: 5000, outputTokens: 1000 },
+      { model: "claude-haiku-5-5", inputTokens: 5000, outputTokens: 1000 },
+    ]);
+    expect(list.map((m) => [m.model, m.count, m.inputTokens])).toEqual([["claude-opus-5-5", 2, 10000], ["claude-haiku-5-5", 1, 5000]]);
+    expect(list[0].dollars).toBeCloseTo(0.08); // (10000×4 + 2000×20) / 1백만
   });
 });

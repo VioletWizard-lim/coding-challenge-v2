@@ -181,7 +181,7 @@ export async function getReplayDataById(submissionId: number): Promise<ReplayDat
 
 type JourneyRow = Pick<
   SubmissionRow,
-  "id" | "subject" | "problem" | "submitted_at" | "init_code" | "edit_log" | "code" | "wrong_reason" | "score_total"
+  "id" | "subject" | "problem" | "submitted_at" | "init_code" | "edit_log" | "code" | "wrong_reason" | "score_total" | "score_function"
 >;
 
 /**
@@ -210,7 +210,7 @@ const journeyData = cache(
           .apply(
             db()
               .from("submissions")
-              .select(["id, subject, problem, submitted_at, init_code, edit_log, code, wrong_reason, score_total", f.columns].join(", ")),
+              .select(["id, subject, problem, submitted_at, init_code, edit_log, code, wrong_reason, score_total, score_function", f.columns].join(", ")),
           )
           .order("submitted_at", { ascending: false })
           .order("id", { ascending: false }) as unknown as RangeQuery<JourneyRow & OwnedRow>,
@@ -230,6 +230,7 @@ const journeyData = cache(
         code: r.code ?? "",
         wrongReason: r.wrong_reason,
         scoreTotal: r.score_total,
+        scoreFunction: r.score_function,
         hasLog: s.hasLog,
         typedChars: s.typedChars,
         pasteCount: s.stats.pasteCount,
