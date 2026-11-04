@@ -27,6 +27,7 @@ export default function ReplaySection({
   loader = loadMyReplay,
   startAt,
   noteRole = "student",
+  onOpen,
 }: {
   submissionId: number;
   autoStart?: boolean;
@@ -34,10 +35,17 @@ export default function ReplaySection({
   /** 이 순간(기록 안의 시각)까지 진행된 화면으로 연다 (업적에서 왔을 때) */
   startAt?: number;
   noteRole?: NoteAuthor;
+  /** 재생기가 열리면 알려 준다 (첫 화면에서 제목을 눌러 다시 접을 수 있게) */
+  onOpen?: () => void;
 }) {
   const [result, setResult] = useState<ReplayResult | null>(null);
   const [pending, startTransition] = useTransition();
-  const load = () => startTransition(async () => setResult(await loader(submissionId)));
+  const load = () =>
+    startTransition(async () => {
+      const r = await loader(submissionId);
+      setResult(r);
+      if (r.ok) onOpen?.();
+    });
 
   // 학습 여정에서 "과정 보기"로 왔으면 버튼을 누르지 않아도 바로 불러온다
   useEffect(() => {

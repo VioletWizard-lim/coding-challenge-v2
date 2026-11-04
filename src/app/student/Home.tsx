@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useStudentNav } from "@/components/SideTabs";
 import { ACHIEVEMENTS_TAB } from "@/lib/achievements";
 import type { Journey } from "@/lib/journey";
@@ -28,6 +29,9 @@ const percent = (r: number | null) => (r === null ? "–" : `${Math.round(r * 10
 export default function Home({ name, data }: { name: string; data: HomeData }) {
   const { startWriting, showTab, problemLabel } = useStudentNav();
   const { totals } = data;
+  // 최근 제출 재생: 열면 제목을 눌러 다시 접을 수 있다 (key를 바꿔 처음 상태로)
+  const [replayKey, setReplayKey] = useState(0);
+  const [replayOpen, setReplayOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-5">
@@ -105,8 +109,20 @@ export default function Home({ name, data }: { name: string; data: HomeData }) {
           note={`최근 제출 · ${formatDay(data.recent.date)} · ${problemLabel(data.recent.subject, data.recent.problem)} — 내가 어떻게 썼는지 돌아봐요`}
           action={{ label: "모든 기록 보기 →", onClick: () => showTab("submissions") }}
           highlight
+          onTitleClick={
+            replayOpen
+              ? () => {
+                  setReplayOpen(false);
+                  setReplayKey(replayKey + 1);
+                }
+              : undefined
+          }
         >
-          <ReplaySection key={data.recent.id} submissionId={data.recent.id} />
+          <ReplaySection
+            key={`${data.recent.id}-${replayKey}`}
+            submissionId={data.recent.id}
+            onOpen={() => setReplayOpen(true)}
+          />
         </Card>
       )}
 
@@ -160,6 +176,7 @@ function Card({
   note,
   action,
   highlight = false,
+  onTitleClick,
   children,
 }: {
   title: string;
@@ -167,6 +184,8 @@ function Card({
   action?: { label: string; onClick: () => void };
   /** 핵심 기능(재생) 카드: 테두리와 제목을 강조 */
   highlight?: boolean;
+  /** 있으면 제목을 눌러 펼친 내용을 접는다 */
+  onTitleClick?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -174,7 +193,18 @@ function Card({
       className={`flex flex-col gap-3 rounded-xl bg-white p-5 ${highlight ? "border-2 border-brand/50 shadow-sm" : "border border-line"}`}
     >
       <div className="flex flex-wrap items-baseline gap-x-3">
-        <h3 className={highlight ? "text-lg font-black text-brand" : "font-bold"}>{title}</h3>
+        {onTitleClick ? (
+          <button
+            type="button"
+            onClick={onTitleClick}
+            title="누르면 접혀요"
+            className={`${highlight ? "text-lg font-black text-brand" : "font-bold"} hover:underline`}
+          >
+            {title} <span className="text-sm font-bold">▲ 접기</span>
+          </button>
+        ) : (
+          <h3 className={highlight ? "text-lg font-black text-brand" : "font-bold"}>{title}</h3>
+        )}
         {note && <p className="text-sm text-muted">{note}</p>}
         {action && (
           <button type="button" onClick={action.onClick} className="ml-auto text-sm font-bold text-brand hover:underline">
