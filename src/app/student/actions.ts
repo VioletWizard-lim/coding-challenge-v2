@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { AiNotConfiguredError, AiRefusedError, askHelper } from "@/lib/ai";
+import { AiNotConfiguredError, AiRefusedError, askHelper, makeReview } from "@/lib/ai";
 import {
   dailyLimit,
   dropUnknownRefs,
@@ -15,6 +15,10 @@ import {
 } from "@/lib/aiChat";
 import { AiChatsNotReadyError, chatsForReplay, countTodayChats, insertChat, listChatsForProblem, setChatFlag } from "@/lib/aiChatStore";
 import type { HelpChat } from "@/lib/helpTrail";
+import { normalizeAnswers, toReview, MIN_QUESTIONS, type AiReview } from "@/lib/aiReview";
+import { AiReviewsNotReadyError, countTodayReviews, getReview, insertReview, saveReviewQuestions, setReviewFlag } from "@/lib/aiReviewStore";
+import { listAllProblems } from "@/lib/problemStore";
+import { validEntries } from "@/lib/replay";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { saveAchievementsSeen } from "@/lib/achievementStore";
 import { getUserProfile } from "@/lib/auth";
@@ -87,8 +91,9 @@ export async function submitCode(input: SubmitInput): Promise<SubmitResult> {
 
 /** 재생 기록 + 그 제출의 타임라인 메모·피드백 */
 /** chats: 이 제출의 작성 중에 AI 도우미와 나눈 대화 (재생 타임라인의 "AI 도움 요청"과 잇는다) */
+/** review: 이 제출의 AI 되돌아보기 (ready=false면 011 실행 전) */
 export type ReplayResult =
-  | { ok: true; data: ReplayData & { notes: NotesBundle; chats: HelpChat[] } }
+  | { ok: true; data: ReplayData & { notes: NotesBundle; chats: HelpChat[]; review: { ready: boolean; review: AiReview | null } } }
   | { ok: false; error: string };
 
 /** 내 제출의 작성 과정 기록 (재생용). 다른 학생의 제출은 볼 수 없다. */
@@ -101,8 +106,12 @@ export async function loadMyReplay(submissionId: number): Promise<ReplayResult> 
     const found = profile ? await getReplayData(submissionId, profile) : null;
     if (!found) return { ok: false, error: "제출을 찾지 못했어요." };
     const { owner, ...data } = found;
-    const [notes, chats] = await Promise.all([listNotesForSubmission(submissionId, session.id), chatsForReplay(owner, data.log)]);
-    return { ok: true, data: { ...data, notes, chats } };
+    const [notes, chats, review] = await Promise.all([
+      listNotesForSubmission(submissionId, session.id),
+      chatsForReplay(owner, data.log),
+      getReview(submissionId),
+    ]);
+    return { ok: true, data: { ...data, notes, chats, review } };
   } catch (err) {
     console.error("재생 기록 오류:", err);
     return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
@@ -228,7 +237,7 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
     if (!problem) return { ok: false, error: "아직 공개되지 않았거나 없는 문제예요." };
 
     const limit = dailyLimit();
-    const used = await countTodayChats(session.id);
+    const used = (await Promise.all([countTodayChats(session.id), countTodayReviews(session.id)])).reduce((a, b) => a + b, 0);
     if (used >= limit) {
       return { ok: false, error: `오늘 질문 ${limit}번을 모두 썼어요. 내일 다시 물어볼 수 있어요.`, remaining: 0 };
     }
@@ -282,10 +291,12 @@ export async function loadMyAiChats(subject: string, problem: string): Promise<C
   if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
   try {
     const limit = dailyLimit();
-    const [chats, used] = await Promise.all([
+    const [chats, usedChats, usedReviews] = await Promise.all([
       listChatsForProblem(session.id, String(subject), String(problem)),
       countTodayChats(session.id),
+      countTodayReviews(session.id),
     ]);
+    const used = usedChats + usedReviews;
     return { ok: true, chats, remaining: Math.max(0, limit - used), limit };
   } catch (err) {
     if (err instanceof AiChatsNotReadyError) return { ok: false, notReady: true, error: "선생님이 AI 도우미를 준비하고 있어요." };
@@ -319,5 +330,102 @@ export async function checkSubmitted(subject: string, problem: string, sinceMs: 
   } catch (err) {
     console.error("제출 확인 오류:", err);
     return null;
+  }
+}
+
+/* ───────────── AI 되돌아보기 ───────────── */
+
+export type ReviewResult = { ok: true; review: AiReview } | { ok: false; error: string; notReady?: boolean };
+
+/**
+ * 내 제출로 AI 되돌아보기를 만든다 (제출 하나에 하나). 작성 과정 요약을 근거로 AI가 순간을 짚는 질문 2~3개를 만든다.
+ * AI 하루 한도(도우미 질문과 함께)를 센다. 학생 이름·아이디는 AI에 보내지 않는다.
+ */
+export async function startMyReview(submissionId: number): Promise<ReviewResult> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
+  if (!Number.isInteger(submissionId)) return { ok: false, error: "제출을 찾지 못했어요." };
+  try {
+    const profile = await getUserProfile(session.id);
+    const found = profile ? await getReplayData(submissionId, profile) : null;
+    if (!found) return { ok: false, error: "제출을 찾지 못했어요." };
+    const existing = await getReview(submissionId);
+    if (!existing.ready) return { ok: false, notReady: true, error: "선생님이 AI 되돌아보기를 준비하고 있어요." };
+    if (existing.review) return { ok: true, review: existing.review };
+    if (validEntries(found.log).length < 2) return { ok: false, error: "작성 과정 기록이 없는 제출이라 되돌아볼 수 없어요." };
+
+    const limit = dailyLimit();
+    const used = (await Promise.all([countTodayChats(session.id), countTodayReviews(session.id)])).reduce((a, b) => a + b, 0);
+    if (used >= limit) return { ok: false, error: `오늘 AI 사용 ${limit}번을 모두 썼어요. 내일 다시 해 볼 수 있어요.` };
+
+    const { problems } = await listAllProblems();
+    const problem = problems.find((p) => p.subject === found.owner.subject && p.number === found.owner.problem);
+    // 과정 기록 요약: 성공·오류·멈춤·도움 요청의 순간들 (CLAUDE.md 규칙 1)
+    const summary = summarizeProcess(found.init, found.log);
+    const draft = await makeReview({
+      problemText: problem ? problemForAi(problem) : `${found.owner.problem}번 문제`,
+      processText: processSummaryText(summary),
+      finalCode: found.code,
+    });
+    const { intro, questions } = toReview(draft.raw, summary.moments);
+    if (questions.length < MIN_QUESTIONS) return { ok: false, error: "AI가 질문을 만들지 못했어요. 잠시 후 다시 눌러 주세요." };
+    try {
+      const review = await insertReview({
+        userId: session.id,
+        submissionId,
+        subject: found.owner.subject,
+        problem: found.owner.problem,
+        intro,
+        questions,
+        model: draft.model,
+        inputTokens: draft.inputTokens,
+        outputTokens: draft.outputTokens,
+      });
+      return { ok: true, review };
+    } catch (err) {
+      // 두 번 눌러서 이미 만들어졌으면 그것을 돌려준다
+      const again = await getReview(submissionId);
+      if (again.review) return { ok: true, review: again.review };
+      throw err;
+    }
+  } catch (err) {
+    if (err instanceof AiReviewsNotReadyError) return { ok: false, notReady: true, error: "선생님이 AI 되돌아보기를 준비하고 있어요." };
+    if (err instanceof AiNotConfiguredError) return { ok: false, error: "선생님이 AI 기능을 준비하고 있어요." };
+    if (err instanceof AiRefusedError) return { ok: false, error: "AI가 이 기록으로는 질문을 만들지 않았어요." };
+    console.error("되돌아보기 오류:", err);
+    return { ok: false, error: "되돌아보기를 만들지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 되돌아보기 질문에 내 답을 저장한다 */
+export async function saveMyReviewAnswers(submissionId: number, answers: string[]): Promise<ReviewResult> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인한 뒤 저장하세요." };
+  try {
+    const { review } = await getReview(Number(submissionId));
+    if (!review || review.userId !== session.id) return { ok: false, error: "되돌아보기를 찾지 못했어요." };
+    const list = normalizeAnswers(answers, review.questions.length);
+    if (!list) return { ok: false, error: "답은 한 칸에 1000자까지 쓸 수 있어요." };
+    const saved = await saveReviewQuestions(
+      review.id,
+      session.id,
+      review.questions.map((q, i) => ({ ...q, answer: list[i] })),
+    );
+    return saved ? { ok: true, review: saved } : { ok: false, error: "되돌아보기를 찾지 못했어요." };
+  } catch (err) {
+    console.error("되돌아보기 답 저장 오류:", err);
+    return { ok: false, error: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 이상한 되돌아보기 질문을 선생님께 알린다 (내 것만) */
+export async function flagMyReview(reviewId: number): Promise<{ ok: boolean; error?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
+  try {
+    return (await setReviewFlag(Number(reviewId), "student", session.id)) ? { ok: true } : { ok: false, error: "찾지 못했어요." };
+  } catch (err) {
+    console.error("되돌아보기 표시 오류:", err);
+    return { ok: false, error: "알리지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
