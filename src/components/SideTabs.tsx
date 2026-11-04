@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { GO_HOME_EVENT } from "./HomeLink";
 import ScrollTopButton from "./ScrollTopButton";
 
 type Tab = { id: string; label: string; content: ReactNode };
@@ -40,6 +41,16 @@ const WRITE_TAB = "write";
  */
 export default function SideTabs({ tabs, titles = {} }: { tabs: Tab[]; titles?: Record<string, string> }) {
   const [active, setActive] = useState(tabs[0].id);
+  // 위쪽 로고를 누르면 처음 화면(첫 탭)으로
+  const homeTab = tabs[0].id;
+  useEffect(() => {
+    const goHome = () => {
+      setActive(homeTab);
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener(GO_HOME_EVENT, goHome);
+    return () => window.removeEventListener(GO_HOME_EVENT, goHome);
+  }, [homeTab]);
   const [selectedProblem, setSelectedProblem] = useState("all");
   const [focusedSubmission, setFocusedSubmission] = useState<number | null>(null);
   const [focusedAt, setFocusedAt] = useState<number | null>(null);
