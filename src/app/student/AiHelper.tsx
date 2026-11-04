@@ -11,17 +11,20 @@ import { askAiHelper, flagMyAiChat, loadMyAiChats } from "./actions";
 /** 자주 묻는 질문 (눌러서 바로 쓰기) */
 const STARTERS = ["오류가 왜 나는지 모르겠어요", "어디서부터 고쳐야 할까요?", "다음에 무엇을 해야 할지 모르겠어요"];
 
-/** `print()` 같은 백틱 부분을 코드 글꼴로 */
+/** `print()` 같은 백틱 부분은 코드 글꼴로, **굵게**는 굵은 글씨로 (AI 답의 마크다운 표시를 그대로 보이지 않게) */
 function withCode(text: string, keyBase: string): ReactNode[] {
-  return text.split(/(`[^`\n]+`)/).map((part, i) =>
-    part.startsWith("`") && part.endsWith("`") && part.length > 2 ? (
-      <code key={`${keyBase}-${i}`} className="rounded bg-page px-1 font-[family-name:var(--font-code)] text-[0.92em]">
-        {part.slice(1, -1)}
-      </code>
-    ) : (
-      part
-    ),
-  );
+  return text.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*)/).map((part, i) => {
+    const key = `${keyBase}-${i}`;
+    if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code key={key} className="rounded bg-page px-1 font-[family-name:var(--font-code)] text-[0.92em]">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) return <strong key={key}>{part.slice(2, -2)}</strong>;
+    return part.replace(/^#{1,6}\s+/gm, ""); // 제목 표시(#)가 섞여 와도 글자만
+  });
 }
 
 /** AI 답: [[M3]]은 누르면 그 순간의 재생으로 가는 버튼이 된다 */

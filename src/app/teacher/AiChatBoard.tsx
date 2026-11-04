@@ -21,7 +21,7 @@ const timeFormat = new Intl.DateTimeFormat("ko-KR", {
 
 /** 교사 화면에서는 [[M3]]을 그 순간의 설명으로 바꿔 보여 준다 */
 const readable = (c: AiChat) =>
-  c.answer.replace(/\[\[(M\d+)\]\]/g, (all, id: string) => {
+  c.answer.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\[\[(M\d+)\]\]/g, (all, id: string) => {
     const m = c.moments.find((x) => x.id === id);
     return m ? `‹${m.label}›` : "";
   });

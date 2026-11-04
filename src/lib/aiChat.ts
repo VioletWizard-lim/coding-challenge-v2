@@ -149,28 +149,31 @@ function codePieces(answer: string): { blockLines: string[]; pieces: string[] } 
 }
 
 /**
+ * 학생 코드의 한 줄을 "고친 버전"인지: 학생 줄과 거의 같지만, 학생이 쓴 줄(의 일부)은 아닌 코드.
+ * 학생이 쓴 부분을 그대로 가리키는 것(예: 칭찬하며 `int(input())`을 짚기)은 괜찮다.
+ */
+function fixChecker(studentCode: string) {
+  const lines = studentCode.split("\n").map(squash).filter((l) => l.length >= 5);
+  return (piece: string) =>
+    piece.length >= 5 && !lines.some((l) => l.includes(piece)) && lines.some((l) => similarity(piece, l) >= 0.75);
+}
+
+/**
  * AI 답이 정답을 대신 써 주는지 검사한다.
  * - 코드 블록이 3줄 이상 (완성 코드)
  * - 학생 코드의 한 줄을 "고친 버전"이 들어 있음 (거의 같지만 다른 줄 = 고칠 곳을 그대로 알려 줌)
- * 학생 코드 줄을 그대로 가리키는 것(같은 줄)은 괜찮다.
+ * studentCode에는 학생이 쓴 코드(지금 코드, 마지막 성공 코드)를 넣는다. 그 안에 있는 코드를 가리키는 것은 괜찮다.
  */
 export function leaksAnswer(answer: string, studentCode: string): string | null {
   const { blockLines, pieces } = codePieces(answer);
   if (blockLines.length > MAX_EXAMPLE_LINES) return "완성 코드";
-  const studentLines = studentCode.split("\n").map(squash).filter((l) => l.length >= 5);
-  for (const piece of pieces) {
-    if (piece.length < 5) continue;
-    for (const line of studentLines) {
-      if (piece !== line && similarity(piece, line) >= 0.75) return "고친 줄";
-    }
-  }
-  return null;
+  const isFix = fixChecker(studentCode);
+  return pieces.some(isFix) ? "고친 줄" : null;
 }
 
 /** 다시 물어도 걸리면: 코드 블록과 고친 줄을 지운다 (마지막 안전장치) */
 export function stripAnswerCode(answer: string, studentCode: string): string {
-  const studentLines = studentCode.split("\n").map(squash).filter((l) => l.length >= 5);
-  const isFix = (s: string) => studentLines.some((l) => s !== l && similarity(s, l) >= 0.75);
+  const isFix = fixChecker(studentCode);
   return answer
     .replace(FENCE, "(코드는 직접 써 보세요)")
     .replace(/`([^`\n]+)`/g, (all, code: string) => (isFix(squash(code)) ? "(이 부분은 직접 고쳐 보세요)" : all))

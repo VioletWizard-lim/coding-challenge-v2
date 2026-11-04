@@ -2,7 +2,7 @@
 
 import { Fragment, useRef, useState, useTransition } from "react";
 import ProblemView from "@/components/ProblemView";
-import type { Problem } from "@/lib/problemBank";
+import { compareNumber, type Problem } from "@/lib/problemBank";
 import { SUBJECTS } from "@/lib/problems";
 import {
   cleanDocxHtml,
@@ -14,7 +14,7 @@ import {
   worksheetType,
   type ExtractedProblem,
 } from "@/lib/worksheet";
-import { problemsToCsv } from "@/lib/problemCsv";
+import { problemsToCsv, toKstText } from "@/lib/problemCsv";
 import { decodeCsvFile } from "@/lib/studentCsv";
 import { importProblems, previewProblemImport, type ProblemImportResult, type ProblemPreviewRow } from "./actions";
 
@@ -62,6 +62,15 @@ async function docxToHtml(file: File): Promise<string> {
   return cleanDocxHtml(value);
 }
 
+/** 학습지(AI) 미리보기의 공개 선택: 그대로(이미 있는 문제) / 비공개 / 바로 공개 / 예약 공개 */
+type OpenChoice = { kind: "keep" | "hidden" | "open" | "at"; at?: string };
+
+/** AI가 읽은 문제와, 이미 있던 문제의 지금 공개 시각 (undefined = 새 문제) */
+type AiDraft = { problems: Problem[]; existingOpen: (string | null | undefined)[] };
+
+/** datetime-local 값("2026-11-05T09:00", 한국 시간) → ISO */
+const kstInputToIso = (v: string) => new Date(`${v}:00+09:00`).toISOString();
+
 /**
  * 문제 일괄 등록. 두 가지 길이 같은 미리보기 → 반영으로 이어진다.
  * - CSV: 지금 문제 내려받기(= 양식) → 엑셀에서 고치기 → 올리기
@@ -86,6 +95,9 @@ export default function ProblemImport({
   const [done, setDone] = useState<Extract<ProblemImportResult, { ok: true }> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [openRow, setOpenRow] = useState<number | null>(null);
+  /** 학습지(AI) 결과: 공개 상태를 고르면 이것으로 미리보기를 다시 만든다 */
+  const [aiDraft, setAiDraft] = useState<AiDraft | null>(null);
+  const [choices, setChoices] = useState<OpenChoice[]>([]);
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -96,6 +108,8 @@ export default function ProblemImport({
     setMessage(null);
     setFileName("");
     setAiFiles([]);
+    setAiDraft(null);
+    setChoices([]);
     if (fileInput.current) fileInput.current.value = "";
   }
 
@@ -174,7 +188,6 @@ export default function ProblemImport({
       if (!data.ok || !data.problems) return setMessage(data.message ?? "학습지를 읽지 못했어요.");
       if (!data.problems.length)
         return setMessage("학습지에서 문제를 찾지 못했어요. 문제 표가 잘 보이는 파일인지 확인해 주세요.");
-      const nowDate = new Date(now);
       const asProblems: Problem[] = data.problems.map((p) => {
         const existing = problems.find((x) => x.subject === p.subject && x.number === p.number);
         if (!existing) return { ...p, id: null, openAt: null }; // 새 문제는 비공개로
@@ -193,9 +206,58 @@ export default function ProblemImport({
           openAt: existing.openAt,
         };
       });
-      await preview(problemsToCsv(asProblems, nowDate));
+      // 미리보기 줄 순서(= CSV 순서)와 맞추려고 과목·번호 순으로 정렬해 둔다
+      asProblems.sort((a, b) => a.subject.localeCompare(b.subject) || compareNumber(a.number, b.number));
+      const existingOpen = asProblems.map((p) => problems.find((x) => x.subject === p.subject && x.number === p.number)?.openAt);
+      const draft = { problems: asProblems, existingOpen };
+      const first: OpenChoice[] = existingOpen.map((o) => ({ kind: o === undefined ? "hidden" : "keep" }));
+      await previewDraft(draft, first);
     });
   }
+
+  /** 고른 공개 상태로 문제 목록을 CSV 글로 바꿔 미리보기를 다시 만든다 (반영도 이 글로 한다) */
+  async function previewDraft(draft: AiDraft, next: OpenChoice[]) {
+    const nowDate = new Date(now);
+    const withOpen = draft.problems.map((p, i) => {
+      const c = next[i];
+      const existing = draft.existingOpen[i];
+      const openAt =
+        c.kind === "keep"
+          ? (existing ?? null)
+          : c.kind === "hidden"
+            ? null
+            : c.kind === "open"
+              ? existing && new Date(existing) <= nowDate
+                ? existing
+                : nowDate.toISOString()
+              : c.at
+                ? kstInputToIso(c.at)
+                : null;
+      return { ...p, openAt };
+    });
+    setAiDraft(draft);
+    setChoices(next);
+    await preview(problemsToCsv(withOpen, nowDate));
+  }
+
+  function choose(index: number, choice: OpenChoice) {
+    if (!aiDraft) return;
+    if (choice.kind === "at" && !choice.at) {
+      // 예약을 고르면 내일 아침 9시를 먼저 넣어 둔다 (바꿀 수 있음)
+      const tomorrow = toKstText(new Date(Date.now() + 86_400_000).toISOString()).slice(0, 10);
+      choice = { kind: "at", at: `${tomorrow}T09:00` };
+    }
+    if (choice.kind === "at" && choice.at && new Date(kstInputToIso(choice.at)) <= new Date()) {
+      return setMessage("예약 공개 시각은 지금보다 뒤로 정해 주세요.");
+    }
+    setMessage(null);
+    const next = choices.map((c, i) => (i === index ? choice : c));
+    startTransition(() => previewDraft(aiDraft, next));
+  }
+
+  /** 이미 있는 문제의 지금 공개 상태 (선택 상자의 '그대로' 옆에 보여 줌) */
+  const currentOpenText = (iso: string | null | undefined) =>
+    !iso ? "비공개" : new Date(iso) <= new Date(now) ? "공개됨" : `${toKstText(iso)} 예약`;
 
   function apply() {
     if (!csvText) return;
@@ -254,8 +316,8 @@ export default function ProblemImport({
               올린 파일은 AI가 읽는 데만 쓰고 <b>어디에도 저장하지 않아요</b>. 반영을 누른 문제 내용만 저장돼요.
             </li>
             <li>
-              AI가 틀릴 수 있으니 <b>미리보기를 꼭 확인</b>하고 반영하세요. 새 문제는 <b>비공개</b>로 들어가고, 이미
-              있는 문제는 공개 상태를 그대로 둬요.
+              AI가 틀릴 수 있으니 <b>미리보기를 꼭 확인</b>하고 반영하세요. 새 문제는 <b>비공개</b>, 이미 있는 문제는
+              <b>지금 공개 상태 그대로</b>가 기본이에요. 미리보기의 공개 칸에서 바로 공개·예약 공개로 바꿀 수 있어요.
             </li>
           </ol>
           {!done && (
@@ -401,15 +463,15 @@ export default function ProblemImport({
               {hiding.length > 0 && (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   ⚠️ 지금 공개 중인 문제 {hiding.length}개가 <b>비공개</b>로 바뀌어요 (
-                  {hiding.map((r) => r.number).join(", ")}). 공개를 유지하려면 공개 칸에 &lsquo;공개&rsquo;라고 적어
-                  주세요.
+                  {hiding.map((r) => r.number).join(", ")}). 공개를 유지하려면{" "}
+                  {aiDraft ? <>공개 칸에서 &lsquo;그대로&rsquo;나 &lsquo;바로 공개&rsquo;를 고르세요.</> : <>공개 칸에 &lsquo;공개&rsquo;라고 적어 주세요.</>}
                 </p>
               )}
               <div className="scrollbar-none overflow-x-auto rounded-lg border border-line bg-white">
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-page text-muted">
                     <tr>
-                      {["줄", "상태", "과목", "번호", "제목", "난이도", "예시", "공개", "바뀌는 칸 / 이유"].map(
+                      {[aiDraft ? "순서" : "줄", "상태", "과목", "번호", "제목", "난이도", "예시", "공개", "바뀌는 칸 / 이유"].map(
                         (h) => (
                           <th key={h} className="px-2 py-1.5 font-normal whitespace-nowrap">
                             {h}
@@ -441,7 +503,8 @@ export default function ProblemImport({
                             <span className="mr-1 inline-block w-3" aria-hidden>
                               {openRow === r.line ? "▾" : "▸"}
                             </span>
-                            {r.line}
+                            {/* CSV는 엑셀 행 번호(1행은 제목 줄)와 같게, 학습지(AI)는 1부터 */}
+                            {aiDraft ? r.line - 1 : r.line}
                           </td>
                           <td className={`px-2 py-1.5 whitespace-nowrap ${STATUS[r.status].className}`}>
                             {STATUS[r.status].text}
@@ -453,7 +516,42 @@ export default function ProblemImport({
                             {r.difficulty ? "★".repeat(r.difficulty) : ""}
                           </td>
                           <td className="px-2 py-1.5">{r.exampleCount || ""}</td>
-                          <td className="px-2 py-1.5 whitespace-nowrap">{r.openText}</td>
+                          {aiDraft && choices[r.line - 2] ? (
+                            <td
+                              className="px-2 py-1.5 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex flex-col gap-1">
+                                <select
+                                  value={choices[r.line - 2].kind}
+                                  disabled={pending}
+                                  onChange={(e) => choose(r.line - 2, { kind: e.target.value as OpenChoice["kind"] })}
+                                  aria-label={`${r.number} 공개`}
+                                  className="rounded-md border border-line bg-white px-1.5 py-1"
+                                >
+                                  {aiDraft.existingOpen[r.line - 2] !== undefined && (
+                                    <option value="keep">그대로 ({currentOpenText(aiDraft.existingOpen[r.line - 2])})</option>
+                                  )}
+                                  <option value="hidden">비공개</option>
+                                  <option value="open">바로 공개</option>
+                                  <option value="at">예약 공개</option>
+                                </select>
+                                {choices[r.line - 2].kind === "at" && (
+                                  <input
+                                    type="datetime-local"
+                                    value={choices[r.line - 2].at ?? ""}
+                                    disabled={pending}
+                                    onChange={(e) => e.target.value && choose(r.line - 2, { kind: "at", at: e.target.value })}
+                                    aria-label={`${r.number} 공개 시각`}
+                                    className="rounded-md border border-line bg-white px-1.5 py-1"
+                                  />
+                                )}
+                              </div>
+                            </td>
+                          ) : (
+                            <td className="px-2 py-1.5 whitespace-nowrap">{r.openText}</td>
+                          )}
                           <td className="px-2 py-1.5 text-xs text-muted">{r.error ?? r.changes.join(", ")}</td>
                         </tr>
                         {openRow === r.line && (
