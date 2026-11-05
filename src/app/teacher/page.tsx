@@ -9,6 +9,7 @@ import TeacherDashboard from "./TeacherDashboard";
 import { listStudents } from "@/lib/teacher";
 import AiChatBoard from "./AiChatBoard";
 import GradingBoard from "./GradingBoard";
+import RubricSettings from "./RubricSettings";
 import { compareNumber } from "@/lib/problemBank";
 import AiUsageCard from "./AiUsageCard";
 import HealthCard from "./HealthCard";
@@ -123,6 +124,15 @@ async function TeacherHome() {
                 <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
                   <AiChats />
                 </Suspense>
+              </div>
+            ),
+          },
+          {
+            id: "settings",
+            label: "⚙️ 설정",
+            content: (
+              <div className="mx-auto max-w-4xl">
+                <RubricSettings />
               </div>
             ),
           },

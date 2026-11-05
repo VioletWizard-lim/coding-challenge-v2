@@ -8,7 +8,6 @@ import {
   GRADING_PAGE_SIZE,
   isGraded,
   MAX_FEEDBACK,
-  MAX_PARTS,
   MAX_WRONG_REASON,
   rubricTotal,
   sameRubric,
@@ -16,7 +15,8 @@ import {
   type RubricPart,
 } from "@/lib/grading";
 import ReplaySection from "../student/ReplaySection";
-import { loadGrading, loadStudentReplay, removeSubmission, saveGrade, saveSubjectRubric, setWrong } from "./actions";
+import { loadGrading, loadStudentReplay, removeSubmission, saveGrade, setWrong } from "./actions";
+import { RUBRIC_CHANGED_EVENT } from "./RubricSettings";
 
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
@@ -49,6 +49,14 @@ export default function GradingBoard({ subjects, problems }: { subjects: string[
   const savers = useRef(new Map<number, () => Promise<boolean>>());
   const [dirty, setDirty] = useState<Set<number>>(new Set());
   const [savingAll, setSavingAll] = useState(false);
+  const { showTab } = useStudentNav();
+
+  // 설정에서 채점 기준을 바꾸면 다시 불러온다
+  useEffect(() => {
+    const again = () => setReload((n) => n + 1);
+    window.addEventListener(RUBRIC_CHANGED_EVENT, again);
+    return () => window.removeEventListener(RUBRIC_CHANGED_EVENT, again);
+  }, []);
 
   useEffect(() => {
     startTransition(async () => {
@@ -136,13 +144,18 @@ export default function GradingBoard({ subjects, problems }: { subjects: string[
       </div>
 
       {data && rubric && (
-        <RubricBar
-          key={filter.subject}
-          subject={filter.subject}
-          ready={data.rubric.ready}
-          parts={rubric}
-          onSaved={(parts) => setData((d) => d && { ...d, rubric: { ...d.rubric, parts } })}
-        />
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm">
+          <span className="font-bold">⚖️ {filter.subject} 채점 기준</span>
+          <span>{rubricText(rubric)}</span>
+          <button type="button" onClick={() => showTab("settings")} className="ml-auto font-bold text-brand hover:underline">
+            ⚙️ 설정에서 바꾸기 →
+          </button>
+          {!data.rubric.ready && (
+            <p className="w-full text-xs text-amber-800">
+              지금은 기본 기준이에요. 과목마다 기준을 정하려면 Supabase에서 <code>012_grading_rubrics.sql</code>을 실행해 주세요.
+            </p>
+          )}
+        </div>
       )}
 
       {error && (
@@ -184,122 +197,6 @@ export default function GradingBoard({ subjects, problems }: { subjects: string[
       )}
       <Pager page={Math.min(page, pages)} pages={pages} onPage={goPage} />
     </section>
-  );
-}
-
-/** 과목의 채점 기준 보기·바꾸기 */
-function RubricBar({
-  subject,
-  ready,
-  parts,
-  onSaved,
-}: {
-  subject: string;
-  ready: boolean;
-  parts: RubricPart[];
-  onSaved: (parts: RubricPart[]) => void;
-}) {
-  const [editing, setEditing] = useState<{ name: string; max: string }[] | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  function save() {
-    if (!editing) return;
-    startTransition(async () => {
-      const r = await saveSubjectRubric(
-        subject,
-        editing.map((p) => ({ name: p.name, max: Number(p.max) })),
-      );
-      if (!r.ok) return setMessage(r.message);
-      setMessage(null);
-      setEditing(null);
-      onSaved(r.parts);
-    });
-  }
-
-  if (!editing) {
-    return (
-      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm">
-        <span className="font-bold">⚖️ {subject} 채점 기준</span>
-        <span>{rubricText(parts)}</span>
-        <button
-          type="button"
-          onClick={() => setEditing(parts.map((p) => ({ name: p.name, max: String(p.max) })))}
-          className="ml-auto rounded-lg border border-line bg-white px-3 py-1 hover:bg-page"
-        >
-          기준 바꾸기
-        </button>
-        {!ready && (
-          <p className="w-full text-xs text-amber-800">
-            지금은 기본 기준이에요. 과목마다 기준을 정하려면 Supabase SQL Editor에서 <code>supabase/migrations/012_grading_rubrics.sql</code>을 실행해 주세요.
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  const total = editing.reduce((a, p) => a + (Number(p.max) || 0), 0);
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border-2 border-brand/40 bg-brand-soft/30 p-3 text-sm">
-      <p className="font-bold">⚖️ {subject} 채점 기준 바꾸기</p>
-      <p className="text-xs text-muted">
-        바꾼 기준은 <b>앞으로 채점하는 제출</b>에 쓰여요. 이미 채점한 제출은 그때 기준 그대로 보여요. 영역은 {MAX_PARTS}개까지예요.
-      </p>
-      <ul className="flex flex-col gap-1.5">
-        {editing.map((p, i) => (
-          <li key={i} className="flex items-center gap-2">
-            <input
-              value={p.name}
-              onChange={(e) => setEditing(editing.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))}
-              placeholder="영역 이름 (예: 기능)"
-              aria-label={`영역 ${i + 1} 이름`}
-              maxLength={20}
-              className={`${inputClass} w-44 py-1`}
-            />
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={p.max}
-              onChange={(e) => setEditing(editing.map((x, k) => (k === i ? { ...x, max: e.target.value } : x)))}
-              aria-label={`영역 ${i + 1} 배점`}
-              className={`${inputClass} w-20 py-1`}
-            />
-            <span className="text-muted">점</span>
-            <button
-              type="button"
-              onClick={() => setEditing(editing.filter((_, k) => k !== i))}
-              disabled={editing.length <= 1}
-              className="text-xs text-danger hover:underline disabled:invisible"
-            >
-              빼기
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setEditing([...editing, { name: "", max: "10" }])}
-          disabled={editing.length >= MAX_PARTS}
-          className="rounded-lg border border-line bg-white px-3 py-1 disabled:opacity-40"
-        >
-          + 영역 더하기
-        </button>
-        <span className="text-muted">합계 {total}점</span>
-        <button type="button" onClick={save} disabled={pending} className="ml-auto rounded-lg bg-brand px-3 py-1 font-bold text-white disabled:opacity-60">
-          {pending ? "저장 중…" : "기준 저장"}
-        </button>
-        <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-line bg-white px-3 py-1">
-          취소
-        </button>
-      </div>
-      {message && (
-        <p role="alert" className="text-danger">
-          {message}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -422,7 +319,7 @@ function GradingCard({
 
       <div className="flex flex-wrap items-end gap-3">
         {parts.map((p, i) => (
-          <label key={`${p.name}-${i}`} className="flex flex-col gap-1 text-sm text-muted">
+          <label key={`${p.name}-${i}`} title={p.desc} className="flex flex-col gap-1 text-sm text-muted">
             {p.name}({p.max})
             <input
               type="number"
@@ -448,6 +345,18 @@ function GradingCard({
             </button>
           )}
       </div>
+      {parts.some((p) => p.desc) && (
+        <dl className="grid gap-x-3 gap-y-0.5 rounded-lg bg-page px-3 py-2 text-xs text-muted sm:grid-cols-[auto_1fr]">
+          {parts
+            .filter((p) => p.desc)
+            .map((p) => (
+              <div key={p.name} className="contents">
+                <dt className="font-bold">{p.name}</dt>
+                <dd className="whitespace-pre-wrap">{p.desc}</dd>
+              </div>
+            ))}
+        </dl>
+      )}
       {oldRubric && (
         <p className="text-xs text-muted">
           채점할 때의 기준({parts.map((p) => `${p.name} ${p.max}`).join(" · ")})이에요.{" "}

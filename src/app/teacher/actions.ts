@@ -560,3 +560,17 @@ export async function saveSubjectRubric(subject: string, parts: RubricPart[]): P
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
+
+/** 설정 탭: 모든 과목의 채점 기준 (ready=false면 012 실행 전) */
+export async function loadRubrics(): Promise<
+  { ok: true; ready: boolean; rubrics: { subject: string; parts: RubricPart[] }[] } | { ok: false; message: string }
+> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const list = await Promise.all(Object.keys(SUBJECTS).map(async (subject) => ({ subject, ...(await getRubric(subject)) })));
+    return { ok: true, ready: list.every((r) => r.ready), rubrics: list.map(({ subject, parts }) => ({ subject, parts })) };
+  } catch (err) {
+    console.error("채점 기준 조회 오류:", err);
+    return { ok: false, message: "채점 기준을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}

@@ -6,7 +6,8 @@
  * - 채점됨 = 합계 > 0 또는 오답 처리 (v1 "미채점만 보기"와 같음). 오답 처리는 합계가 0일 때만
  * 단위 테스트: grading.test.ts
  */
-export type RubricPart = { name: string; max: number };
+/** 채점 영역: 이름, 배점, 설명(무엇을 보면 만점인지 — 채점 화면·학생 점수표·AI 채점 초안에 쓰임) */
+export type RubricPart = { name: string; max: number; desc?: string };
 export type ScorePart = RubricPart & { score: number };
 
 export const DEFAULT_RUBRIC: RubricPart[] = [
@@ -18,6 +19,7 @@ export const DEFAULT_RUBRIC: RubricPart[] = [
 export const MAX_PARTS = 6;
 export const MAX_PART_NAME = 20;
 export const MAX_PART_SCORE = 100;
+export const MAX_PART_DESC = 300;
 /** 채점 목록 한 쪽에 보이는 제출 수 */
 export const GRADING_PAGE_SIZE = 10;
 export const MAX_FEEDBACK = 2000;
@@ -55,7 +57,12 @@ export function sheetOf(saved: unknown, v1: V1Scores): ScorePart[] | null {
 /** DB의 채점표(jsonb)를 안전하게 읽는다 */
 export function parseSheet(value: unknown): ScorePart[] | null {
   if (!Array.isArray(value) || !value.length) return null;
-  const parts = value.map((p) => ({ name: String(p?.name ?? ""), max: Number(p?.max), score: Number(p?.score) }));
+  const parts = value.map((p) => ({
+    name: String(p?.name ?? ""),
+    max: Number(p?.max),
+    score: Number(p?.score),
+    ...(p?.desc ? { desc: String(p.desc) } : {}),
+  }));
   return parts.every((p) => p.name && Number.isFinite(p.max) && Number.isFinite(p.score)) ? parts : null;
 }
 
@@ -70,8 +77,12 @@ export function validateRubric(value: unknown): { ok: true; parts: RubricPart[] 
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_PARTS) {
     return { ok: false, error: `채점 영역은 1~${MAX_PARTS}개로 정해 주세요.` };
   }
-  const parts = value.map((p) => ({ name: String(p?.name ?? "").trim(), max: Number(p?.max) }));
+  const parts: RubricPart[] = value.map((p) => {
+    const desc = String(p?.desc ?? "").trim();
+    return { name: String(p?.name ?? "").trim(), max: Number(p?.max), ...(desc ? { desc } : {}) };
+  });
   for (const p of parts) {
+    if ((p.desc ?? "").length > MAX_PART_DESC) return { ok: false, error: `'${p.name}' 설명은 ${MAX_PART_DESC}자까지 쓸 수 있어요.` };
     if (!p.name || p.name.length > MAX_PART_NAME) return { ok: false, error: `영역 이름은 1~${MAX_PART_NAME}자로 적어 주세요.` };
     if (!Number.isInteger(p.max) || p.max < 1 || p.max > MAX_PART_SCORE) {
       return { ok: false, error: `'${p.name}' 배점은 1~${MAX_PART_SCORE} 사이의 정수로 적어 주세요.` };
@@ -82,6 +93,7 @@ export function validateRubric(value: unknown): { ok: true; parts: RubricPart[] 
 }
 
 export const rubricTotal = (parts: RubricPart[]) => parts.reduce((a, p) => a + p.max, 0);
+/** 영역 이름·배점이 같은지 (설명만 고친 것은 같은 기준으로 본다) */
 export const sameRubric = (a: RubricPart[], b: RubricPart[]) =>
   a.length === b.length && a.every((p, i) => p.name === b[i].name && p.max === b[i].max);
 

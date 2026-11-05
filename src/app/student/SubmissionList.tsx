@@ -183,10 +183,27 @@ function SubmissionCard({ s }: { s: MySubmission }) {
         {isGraded(s) && s.sheet && (
           <div className="flex flex-wrap gap-2">
             {s.sheet.map((p) => (
-              <Score key={p.name} label={p.name} value={p.score} max={p.max} />
+              <Score key={p.name} label={p.name} value={p.score} max={p.max} hint={p.desc} />
             ))}
             <Score label="합계" value={s.score_total} max={s.sheet.reduce((a, p) => a + p.max, 0)} strong />
           </div>
+        )}
+        {isGraded(s) && s.sheet?.some((p) => p.desc) && (
+          <details className="text-sm">
+            <summary className="cursor-pointer text-muted hover:text-ink">⚖️ 채점 기준 보기</summary>
+            <dl className="mt-1 grid gap-x-3 gap-y-1 rounded-lg bg-page px-3 py-2 sm:grid-cols-[auto_1fr]">
+              {s.sheet
+                .filter((p) => p.desc)
+                .map((p) => (
+                  <div key={p.name} className="contents">
+                    <dt className="font-bold">
+                      {p.name} ({p.max}점)
+                    </dt>
+                    <dd className="whitespace-pre-wrap text-muted">{p.desc}</dd>
+                  </div>
+                ))}
+            </dl>
+          </details>
         )}
         {s.feedback && <Note tone="amber">💬 선생님 피드백: {s.feedback}</Note>}
         {s.wrong_reason && <Note tone="red">⚠️ 오답 이유: {s.wrong_reason}</Note>}
@@ -199,9 +216,9 @@ function SubmissionCard({ s }: { s: MySubmission }) {
   );
 }
 
-function Score({ label, value, max, strong }: { label: string; value: number | null; max: number; strong?: boolean }) {
+function Score({ label, value, max, strong, hint }: { label: string; value: number | null; max: number; strong?: boolean; hint?: string }) {
   return (
-    <div className={`rounded-lg px-3.5 py-2 text-center ${strong ? "bg-brand text-white" : "bg-page"}`}>
+    <div title={hint} className={`rounded-lg px-3.5 py-2 text-center ${strong ? "bg-brand text-white" : "bg-page"}`}>
       <div className={`text-xs ${strong ? "text-indigo-200" : "text-muted"}`}>{label}</div>
       <div className="font-bold">
         {value ?? 0}

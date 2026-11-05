@@ -86,3 +86,20 @@ describe("기능 만점 (업적)", () => {
     expect(functionFull(null)).toBe(false);
   });
 });
+
+describe("영역 설명", () => {
+  it("설명은 저장되고, 너무 길면 안 됨, 빈 설명은 뺀다", () => {
+    expect(validateRubric([{ name: "기능", max: 40, desc: " 조건을 모두 지키면 만점 " }, { name: "도전", max: 20, desc: "" }])).toEqual({
+      ok: true,
+      parts: [{ name: "기능", max: 40, desc: "조건을 모두 지키면 만점" }, { name: "도전", max: 20 }],
+    });
+    expect(validateRubric([{ name: "기능", max: 40, desc: "가".repeat(301) }])).toMatchObject({ ok: false });
+  });
+  it("채점표에 설명이 함께 남는다", () => {
+    const r = validateScores([{ name: "기능", max: 40, desc: "조건" }], [30]);
+    expect(r.ok && r.sheet).toEqual([{ name: "기능", max: 40, desc: "조건", score: 30 }]);
+    expect(sheetOf([{ name: "기능", max: 40, desc: "조건", score: 30 }], { fn: null, und: null, ch: null, total: null })).toEqual([
+      { name: "기능", max: 40, desc: "조건", score: 30 },
+    ]);
+  });
+});
