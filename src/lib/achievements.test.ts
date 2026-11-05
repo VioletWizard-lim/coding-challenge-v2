@@ -24,7 +24,7 @@ function sub(over: Partial<AchievementSubmission> = {}): AchievementSubmission {
     code: "print(1)",
     wrongReason: null,
     scoreTotal: null,
-    scoreFunction: null,
+    functionFull: false,
     hasLog: true,
     typedChars: 10,
     pasteCount: 0,
@@ -142,9 +142,9 @@ describe("한 번에 성공: 답이 맞았는지는 선생님 채점으로", () 
   const earned = (over: Partial<AchievementSubmission>) =>
     find(computeAchievements([sub({ log, ...over })], [], {}), "one_shot").steps[0].earned;
   it("채점 전이면 아직", () => expect(earned({})).toBeNull());
-  it("기능 만점이면 받음", () => expect(earned({ scoreFunction: 40, scoreTotal: 90 })).not.toBeNull());
-  it("기능 점수가 만점이 아니면 못 받음", () => expect(earned({ scoreFunction: 30, scoreTotal: 80 })).toBeNull());
-  it("오답 처리면 못 받음", () => expect(earned({ scoreFunction: 40, wrongReason: "출력 형식" })).toBeNull());
+  it("기능 만점이면 받음", () => expect(earned({ functionFull: true, scoreTotal: 90 })).not.toBeNull());
+  it("기능 점수가 만점이 아니면 못 받음", () => expect(earned({ functionFull: false, scoreTotal: 80 })).toBeNull());
+  it("오답 처리면 못 받음", () => expect(earned({ functionFull: true, wrongReason: "출력 형식" })).toBeNull());
   it("첫 실행이 오류면 못 받음", () =>
-    expect(earned({ log: [[1000, "r:NameError"], [2000, "r:ok"]], scoreFunction: 40 })).toBeNull());
+    expect(earned({ log: [[1000, "r:NameError"], [2000, "r:ok"]], functionFull: true })).toBeNull());
 });

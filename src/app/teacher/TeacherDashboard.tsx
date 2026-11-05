@@ -39,6 +39,7 @@ export default function TeacherDashboard({
           <p className="text-muted">{dayFormat.format(new Date(`${data.today}T00:00:00Z`))} · 오늘 수업을 한눈에 봐요.</p>
         </div>
         {[
+          ["📝 채점", "grading"],
           ["📚 문제 관리", "problems"],
           ["🧭 학생별 학습 여정", "journey"],
           ["💭 성찰 모아보기", "reflections"],
@@ -110,7 +111,9 @@ export default function TeacherDashboard({
             <b className="text-2xl text-brand">{data.pending}</b>건
             <span className="ml-2 text-sm text-muted">점수도 오답 처리도 안 된 제출</span>
           </p>
-          <p className="text-xs text-muted">채점은 3단계에서 만들 때까지 기존(v1) 교사 화면에서 해 주세요.</p>
+          <button type="button" onClick={() => showTab("grading")} className="self-start text-sm font-bold text-brand hover:underline">
+            채점하러 가기 →
+          </button>
         </section>
 
         {aiUsage}

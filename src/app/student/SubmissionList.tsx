@@ -17,13 +17,10 @@ const timeFormat = new Intl.DateTimeFormat("ko-KR", {
 
 const isGraded = (s: MySubmission) => s.score_total !== null || Boolean(s.feedback);
 
-/** 만점이 아닌 영역 (v1과 같이 기능·코드 설명만, 도전은 가산점이라 빼고) */
+/** 만점이 아닌 영역 (v1과 같이 도전은 가산점이라 빼고). 영역은 그 제출을 채점할 때의 기준을 따른다 */
 function deductedAreas(s: MySubmission) {
-  if (!isGraded(s)) return [];
-  const areas: string[] = [];
-  if (s.score_function !== null && s.score_function < 40) areas.push("기능");
-  if (s.score_understanding !== null && s.score_understanding < 40) areas.push("코드 설명");
-  return areas;
+  if (!isGraded(s) || !s.sheet) return [];
+  return s.sheet.filter((p) => p.score < p.max && !p.name.includes("도전")).map((p) => p.name);
 }
 
 const PAGE = 10;
@@ -183,12 +180,12 @@ function SubmissionCard({ s }: { s: MySubmission }) {
           autoStart={focused}
           startAt={focused ? (focusedAt ?? undefined) : undefined}
         />
-        {isGraded(s) && (
+        {isGraded(s) && s.sheet && (
           <div className="flex flex-wrap gap-2">
-            <Score label="기능" value={s.score_function} max={40} />
-            <Score label="코드 설명" value={s.score_understanding} max={40} />
-            <Score label="도전" value={s.score_challenge} max={20} />
-            <Score label="합계" value={s.score_total} max={100} strong />
+            {s.sheet.map((p) => (
+              <Score key={p.name} label={p.name} value={p.score} max={p.max} />
+            ))}
+            <Score label="합계" value={s.score_total} max={s.sheet.reduce((a, p) => a + p.max, 0)} strong />
           </div>
         )}
         {s.feedback && <Note tone="amber">💬 선생님 피드백: {s.feedback}</Note>}

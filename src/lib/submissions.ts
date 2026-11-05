@@ -1,6 +1,8 @@
 import "server-only";
 import { cache } from "react";
 import type { AchievementSubmission } from "./achievements";
+import { functionFull, sheetOf, type ScorePart } from "./grading";
+import { loadSheets } from "./scoreSheetStore";
 import { db, fetchAll, type RangeQuery, type SubmissionRow, type UserRow } from "./db";
 import type { LogEvent } from "./editLog";
 import { kstDate, summarizeSubmission, type SubmissionSummary } from "./journey";
@@ -18,7 +20,7 @@ export type Owner = Pick<UserRow, "id" | "name" | "grade" | "class" | "programmi
 let userIdColumn: { ok: boolean; checkedAt: number } | null = null;
 
 /** submissions.user_id 칸이 있는지 (009 실행 여부). 없으면 5분마다 다시 확인 */
-async function hasUserIdColumn(): Promise<boolean> {
+export async function hasUserIdColumn(): Promise<boolean> {
   if (userIdColumn && (userIdColumn.ok || Date.now() - userIdColumn.checkedAt < 5 * 60_000)) return userIdColumn.ok;
   const { error } = await db().from("submissions").select("user_id").limit(1);
   if (error && !/user_id/.test(error.message)) throw new Error(`제출 조회 실패: ${error.message}`);
@@ -109,7 +111,10 @@ export async function insertSubmission(input: {
   if (error) throw new Error(`제출 저장 실패: ${error.message}`);
 }
 
-export type MySubmission = Omit<SubmissionRow, "edit_log" | "init_code" | "name" | "grade" | "class" | "year">;
+export type MySubmission = Omit<SubmissionRow, "edit_log" | "init_code" | "name" | "grade" | "class" | "year"> & {
+  /** 채점표 (그 제출을 채점할 때의 기준과 영역별 점수). 채점 전이면 null */
+  sheet: ScorePart[] | null;
+};
 
 /** 내 제출 목록. 작성 기록(edit_log)은 무거워서 빼고 가져온다. */
 export async function listMySubmissions(owner: Owner): Promise<MySubmission[]> {
@@ -127,13 +132,21 @@ export async function listMySubmissions(owner: Owner): Promise<MySubmission[]> {
       .order("id", { ascending: false }) as unknown as RangeQuery<MySubmission & OwnedRow>,
   );
   // 주인 확인용 칸(user_id·name·반)은 화면으로 보내지 않는다
-  return rows.filter(f.mine).map((r) => {
+  const mine = rows.filter(f.mine);
+  const sheets = await loadSheets(mine.map((r) => Number(r.id)));
+  return mine.map((r) => {
     const rest: Partial<MySubmission & OwnedRow> = { ...r };
     delete rest.user_id;
     delete rest.name;
     delete rest.grade;
     delete rest.class;
-    return rest as MySubmission;
+    const sheet = sheetOf(sheets.get(Number(r.id)), {
+      fn: r.score_function,
+      und: r.score_understanding,
+      ch: r.score_challenge,
+      total: r.score_total,
+    });
+    return { ...rest, sheet } as MySubmission;
   });
 }
 
@@ -233,6 +246,7 @@ const journeyData = cache(
     );
     const rows = all.filter(f.mine);
     const summaries = rows.map(summarizeSubmission);
+    const sheets = await loadSheets(rows.map((r) => Number(r.id)));
     const records = rows.map((r, i): AchievementSubmission => {
       const s = summaries[i];
       return {
@@ -245,7 +259,9 @@ const journeyData = cache(
         code: r.code ?? "",
         wrongReason: r.wrong_reason,
         scoreTotal: r.score_total,
-        scoreFunction: r.score_function,
+        functionFull: functionFull(
+          sheetOf(sheets.get(Number(r.id)), { fn: r.score_function, und: null, ch: null, total: r.score_total }),
+        ),
         hasLog: s.hasLog,
         typedChars: s.typedChars,
         pasteCount: s.stats.pasteCount,

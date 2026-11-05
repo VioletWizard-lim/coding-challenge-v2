@@ -95,8 +95,8 @@ export type AchievementSubmission = {
   code: string;
   wrongReason: string | null;
   scoreTotal: number | null;
-  /** 기능 점수 (0~40, 채점 전이면 null) */
-  scoreFunction: number | null;
+  /** 선생님 채점에서 기능 영역이 만점인지 (채점 기준의 "기능" 영역, 없으면 첫 영역. 채점 전이면 false) */
+  functionFull: boolean;
   /** 작성 기록 요약 (재생기와 같은 계산) */
   hasLog: boolean;
   typedChars: number;
@@ -164,9 +164,6 @@ export function persistTime(log: unknown, n = 3): number | null {
 }
 
 /** 첫 실행이 오류 없이 성공했고, 끝까지 오류가 없었는지 → 그 첫 실행 시각 */
-/** 기능 점수 만점 (v1 채점 기준: 기능 40 · 코드 설명 40 · 도전 20) */
-export const FULL_FUNCTION_SCORE = 40;
-
 export function oneShotTime(log: unknown): number | null {
   const runs = validEntries(log).filter(([, kind]) => isRun(kind));
   if (!runs.length || runs.some(([, kind]) => kind !== "r:ok")) return null;
@@ -287,7 +284,7 @@ export function computeAchievements(
 
     // 오류 없이 실행된 것만으로는 답이 맞는지 모르므로, 선생님 채점에서 기능 만점(오답 처리 없음)이어야 한다
     const oneShot = oneShotTime(s.log);
-    if (oneShot !== null && s.scoreFunction === FULL_FUNCTION_SCORE && !s.wrongReason) put("one_shot", 0, at(s, oneShot));
+    if (oneShot !== null && s.functionFull && !s.wrongReason) put("one_shot", 0, at(s, oneShot));
     for (const [kind, t] of fixedErrorKinds(s.log)) {
       if (!errorKinds.has(kind)) errorKinds.set(kind, at(s, t));
       if (errorKinds.size >= 3) put("error_collector", 0, errorKinds.get(kind)!);
