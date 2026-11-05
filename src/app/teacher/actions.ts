@@ -3,6 +3,19 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
+import { canMarkWrong, GRADING_PAGE_SIZE, MAX_FEEDBACK, MAX_WRONG_REASON, validateRubric, validateScores, type GradingRow, type RubricPart } from "@/lib/grading";
+import {
+  classesWithSubmissions,
+  deleteSubmission,
+  getRubric,
+  getScoreTotal,
+  listForGrading,
+  RubricsNotReadyError,
+  saveRubric,
+  saveScores,
+  setWrongReason,
+  type GradingFilter,
+} from "@/lib/gradingStore";
 import type { AiChat } from "@/lib/aiChat";
 import { chatsForReplay, listChatsSince, setChatFlag } from "@/lib/aiChatStore";
 import type { AiReview } from "@/lib/aiReview";
@@ -13,7 +26,7 @@ import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@
 import { getUserProfile } from "@/lib/auth";
 import { computeAchievements, unitProblemsOf, type AchievementStatus } from "@/lib/achievements";
 import { buildJourney, type Journey } from "@/lib/journey";
-import { allowedSubjects } from "@/lib/problems";
+import { allowedSubjects, SUBJECTS } from "@/lib/problems";
 import type { Reflection } from "@/lib/reflection";
 import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore";
 import { getMyJourneyData, getReplayDataById, submissionExists } from "@/lib/submissions";
@@ -442,6 +455,108 @@ export async function flagAiReview(id: number, flag: boolean): Promise<{ ok: boo
     return (await setReviewFlag(Number(id), flag ? "teacher" : null)) ? { ok: true } : { ok: false, message: "찾지 못했어요." };
   } catch (err) {
     console.error("되돌아보기 표시 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/* ───────────── 채점 ───────────── */
+
+export type GradingResult =
+  | { ok: true; rows: GradingRow[]; total: number; rubric: { ready: boolean; parts: RubricPart[] }; classes: string[] }
+  | { ok: false; message: string };
+
+
+/** 채점 목록 한 쪽 + 이 과목의 채점 기준 + 반 목록 */
+export async function loadGrading(filter: GradingFilter, page: number): Promise<GradingResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const f: GradingFilter = {
+    subject: String(filter.subject ?? ""),
+    cls: String(filter.cls ?? ""),
+    problem: String(filter.problem ?? ""),
+    query: String(filter.query ?? "").slice(0, 50),
+    ungradedOnly: !!filter.ungradedOnly,
+  };
+  if (!f.subject) return { ok: false, message: "과목을 고르세요." };
+  try {
+    const [list, rubric, classes] = await Promise.all([
+      listForGrading(f, Math.max(1, Math.floor(Number(page) || 1)), GRADING_PAGE_SIZE),
+      getRubric(f.subject),
+      classesWithSubmissions(f.subject),
+    ]);
+    return { ok: true, ...list, rubric, classes };
+  } catch (err) {
+    console.error("채점 목록 오류:", err);
+    return { ok: false, message: "제출을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type GradeResult = { ok: true; row: GradingRow } | { ok: false; message: string };
+
+/** 점수·감점 이유 저장. rubric: 이 제출을 채점한 기준 (이미 채점한 제출은 그때 기준, 새로 채점하면 지금 과목 기준) */
+export async function saveGrade(id: number, rubric: RubricPart[], scores: number[], feedback: string): Promise<GradeResult> {
+  const session = await getSession();
+  if (session?.role !== "teacher") return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const r = validateRubric(rubric);
+  if (!r.ok) return { ok: false, message: r.error };
+  const checked = validateScores(r.parts, scores);
+  if (!checked.ok) return { ok: false, message: checked.error };
+  const text = String(feedback ?? "").trim();
+  if (text.length > MAX_FEEDBACK) return { ok: false, message: `감점 이유는 ${MAX_FEEDBACK}자까지 쓸 수 있어요.` };
+  try {
+    const row = await saveScores(Number(id), checked.sheet, checked.total, text, session.id);
+    return row ? { ok: true, row } : { ok: false, message: "제출을 찾지 못했어요." };
+  } catch (err) {
+    if (err instanceof RubricsNotReadyError) {
+      return { ok: false, message: "과목별 채점 기준을 쓰려면 Supabase에서 012 SQL을 먼저 실행해 주세요." };
+    }
+    console.error("채점 저장 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 오답 처리(reason) 또는 해제(null). 점수가 있는 제출은 오답 처리할 수 없다 (v1과 같음) */
+export async function setWrong(id: number, reason: string | null): Promise<GradeResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const text = reason === null ? null : String(reason).trim();
+  if (text !== null && !text) return { ok: false, message: "오답 이유를 적어 주세요." };
+  if (text && text.length > MAX_WRONG_REASON) return { ok: false, message: `오답 이유는 ${MAX_WRONG_REASON}자까지 쓸 수 있어요.` };
+  try {
+    if (text !== null) {
+      const total = await getScoreTotal(Number(id));
+      if (total === undefined) return { ok: false, message: "제출을 찾지 못했어요." };
+      if (!canMarkWrong(total)) return { ok: false, message: "점수가 있는 제출은 오답 처리할 수 없어요. 점수를 0으로 저장한 뒤 해 주세요." };
+    }
+    const row = await setWrongReason(Number(id), text);
+    return row ? { ok: true, row } : { ok: false, message: "제출을 찾지 못했어요." };
+  } catch (err) {
+    console.error("오답 처리 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 제출 삭제 (v1과 같음, 되돌릴 수 없음) */
+export async function removeSubmission(id: number): Promise<{ ok: boolean; message?: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return (await deleteSubmission(Number(id))) ? { ok: true } : { ok: false, message: "제출을 찾지 못했어요." };
+  } catch (err) {
+    console.error("제출 삭제 오류:", err);
+    return { ok: false, message: "지우지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 과목의 채점 기준 저장 (이미 채점한 제출은 그때 기준 그대로) */
+export async function saveSubjectRubric(subject: string, parts: RubricPart[]): Promise<{ ok: true; parts: RubricPart[] } | { ok: false; message: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  if (!Object.keys(SUBJECTS).includes(String(subject))) return { ok: false, message: "과목이 맞지 않아요." };
+  const r = validateRubric(parts);
+  if (!r.ok) return { ok: false, message: r.error };
+  try {
+    await saveRubric(subject, r.parts);
+    return { ok: true, parts: r.parts };
+  } catch (err) {
+    if (err instanceof RubricsNotReadyError) return { ok: false, message: "채점 기준을 저장하려면 Supabase에서 012 SQL을 먼저 실행해 주세요." };
+    console.error("채점 기준 저장 오류:", err);
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

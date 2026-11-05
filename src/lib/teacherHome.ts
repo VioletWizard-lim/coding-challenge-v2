@@ -35,8 +35,8 @@ async function pendingCount(): Promise<number> {
   const { count, error } = await db()
     .from("submissions")
     .select("id", { count: "exact", head: true })
-    .is("score_total", null)
-    .is("wrong_reason", null);
+    .or("score_total.is.null,score_total.eq.0")
+    .or('wrong_reason.is.null,wrong_reason.eq.""');
   if (error) throw new Error(`채점 대기 조회 실패: ${error.message}`);
   return count ?? 0;
 }

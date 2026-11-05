@@ -8,6 +8,8 @@ import { getTeacherHome } from "@/lib/teacherHome";
 import TeacherDashboard from "./TeacherDashboard";
 import { listStudents } from "@/lib/teacher";
 import AiChatBoard from "./AiChatBoard";
+import GradingBoard from "./GradingBoard";
+import { compareNumber } from "@/lib/problemBank";
 import AiUsageCard from "./AiUsageCard";
 import HealthCard from "./HealthCard";
 import { SUBJECTS } from "@/lib/problems";
@@ -66,9 +68,6 @@ async function TeacherHome() {
                 <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
                   <Students />
                 </Suspense>
-                <p className="text-sm text-muted">
-                  채점·제출 관리는 3단계에서 만들어요. 그동안은 기존(v1) 교사 화면을 써 주세요.
-                </p>
               </div>
             ),
           },
@@ -79,6 +78,17 @@ async function TeacherHome() {
               <div className="mx-auto max-w-5xl">
                 <Suspense fallback={<p className="text-muted">문제 불러오는 중…</p>}>
                   <Problems />
+                </Suspense>
+              </div>
+            ),
+          },
+          {
+            id: "grading",
+            label: "📝 채점",
+            content: (
+              <div className="mx-auto max-w-5xl">
+                <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
+                  <Grading />
                 </Suspense>
               </div>
             ),
@@ -179,6 +189,19 @@ async function Dashboard({ name }: { name: string }) {
       }
     />
   );
+}
+
+async function Grading() {
+  // 과목별 문제 번호: 원래 목록 + 교사가 올린 문제 (번호 순)
+  const numbers: Record<string, Set<string>> = {};
+  for (const [subject, list] of Object.entries(SUBJECTS)) numbers[subject] = new Set(Object.keys(list));
+  try {
+    for (const p of (await listAllProblems()).problems) (numbers[p.subject] ??= new Set()).add(p.number);
+  } catch (err) {
+    console.error(err);
+  }
+  const problems = Object.fromEntries(Object.entries(numbers).map(([s, set]) => [s, [...set].sort(compareNumber)]));
+  return <GradingBoard subjects={Object.keys(SUBJECTS)} problems={problems} />;
 }
 
 async function AiChats() {
