@@ -10,6 +10,7 @@ import {
   getRubric,
   getScoreTotal,
   listForGrading,
+  pendingBySubject,
   RubricsNotReadyError,
   saveRubric,
   saveScores,
@@ -462,7 +463,15 @@ export async function flagAiReview(id: number, flag: boolean): Promise<{ ok: boo
 /* ───────────── 채점 ───────────── */
 
 export type GradingResult =
-  | { ok: true; rows: GradingRow[]; total: number; rubric: { ready: boolean; parts: RubricPart[] }; classes: string[] }
+  | {
+      ok: true;
+      rows: GradingRow[];
+      total: number;
+      rubric: { ready: boolean; parts: RubricPart[] };
+      classes: string[];
+      /** 과목별 채점 대기 수 */
+      pending: Record<string, number>;
+    }
   | { ok: false; message: string };
 
 
@@ -477,13 +486,15 @@ export async function loadGrading(filter: GradingFilter, page: number): Promise<
     ungradedOnly: !!filter.ungradedOnly,
   };
   if (!f.subject) return { ok: false, message: "과목을 고르세요." };
+  if (f.subject === "(과목 없음)") f.subject = "";
   try {
-    const [list, rubric, classes] = await Promise.all([
+    const [list, rubric, classes, pending] = await Promise.all([
       listForGrading(f, Math.max(1, Math.floor(Number(page) || 1)), GRADING_PAGE_SIZE),
       getRubric(f.subject),
       classesWithSubmissions(f.subject),
+      pendingBySubject(),
     ]);
-    return { ok: true, ...list, rubric, classes };
+    return { ok: true, ...list, rubric, classes, pending };
   } catch (err) {
     console.error("채점 목록 오류:", err);
     return { ok: false, message: "제출을 불러오지 못했어요. 잠시 후 다시 시도하세요." };

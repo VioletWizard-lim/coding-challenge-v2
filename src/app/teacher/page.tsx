@@ -9,6 +9,7 @@ import TeacherDashboard from "./TeacherDashboard";
 import { listStudents } from "@/lib/teacher";
 import AiChatBoard from "./AiChatBoard";
 import GradingBoard from "./GradingBoard";
+import { pendingBySubject } from "@/lib/gradingStore";
 import RubricSettings from "./RubricSettings";
 import { compareNumber } from "@/lib/problemBank";
 import AiUsageCard from "./AiUsageCard";
@@ -211,7 +212,13 @@ async function Grading() {
     console.error(err);
   }
   const problems = Object.fromEntries(Object.entries(numbers).map(([s, set]) => [s, [...set].sort(compareNumber)]));
-  return <GradingBoard subjects={Object.keys(SUBJECTS)} problems={problems} />;
+  let pending: Record<string, number> = {};
+  try {
+    pending = await pendingBySubject();
+  } catch (err) {
+    console.error(err);
+  }
+  return <GradingBoard subjects={Object.keys(SUBJECTS)} problems={problems} pending={pending} />;
 }
 
 async function AiChats() {

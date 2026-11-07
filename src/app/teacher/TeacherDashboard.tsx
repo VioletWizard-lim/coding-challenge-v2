@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useStudentNav } from "@/components/SideTabs";
 import type { TeacherHomeData } from "@/lib/teacherHome";
+import { GRADE_SUBJECT_EVENT } from "./GradingBoard";
 
 const dayFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: "UTC", month: "long", day: "numeric", weekday: "short" });
 const openFormat = new Intl.DateTimeFormat("ko-KR", {
@@ -109,11 +110,30 @@ export default function TeacherDashboard({
           <h3 className="font-bold">📝 채점 대기</h3>
           <p>
             <b className="text-2xl text-brand">{data.pending}</b>건
-            <span className="ml-2 text-sm text-muted">점수도 오답 처리도 안 된 제출</span>
+            <span className="ml-2 text-sm text-muted">점수도 오답 처리도 안 된 제출 (모든 과목)</span>
           </p>
-          <button type="button" onClick={() => showTab("grading")} className="self-start text-sm font-bold text-brand hover:underline">
-            채점하러 가기 →
-          </button>
+          {data.pendingBySubject.length > 0 ? (
+            <ul className="flex flex-col gap-1 text-sm">
+              {data.pendingBySubject.map((p) => (
+                <li key={p.subject}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      showTab("grading");
+                      window.dispatchEvent(new CustomEvent(GRADE_SUBJECT_EVENT, { detail: p.subject }));
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-page"
+                  >
+                    <span className="font-bold">{p.subject}</span>
+                    <span className="text-muted">{p.count}건</span>
+                    <span className="ml-auto font-bold text-brand">채점하러 가기 →</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted">채점할 제출이 없어요. 🎉</p>
+          )}
         </section>
 
         {aiUsage}

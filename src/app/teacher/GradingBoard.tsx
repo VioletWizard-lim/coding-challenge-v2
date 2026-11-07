@@ -32,14 +32,31 @@ const timeFormat = new Intl.DateTimeFormat("ko-KR", {
 
 const rubricText = (parts: RubricPart[]) => `${parts.map((p) => `${p.name} ${p.max}`).join(" · ")} (합계 ${rubricTotal(parts)})`;
 
+/** 처음 화면의 "과목별 채점 대기"를 누르면 그 과목으로 채점 화면을 연다 */
+export const GRADE_SUBJECT_EVENT = "grade-subject";
+
 type Filter = { subject: string; cls: string; problem: string; query: string; ungradedOnly: boolean };
 
 /**
  * 채점 (v1 "채점 관리"를 옮김): 과목·반·문제·이름으로 고르고, 과목마다 선생님이 정한 채점 기준으로 점수를 준다.
  * 제출마다 "▶ 과정 보기"로 재생·AI 도움 과정·되돌아보기 답을 보며 채점할 수 있다.
  */
-export default function GradingBoard({ subjects, problems }: { subjects: string[]; problems: Record<string, string[]> }) {
-  const [filter, setFilter] = useState<Filter>({ subject: subjects[0], cls: "", problem: "", query: "", ungradedOnly: true });
+export default function GradingBoard({
+  subjects: knownSubjects,
+  problems,
+  pending: initialPending,
+}: {
+  subjects: string[];
+  problems: Record<string, string[]>;
+  /** 과목별 채점 대기 수 */
+  pending: Record<string, number>;
+}) {
+  // 채점할 것이 있는 과목은 목록에 없어도(예전 과목) 고를 수 있게
+  const subjects = [...knownSubjects, ...Object.keys(initialPending).filter((s) => !knownSubjects.includes(s))];
+  // 처음에는 채점 대기가 가장 많은 과목
+  const busiest = Object.entries(initialPending).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const [filter, setFilter] = useState<Filter>({ subject: busiest ?? subjects[0], cls: "", problem: "", query: "", ungradedOnly: true });
+  const [pendingCounts, setPendingCounts] = useState(initialPending);
   const [typed, setTyped] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Extract<Awaited<ReturnType<typeof loadGrading>>, { ok: true }> | null>(null);
@@ -50,6 +67,17 @@ export default function GradingBoard({ subjects, problems }: { subjects: string[
   const [dirty, setDirty] = useState<Set<number>>(new Set());
   const [savingAll, setSavingAll] = useState(false);
   const { showTab } = useStudentNav();
+
+  // 처음 화면에서 과목을 골라 왔으면 그 과목으로
+  useEffect(() => {
+    const pick = (e: Event) => {
+      const subject = (e as CustomEvent<string>).detail;
+      setFilter((f) => ({ ...f, subject, cls: "", problem: "", ungradedOnly: true }));
+      setPage(1);
+    };
+    window.addEventListener(GRADE_SUBJECT_EVENT, pick);
+    return () => window.removeEventListener(GRADE_SUBJECT_EVENT, pick);
+  }, []);
 
   // 설정에서 채점 기준을 바꾸면 다시 불러온다
   useEffect(() => {
@@ -64,6 +92,7 @@ export default function GradingBoard({ subjects, problems }: { subjects: string[
       if (!r.ok) return setError(r.message);
       setError(null);
       setData(r);
+      setPendingCounts(r.pending);
       setDirty(new Set());
     });
   }, [filter, page, reload]);
@@ -106,7 +135,10 @@ export default function GradingBoard({ subjects, problems }: { subjects: string[
         <h2 className="mr-auto text-lg font-bold">📝 채점</h2>
         <select value={filter.subject} onChange={(e) => change({ subject: e.target.value, cls: "", problem: "" })} aria-label="과목" className={inputClass}>
           {subjects.map((s) => (
-            <option key={s}>{s}</option>
+            <option key={s} value={s}>
+              {s}
+              {pendingCounts[s] ? ` (미채점 ${pendingCounts[s]})` : ""}
+            </option>
           ))}
         </select>
         <select value={filter.cls} onChange={(e) => change({ cls: e.target.value })} aria-label="반" className={inputClass}>

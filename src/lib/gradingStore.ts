@@ -170,3 +170,13 @@ export async function deleteSubmission(id: number): Promise<boolean> {
   if (error) throw new Error(`제출 삭제 실패: ${error.message}`);
   return (data ?? []).length > 0;
 }
+
+/** 과목별 채점 대기 수 (점수도 오답 처리도 안 된 제출, v1 "미채점"과 같은 기준). 처음 화면·채점 화면 공용 */
+export async function pendingBySubject(): Promise<Record<string, number>> {
+  const rows = await fetchAll<{ id: number; subject: string }>(
+    () => onlyUngraded(db().from("submissions").select("id, subject")).order("id") as unknown as RangeQuery<{ id: number; subject: string }>,
+  );
+  const counts: Record<string, number> = {};
+  for (const r of rows) counts[r.subject || "(과목 없음)"] = (counts[r.subject || "(과목 없음)"] ?? 0) + 1;
+  return counts;
+}
