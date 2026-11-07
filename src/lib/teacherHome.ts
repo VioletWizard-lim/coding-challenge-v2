@@ -1,6 +1,7 @@
 import "server-only";
 import { classOf } from "./classes";
 import { db, fetchAll } from "./db";
+import { pendingBySubject } from "./gradingStore";
 import { kstDate } from "./journey";
 import type { Problem } from "./problemBank";
 import type { ReflectionDay } from "./reflectionStore";
@@ -15,6 +16,8 @@ export type TeacherHomeData = {
   totalToday: number;
   /** 아직 점수도 오답 처리도 안 된 제출 수 (v1 채점 대기와 같은 기준) */
   pending: number;
+  /** 과목별 채점 대기 수 (많은 순) */
+  pendingBySubject: { subject: string; count: number }[];
   upcoming: { subject: string; number: string; title: string; openAt: string }[];
   recentlyOpened: { subject: string; number: string; title: string; openAt: string }[];
 };
@@ -30,24 +33,17 @@ function todaySubmissions(today: string) {
   );
 }
 
-/** 채점 대기: 점수가 없고 오답 처리도 안 된 제출 수 */
-async function pendingCount(): Promise<number> {
-  const { count, error } = await db()
-    .from("submissions")
-    .select("id", { count: "exact", head: true })
-    .or("score_total.is.null,score_total.eq.0")
-    .or('wrong_reason.is.null,wrong_reason.eq.""');
-  if (error) throw new Error(`채점 대기 조회 실패: ${error.message}`);
-  return count ?? 0;
-}
-
 const DAY = 86_400_000;
 
 /** 교사 첫 화면: 오늘 수업 현황, 채점 대기, 문제 공개 일정 */
 export async function getTeacherHome(problems: Problem[], reflectionDays: ReflectionDay[]): Promise<TeacherHomeData> {
   const now = new Date();
   const today = kstDate(now);
-  const [subs, pending] = await Promise.all([todaySubmissions(today), pendingCount()]);
+  const [subs, pendingMap] = await Promise.all([todaySubmissions(today), pendingBySubject()]);
+  const pendingList = Object.entries(pendingMap)
+    .map(([subject, count]) => ({ subject, count }))
+    .sort((a, b) => b.count - a.count);
+  const pending = pendingList.reduce((a, x) => a + x.count, 0);
 
   const byClass = new Map<string, { subject: string; cls: string; names: Set<string>; submissions: number; reflected: Set<string> }>();
   const keyOf = (subject: string, cls: string) => `${subject}_${cls}`;
@@ -86,6 +82,7 @@ export async function getTeacherHome(problems: Problem[], reflectionDays: Reflec
       .slice(0, 8),
     totalToday: subs.length,
     pending,
+    pendingBySubject: pendingList,
     upcoming: withOpen
       .filter((p) => Date.parse(p.openAt) > now.getTime())
       .sort((a, b) => a.openAt.localeCompare(b.openAt))
