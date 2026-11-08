@@ -3,6 +3,7 @@ import {
   canMarkWrong,
   DEFAULT_RUBRIC,
   functionFull,
+  withDescs,
   isGraded,
   lostParts,
   parseRubric,
@@ -100,6 +101,20 @@ describe("영역 설명", () => {
     expect(r.ok && r.sheet).toEqual([{ name: "기능", max: 40, desc: "조건", score: 30 }]);
     expect(sheetOf([{ name: "기능", max: 40, desc: "조건", score: 30 }], { fn: null, und: null, ch: null, total: null })).toEqual([
       { name: "기능", max: 40, desc: "조건", score: 30 },
+    ]);
+  });
+});
+
+describe("설명 채우기", () => {
+  it("이름·배점이 같은 영역에만 지금 설명을 채운다", () => {
+    const current = [
+      { name: "기능", max: 40, desc: "조건 하나 빠질 때마다 -5점" },
+      { name: "도전", max: 30, desc: "추가 구현마다 +5점" },
+    ];
+    expect(withDescs([{ name: "기능", max: 40 }, { name: "도전", max: 20 }, { name: "표현", max: 10, desc: "원래 설명" }], current)).toEqual([
+      { name: "기능", max: 40, desc: "조건 하나 빠질 때마다 -5점" },
+      { name: "도전", max: 20 },
+      { name: "표현", max: 10, desc: "원래 설명" },
     ]);
   });
 });

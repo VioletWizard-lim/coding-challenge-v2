@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Pager from "@/components/Pager";
 import { useStudentNav } from "@/components/SideTabs";
 import {
@@ -11,6 +11,7 @@ import {
   MAX_WRONG_REASON,
   rubricTotal,
   sameRubric,
+  withDescs,
   type GradingRow,
   type RubricPart,
 } from "@/lib/grading";
@@ -287,7 +288,11 @@ function GradingCard({
   const { problemLabel } = useStudentNav();
   const [row, setRow] = useState(initial);
   // 이미 채점한 제출은 그때 기준, 아니면 지금 과목 기준
-  const [parts, setParts] = useState<RubricPart[]>(() => (initial.sheet ? initial.sheet.map(({ name, max }) => ({ name, max })) : rubric));
+  const [ownParts, setParts] = useState<RubricPart[]>(() =>
+    initial.sheet ? initial.sheet.map(({ name, max, desc }) => ({ name, max, ...(desc ? { desc } : {}) })) : rubric,
+  );
+  // 설명을 적기 전에 채점한 제출도 지금 기준의 설명을 보여 주고 AI 초안에 보낸다
+  const parts = useMemo(() => withDescs(ownParts, rubric), [ownParts, rubric]);
   const [scores, setScores] = useState<string[]>(() => (initial.sheet ? initial.sheet.map((p) => String(p.score)) : rubric.map(() => "")));
   const [feedback, setFeedback] = useState(initial.feedback);
   const [wrong, setWrongText] = useState(initial.wrongReason);
