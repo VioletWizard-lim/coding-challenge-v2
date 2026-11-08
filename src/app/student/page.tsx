@@ -10,6 +10,7 @@ import AchievementsTab from "./AchievementsTab";
 import HomeTab from "./HomeTab";
 import JourneyTab from "./JourneyTab";
 import MySubmissions from "./MySubmissions";
+import PracticeTab from "./PracticeTab";
 import ReflectionTab from "./ReflectionTab";
 import SideTabs from "@/components/SideTabs";
 import Workspace from "./Workspace";
@@ -90,6 +91,15 @@ async function StudentHome() {
                   <ReflectionTab userId={profile.id} owner={profile} subjects={subjects} problems={problems} />
                 </div>
               </Suspense>
+            ),
+          },
+          {
+            id: "practice",
+            label: "🧪 연습 모드",
+            content: (
+              <div className="mx-auto max-w-6xl">
+                <PracticeTab userId={profile.id} />
+              </div>
             ),
           },
           {

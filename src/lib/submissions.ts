@@ -229,7 +229,7 @@ const journeyData = cache(
     cls: Owner["class"],
     programmingGrade: Owner["programming_grade"],
     programmingClass: Owner["programming_class"],
-  ): Promise<{ summaries: SubmissionSummary[]; records: AchievementSubmission[]; today: string }> => {
+  ): Promise<{ summaries: SubmissionSummary[]; records: AchievementSubmission[]; inits: string[]; today: string }> => {
     const owner: Owner = { id, name, grade, class: cls, programming_grade: programmingGrade, programming_class: programmingClass };
     const f = await ownerFilter(owner);
     const all = await fetchAll<JourneyRow & OwnedRow>(
@@ -268,7 +268,8 @@ const journeyData = cache(
         editCount: s.editCount,
       };
     });
-    return { summaries, records, today: kstDate(new Date()) };
+    // inits: records와 같은 순서의 시작 코드 (연습 모드의 "내가 막혔던 곳" 계산용)
+    return { summaries, records, inits: rows.map((r) => r.init_code ?? ""), today: kstDate(new Date()) };
   },
 );
 

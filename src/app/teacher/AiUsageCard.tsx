@@ -2,6 +2,7 @@ import { estimateCost, kstDayStart, kstMonthStart, usageByModel, type Usage } fr
 import { reviewUsageSince } from "@/lib/aiReviewStore";
 import { draftUsageSince } from "@/lib/gradingDraftStore";
 import { aiUsageSummary } from "@/lib/aiChatStore";
+import { practiceUsageSince } from "@/lib/practiceStore";
 import { listTeachers } from "@/lib/teacher";
 
 const dollars = (d: number) => (d < 0.01 ? "0.01달러 미만" : `${d.toFixed(2)}달러`);
@@ -22,20 +23,22 @@ export default async function AiUsageCard({ teacherId }: { teacherId?: string })
   let data;
   let names = new Map<string, string>();
   try {
-    const [chats, reviews, allDrafts, teachers] = await Promise.all([
+    const [chats, reviews, practice, allDrafts, teachers] = await Promise.all([
       aiUsageSummary(),
       reviewUsageSince(kstMonthStart()),
+      practiceUsageSince(kstMonthStart()),
       draftUsageSince(kstMonthStart()),
       teacherId ? Promise.resolve([]) : listTeachers(),
     ]);
     names = new Map(teachers.map((t) => [t.id, t.name]));
     const drafts = teacherId ? allDrafts.filter((d) => d.teacherId === teacherId) : allDrafts;
-    // AI 되돌아보기도 함께 센다 (같은 하루 한도를 씀)
+    // AI 되돌아보기, 연습 문제 만들기도 함께 센다
     const dayStart = new Date(kstDayStart());
+    const student = [...reviews, ...practice];
     data = {
       ready: chats.ready,
-      today: [...chats.today, ...reviews.filter((r) => new Date(r.createdAt) >= dayStart)],
-      month: [...chats.month, ...reviews],
+      today: [...chats.today, ...student.filter((r) => new Date(r.createdAt) >= dayStart)],
+      month: [...chats.month, ...student],
       drafts,
     };
   } catch (err) {
@@ -46,7 +49,7 @@ export default async function AiUsageCard({ teacherId }: { teacherId?: string })
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
       <h3 className="font-bold">🤖 AI 사용량</h3>
       <p className="-mt-2 text-xs text-muted">
-        학생: 도우미 질문 + 되돌아보기 (학교 전체, 아래 횟수) · {teacherId ? "채점 초안: 내가 만든 것" : "채점 초안: 모든 교사"}
+        학생: 도우미 질문 + 되돌아보기 + 연습 문제 (학교 전체, 아래 횟수) · {teacherId ? "채점 초안: 내가 만든 것" : "채점 초안: 모든 교사"}
       </p>
       {data.ready ? (
         <>
