@@ -3,6 +3,8 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
+import type { StatRow } from "@/lib/classStats";
+import { loadStatRows, yearsWithSubmissions } from "@/lib/classStatsStore";
 import { AiNotConfiguredError, AiRefusedError, draftGrade } from "@/lib/ai";
 import { problemForAi } from "@/lib/aiChat";
 import { draftMatches, toDraft, type GradingDraft } from "@/lib/gradingDraft";
@@ -27,7 +29,7 @@ import type { AiChat } from "@/lib/aiChat";
 import { chatsForReplay, listChatsSince, setChatFlag } from "@/lib/aiChatStore";
 import type { AiReview } from "@/lib/aiReview";
 import { getReview, listReviewsSince, setReviewFlag } from "@/lib/aiReviewStore";
-import { isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
+import { compareNumber, isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
 import { getUserProfile } from "@/lib/auth";
@@ -647,5 +649,28 @@ export async function makeGradingDraft(submissionId: number, rubric: RubricPart[
     if (err instanceof AiRefusedError) return { ok: false, message: "AI가 이 제출의 초안을 만들지 않았어요." };
     console.error("채점 초안 오류:", err);
     return { ok: false, message: "초안을 만들지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type ClassStatsResult =
+  | { ok: true; years: number[]; year: number; rows: StatRow[]; problemOrder: string[] }
+  | { ok: false; message: string };
+
+/** 반별 현황: 이 과목·연도의 제출 요약(작성 기록은 요약만) + 고를 수 있는 연도 */
+export async function loadClassStats(subject: string, year?: number): Promise<ClassStatsResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  if (!(String(subject) in SUBJECTS)) return { ok: false, message: "과목을 고르세요." };
+  try {
+    const years = await yearsWithSubmissions(subject);
+    const thisYear = Number(new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(new Date()));
+    const picked = year && Number.isInteger(Number(year)) ? Number(year) : (years[0] ?? thisYear);
+    const [{ rows }, { problems }] = await Promise.all([loadStatRows(subject, picked), listAllProblems()]);
+    const order = [...new Set([...Object.keys(SUBJECTS[subject as keyof typeof SUBJECTS] ?? {}), ...problems.filter((p) => p.subject === subject).map((p) => p.number)])].sort(
+      compareNumber,
+    );
+    return { ok: true, years: years.length ? years : [picked], year: picked, rows, problemOrder: order };
+  } catch (err) {
+    console.error("반별 현황 오류:", err);
+    return { ok: false, message: "반별 현황을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
