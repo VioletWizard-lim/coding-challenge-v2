@@ -91,9 +91,12 @@ export async function loadPracticeHome(): Promise<PracticeHome> {
 
 export type CreateInput =
   | { subject: string; mode: "stuck"; pointId: string; level: number }
-  | { subject: string; mode: "concept"; concept: string; level: number };
+  | { subject: string; mode: "concept"; concepts: string[]; level: number };
 
 export type CreateResult = { ok: true; problem: PracticeProblem; remaining: number } | { ok: false; error: string; remaining?: number };
+
+/** 개념은 한 문제에 이만큼까지 */
+const MAX_CONCEPTS_PER_PROBLEM = 3;
 
 /** AI가 만든 문제를 서버에서 확인하고, 통과 못 하면 이유를 알려 주고 한 번 더 만든다 */
 const MAX_TRIES = 2;
@@ -132,10 +135,16 @@ export async function createPractice(input: CreateInput): Promise<CreateResult> 
       stuckText = point.text;
       request = `위의 막힌 곳을 다시 연습할 수 있는 "${levelLabel(level)}" 난이도 문제를 하나 만들어 주세요.`;
     } else {
-      concept = String(input.concept ?? "");
-      if (!settings.concepts.includes(concept)) return { ok: false, error: "선생님이 정한 개념 중에서 골라 주세요." };
+      const picked = [...new Set((Array.isArray(input.concepts) ? input.concepts : []).map(String))];
+      if (!picked.length || picked.length > MAX_CONCEPTS_PER_PROBLEM || picked.some((c) => !settings.concepts.includes(c))) {
+        return { ok: false, error: `선생님이 정한 개념 중에서 ${MAX_CONCEPTS_PER_PROBLEM}개까지 골라 주세요.` };
+      }
+      concept = picked.join(" + ");
       stuckText = `## 이 학생이 최근 작성 기록에서 자주 막힌 곳 (참고)\n${stuckBrief(points, input.subject)}`;
-      request = `개념 "${concept}"을(를) 연습하는 "${levelLabel(level)}" 난이도 문제를 하나 만들어 주세요. 위의 막힌 곳이 이 개념과 관련 있으면 그 부분을 함께 연습하게 해 주세요.`;
+      request =
+        picked.length === 1
+          ? `개념 "${picked[0]}"을(를) 연습하는 "${levelLabel(level)}" 난이도 문제를 하나 만들어 주세요. 위의 막힌 곳이 이 개념과 관련 있으면 그 부분을 함께 연습하게 해 주세요.`
+          : `개념 ${picked.map((c) => `"${c}"`).join(", ")}을(를) 모두 함께 써야 풀리는 "${levelLabel(level)}" 난이도 문제를 하나 만들어 주세요. 위의 막힌 곳이 이 개념들과 관련 있으면 그 부분을 함께 연습하게 해 주세요.`;
     }
     const scopeText = [
       `과목: ${input.subject} (고등학교 파이썬)`,
