@@ -3,6 +3,12 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
+import { AiNotConfiguredError, AiRefusedError, draftGrade } from "@/lib/ai";
+import { problemForAi } from "@/lib/aiChat";
+import { draftMatches, toDraft, type GradingDraft } from "@/lib/gradingDraft";
+import { DraftsNotReadyError, insertDraft, latestDraft, submissionForDraft } from "@/lib/gradingDraftStore";
+import { processSummaryText, summarizeProcess } from "@/lib/process-summary";
+import { validEntries } from "@/lib/replay";
 import { canMarkWrong, GRADING_PAGE_SIZE, MAX_FEEDBACK, MAX_WRONG_REASON, validateRubric, validateScores, type GradingRow, type RubricPart } from "@/lib/grading";
 import {
   classesWithSubmissions,
@@ -583,5 +589,61 @@ export async function loadRubrics(): Promise<
   } catch (err) {
     console.error("채점 기준 조회 오류:", err);
     return { ok: false, message: "채점 기준을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export type DraftResult = { ok: true; draft: GradingDraft; reused: boolean; saved: boolean } | { ok: false; message: string };
+
+/**
+ * AI 채점 초안 (교사 채점 보조). 지금 채점 기준(영역·배점·설명), 문제, 학생 코드·설명, 작성 과정 요약을 AI에 보낸다.
+ * 같은 기준으로 만든 초안이 있으면 AI를 다시 부르지 않는다(again=true면 새로 만든다). 학생 이름·아이디는 보내지 않는다.
+ */
+export async function makeGradingDraft(submissionId: number, rubric: RubricPart[], again = false): Promise<DraftResult> {
+  const session = await getSession();
+  if (session?.role !== "teacher") return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const r = validateRubric(rubric);
+  if (!r.ok) return { ok: false, message: r.error };
+  const id = Number(submissionId);
+  try {
+    const previous = await latestDraft(id);
+    if (!again && previous.draft && draftMatches(previous.draft.parts, r.parts)) {
+      return { ok: true, draft: previous.draft, reused: true, saved: true };
+    }
+    const sub = await submissionForDraft(id);
+    if (!sub) return { ok: false, message: "제출을 찾지 못했어요." };
+    const { problems } = await listAllProblems();
+    const problem = problems.find((p) => p.subject === sub.subject && p.number === sub.problem);
+    const hasLog = validEntries(sub.edit_log).length > 0;
+    const reply = await draftGrade({
+      problemText: problem ? problemForAi(problem) : `${sub.problem}번 문제 (문제 설명 없음)`,
+      rubricText: r.parts.map((p) => `- ${p.name} (${p.max}점)${p.desc ? `: ${p.desc}` : ""}`).join("\n"),
+      code: sub.code ?? "",
+      description: sub.description ?? "",
+      processText: hasLog ? processSummaryText(summarizeProcess(sub.init_code ?? "", sub.edit_log)) : "(작성 과정 기록 없음)",
+    });
+    const parsed = toDraft(reply.raw, r.parts);
+    if (!parsed) return { ok: false, message: "AI가 채점 기준에 맞는 초안을 만들지 못했어요. 다시 눌러 주세요." };
+    const row = {
+      submissionId: id,
+      teacherId: session.id,
+      ...parsed,
+      model: reply.model,
+      inputTokens: reply.inputTokens,
+      outputTokens: reply.outputTokens,
+    };
+    try {
+      return { ok: true, draft: await insertDraft(row), reused: false, saved: true };
+    } catch (err) {
+      // 013 실행 전: 초안은 쓰되 기록만 못 남긴다
+      if (err instanceof DraftsNotReadyError) {
+        return { ok: true, draft: { id: 0, submissionId: id, ...parsed, createdAt: new Date().toISOString() }, reused: false, saved: false };
+      }
+      throw err;
+    }
+  } catch (err) {
+    if (err instanceof AiNotConfiguredError) return { ok: false, message: "AI 키나 모델이 설정되지 않았어요." };
+    if (err instanceof AiRefusedError) return { ok: false, message: "AI가 이 제출의 초안을 만들지 않았어요." };
+    console.error("채점 초안 오류:", err);
+    return { ok: false, message: "초안을 만들지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

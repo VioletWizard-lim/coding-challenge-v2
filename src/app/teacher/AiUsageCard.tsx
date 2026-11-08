@@ -1,5 +1,6 @@
 import { estimateCost, kstDayStart, kstMonthStart, usageByModel, type Usage } from "@/lib/aiChat";
 import { reviewUsageSince } from "@/lib/aiReviewStore";
+import { draftUsageSince } from "@/lib/gradingDraftStore";
 import { aiUsageSummary } from "@/lib/aiChatStore";
 
 const dollars = (d: number) => (d < 0.01 ? "0.01달러 미만" : `${d.toFixed(2)}달러`);
@@ -14,13 +15,14 @@ const money = (rows: Usage[]) => {
 export default async function AiUsageCard() {
   let data;
   try {
-    const [chats, reviews] = await Promise.all([aiUsageSummary(), reviewUsageSince(kstMonthStart())]);
+    const [chats, reviews, drafts] = await Promise.all([aiUsageSummary(), reviewUsageSince(kstMonthStart()), draftUsageSince(kstMonthStart())]);
     // AI 되돌아보기도 함께 센다 (같은 하루 한도를 씀)
     const dayStart = new Date(kstDayStart());
     data = {
       ready: chats.ready,
       today: [...chats.today, ...reviews.filter((r) => new Date(r.createdAt) >= dayStart)],
       month: [...chats.month, ...reviews],
+      drafts,
     };
   } catch (err) {
     console.error(err);
@@ -28,8 +30,8 @@ export default async function AiUsageCard() {
   }
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
-      <h3 className="font-bold">🤖 AI 도우미 사용량</h3>
-      <p className="-mt-2 text-xs text-muted">도우미 질문 + AI 되돌아보기</p>
+      <h3 className="font-bold">🤖 AI 사용량</h3>
+      <p className="-mt-2 text-xs text-muted">학생: 도우미 질문 + 되돌아보기 (아래 횟수) · 교사: 채점 초안</p>
       {data.ready ? (
         <>
           <p>
@@ -39,11 +41,16 @@ export default async function AiUsageCard() {
           <p className="text-sm">
             이번 달 <b>{data.month.length}</b>번<span className="text-muted">{money(data.month)}</span>
           </p>
-          {data.month.length > 0 && (
+          {data.drafts.length > 0 && (
+            <p className="text-sm">
+              교사 채점 초안 이번 달 <b>{data.drafts.length}</b>번<span className="text-muted">{money(data.drafts)}</span>
+            </p>
+          )}
+          {data.month.length + data.drafts.length > 0 && (
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">이번 달 모델별 자세히 (콘솔 Usage와 맞춰 보기)</summary>
               <ul className="mt-1 flex flex-col gap-0.5">
-                {usageByModel(data.month).map((m) => (
+                {usageByModel([...data.month, ...data.drafts]).map((m) => (
                   <li key={m.model}>
                     <span className="font-mono">{m.model}</span> · {m.count}번 · 입력 {m.inputTokens.toLocaleString()} / 출력{" "}
                     {m.outputTokens.toLocaleString()} 토큰{m.known ? ` · 약 ${dollars(m.dollars)}` : ""}
