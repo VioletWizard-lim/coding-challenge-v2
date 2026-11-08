@@ -16,7 +16,7 @@ import {
 } from "@/lib/grading";
 import ReplaySection from "../student/ReplaySection";
 import { loadGrading, loadStudentReplay, makeGradingDraft, removeSubmission, saveGrade, setWrong } from "./actions";
-import type { GradingDraft } from "@/lib/gradingDraft";
+import { scoreFormula, type GradingDraft } from "@/lib/gradingDraft";
 import { RUBRIC_CHANGED_EVENT } from "./RubricSettings";
 
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
@@ -458,11 +458,27 @@ function GradingCard({
           <p className="text-xs font-bold text-violet-700">🤖 AI 채점 이유</p>
           <ul className="flex flex-col gap-1">
             {draft.parts.map((p) => (
-              <li key={p.name}>
-                <b>
-                  {p.name} {p.score}/{p.max}
-                </b>{" "}
-                <span className="text-muted">{p.reason}</span>
+              <li key={p.name} className="flex flex-col">
+                <span>
+                  <b>
+                    {p.name} {p.score}/{p.max}
+                  </b>
+                  {scoreFormula(p) && <span className="ml-2 font-mono text-xs text-violet-700">{scoreFormula(p)}</span>}
+                  {p.reason && <span className="ml-2 text-muted">{p.reason}</span>}
+                </span>
+                {p.changes && p.changes.length > 0 && (
+                  <ul className="ml-4 list-disc text-muted">
+                    {p.changes.map((c, i) => (
+                      <li key={i}>
+                        {c.reason}{" "}
+                        <b className={c.points < 0 ? "text-danger" : "text-green-700"}>
+                          {c.points > 0 ? "+" : "−"}
+                          {Math.abs(c.points)}
+                        </b>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ul>
