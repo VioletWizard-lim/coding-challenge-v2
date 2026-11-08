@@ -85,18 +85,24 @@ export async function submissionForDraft(id: number) {
 }
 
 /** 사용량 카드용: 기간 안의 채점 초안 토큰 */
-export async function draftUsageSince(since: string): Promise<(Usage & { createdAt: string })[]> {
-  type Row = { id: number; model: string | null; input_tokens: number | null; output_tokens: number | null; created_at: string };
+export async function draftUsageSince(since: string): Promise<(Usage & { createdAt: string; teacherId: string | null })[]> {
+  type Row = { id: number; teacher_id: string | null; model: string | null; input_tokens: number | null; output_tokens: number | null; created_at: string };
   try {
     const rows = await fetchAll<Row>(
       () =>
         db()
           .from("grading_drafts")
-          .select("id, model, input_tokens, output_tokens, created_at")
+          .select("id, teacher_id, model, input_tokens, output_tokens, created_at")
           .gte("created_at", since)
           .order("id") as unknown as RangeQuery<Row>,
     );
-    return rows.map((r) => ({ model: r.model, inputTokens: r.input_tokens, outputTokens: r.output_tokens, createdAt: r.created_at }));
+    return rows.map((r) => ({
+      model: r.model,
+      inputTokens: r.input_tokens,
+      outputTokens: r.output_tokens,
+      createdAt: r.created_at,
+      teacherId: r.teacher_id,
+    }));
   } catch (err) {
     if (tableMissing(String((err as Error).message))) return [];
     throw err;

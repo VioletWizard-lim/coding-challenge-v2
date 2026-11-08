@@ -57,7 +57,7 @@ async function TeacherHome() {
             content: (
               <div className="mx-auto max-w-5xl">
                 <Suspense fallback={<p className="text-muted">오늘 수업 현황 불러오는 중…</p>}>
-                  <Dashboard name={session.name} />
+                  <Dashboard name={session.name} teacherId={session.id} />
                 </Suspense>
               </div>
             ),
@@ -185,7 +185,7 @@ async function Problems() {
   return <ProblemManager {...data} />;
 }
 
-async function Dashboard({ name }: { name: string }) {
+async function Dashboard({ name, teacherId }: { name: string; teacherId: string }) {
   let data;
   try {
     const [{ problems }, days] = await Promise.all([listAllProblems(), listReflectionDays()]);
@@ -205,7 +205,7 @@ async function Dashboard({ name }: { name: string }) {
       }
       aiUsage={
         <Suspense fallback={null}>
-          <AiUsageCard />
+          <AiUsageCard teacherId={teacherId} />
         </Suspense>
       }
     />

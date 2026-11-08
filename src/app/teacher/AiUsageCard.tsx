@@ -2,6 +2,7 @@ import { estimateCost, kstDayStart, kstMonthStart, usageByModel, type Usage } fr
 import { reviewUsageSince } from "@/lib/aiReviewStore";
 import { draftUsageSince } from "@/lib/gradingDraftStore";
 import { aiUsageSummary } from "@/lib/aiChatStore";
+import { listTeachers } from "@/lib/teacher";
 
 const dollars = (d: number) => (d < 0.01 ? "0.01달러 미만" : `${d.toFixed(2)}달러`);
 
@@ -11,11 +12,24 @@ const money = (rows: Usage[]) => {
   return c.known ? ` · 약 ${dollars(c.dollars)}` : ` · 토큰 ${(c.inputTokens + c.outputTokens).toLocaleString()}개`;
 };
 
-/** 교사 처음 화면: 학생 AI 도우미 사용량 (오늘·이번 달 질문 수와 예상 비용) */
-export default async function AiUsageCard() {
+/**
+ * AI 사용량 (오늘·이번 달 횟수와 예상 비용).
+ * - 교사 화면(teacherId): 학생 AI 사용은 학교 전체, 채점 초안은 내가 만든 것만
+ * - 관리자 화면(teacherId 없음): 학생 AI 사용 전체 + 채점 초안 전체와 교사별
+ * (학생 사용을 교사별로 나누려면 교사 ↔ 담당 반 연결이 필요하다 — 다른 교사가 함께 쓰게 될 때)
+ */
+export default async function AiUsageCard({ teacherId }: { teacherId?: string }) {
   let data;
+  let names = new Map<string, string>();
   try {
-    const [chats, reviews, drafts] = await Promise.all([aiUsageSummary(), reviewUsageSince(kstMonthStart()), draftUsageSince(kstMonthStart())]);
+    const [chats, reviews, allDrafts, teachers] = await Promise.all([
+      aiUsageSummary(),
+      reviewUsageSince(kstMonthStart()),
+      draftUsageSince(kstMonthStart()),
+      teacherId ? Promise.resolve([]) : listTeachers(),
+    ]);
+    names = new Map(teachers.map((t) => [t.id, t.name]));
+    const drafts = teacherId ? allDrafts.filter((d) => d.teacherId === teacherId) : allDrafts;
     // AI 되돌아보기도 함께 센다 (같은 하루 한도를 씀)
     const dayStart = new Date(kstDayStart());
     data = {
@@ -31,7 +45,9 @@ export default async function AiUsageCard() {
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
       <h3 className="font-bold">🤖 AI 사용량</h3>
-      <p className="-mt-2 text-xs text-muted">학생: 도우미 질문 + 되돌아보기 (아래 횟수) · 교사: 채점 초안</p>
+      <p className="-mt-2 text-xs text-muted">
+        학생: 도우미 질문 + 되돌아보기 (학교 전체, 아래 횟수) · {teacherId ? "채점 초안: 내가 만든 것" : "채점 초안: 모든 교사"}
+      </p>
       {data.ready ? (
         <>
           <p>
@@ -43,12 +59,27 @@ export default async function AiUsageCard() {
           </p>
           {data.drafts.length > 0 && (
             <p className="text-sm">
-              교사 채점 초안 이번 달 <b>{data.drafts.length}</b>번<span className="text-muted">{money(data.drafts)}</span>
+              {teacherId ? "내 채점 초안" : "교사 채점 초안 (전체)"} 이번 달 <b>{data.drafts.length}</b>번
+              <span className="text-muted">{money(data.drafts)}</span>
             </p>
+          )}
+          {!teacherId && data.drafts.length > 0 && (
+            <ul className="-mt-2 ml-4 list-disc text-xs text-muted">
+              {[...new Set(data.drafts.map((d) => d.teacherId ?? ""))].map((id) => {
+                const mine = data.drafts.filter((d) => (d.teacherId ?? "") === id);
+                return (
+                  <li key={id}>
+                    {!id ? "(교사 기록 없음)" : names.get(id) ? `${names.get(id)} (${id})` : id} · {mine.length}번{money(mine)}
+                  </li>
+                );
+              })}
+            </ul>
           )}
           {data.month.length + data.drafts.length > 0 && (
             <details className="text-xs text-muted">
-              <summary className="cursor-pointer">이번 달 모델별 자세히 (콘솔 Usage와 맞춰 보기)</summary>
+              <summary className="cursor-pointer">
+                이번 달 모델별 자세히{teacherId ? " (학생 전체 + 내 채점 초안)" : " (콘솔 Usage와 맞춰 보기)"}
+              </summary>
               <ul className="mt-1 flex flex-col gap-0.5">
                 {usageByModel([...data.month, ...data.drafts]).map((m) => (
                   <li key={m.model}>
@@ -60,8 +91,8 @@ export default async function AiUsageCard() {
             </details>
           )}
           <p className="text-xs text-muted">
-            학습지 업로드(AI)는 여기에 들어가지 않아요. 비용은 어림값이에요. 정확한 금액은 Anthropic 콘솔(Usage)에서 확인하세요. 대화 내용은 &lsquo;🤖 AI 대화&rsquo;
-            탭에서 볼 수 있어요.
+            학습지 업로드(AI)는 여기에 들어가지 않아요. 비용은 어림값이에요. 정확한 금액은 Anthropic 콘솔(Usage)에서 확인하세요.
+            {teacherId && <> 대화 내용은 &lsquo;🤖 AI 대화&rsquo; 탭에서 볼 수 있어요.</>}
           </p>
         </>
       ) : (
