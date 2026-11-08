@@ -138,3 +138,15 @@ export function functionFull(sheet: ScorePart[] | null): boolean {
   const part = sheet.find((p) => p.name === "기능") ?? sheet[0];
   return part.score >= part.max;
 }
+
+/**
+ * 설명이 빠진 영역에 지금 기준의 설명을 채운다 (이름·배점이 같은 영역만).
+ * 설명을 적기 전에 채점해 둔 제출도 채점 화면·AI 채점 초안에서 지금 설명을 쓰게 한다.
+ */
+export function withDescs<T extends RubricPart>(parts: T[], current: RubricPart[]): T[] {
+  return parts.map((p) => {
+    if (p.desc) return p;
+    const desc = current.find((c) => c.name === p.name && c.max === p.max)?.desc;
+    return desc ? { ...p, desc } : p;
+  });
+}

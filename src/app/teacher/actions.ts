@@ -9,7 +9,7 @@ import { draftMatches, toDraft, type GradingDraft } from "@/lib/gradingDraft";
 import { DraftsNotReadyError, insertDraft, latestDraft, submissionForDraft } from "@/lib/gradingDraftStore";
 import { processSummaryText, summarizeProcess } from "@/lib/process-summary";
 import { validEntries } from "@/lib/replay";
-import { canMarkWrong, GRADING_PAGE_SIZE, MAX_FEEDBACK, MAX_WRONG_REASON, validateRubric, validateScores, type GradingRow, type RubricPart } from "@/lib/grading";
+import { withDescs, canMarkWrong, GRADING_PAGE_SIZE, MAX_FEEDBACK, MAX_WRONG_REASON, validateRubric, validateScores, type GradingRow, type RubricPart } from "@/lib/grading";
 import {
   classesWithSubmissions,
   deleteSubmission,
@@ -605,12 +605,14 @@ export async function makeGradingDraft(submissionId: number, rubric: RubricPart[
   if (!r.ok) return { ok: false, message: r.error };
   const id = Number(submissionId);
   try {
+    const sub = await submissionForDraft(id);
+    if (!sub) return { ok: false, message: "제출을 찾지 못했어요." };
+    // 설명이 빠진 영역(설명을 적기 전의 채점 기준)은 지금 과목 기준의 설명으로 채운다
+    r.parts = withDescs(r.parts, (await getRubric(sub.subject)).parts);
     const previous = await latestDraft(id);
     if (!again && previous.draft && draftMatches(previous.draft.parts, r.parts)) {
       return { ok: true, draft: previous.draft, reused: true, saved: true };
     }
-    const sub = await submissionForDraft(id);
-    if (!sub) return { ok: false, message: "제출을 찾지 못했어요." };
     const { problems } = await listAllProblems();
     const problem = problems.find((p) => p.subject === sub.subject && p.number === sub.problem);
     const hasLog = validEntries(sub.edit_log).length > 0;
