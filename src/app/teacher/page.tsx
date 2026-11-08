@@ -9,6 +9,7 @@ import TeacherDashboard from "./TeacherDashboard";
 import { listStudents } from "@/lib/teacher";
 import AiChatBoard from "./AiChatBoard";
 import GradingBoard from "./GradingBoard";
+import ClassStats from "./ClassStats";
 import { pendingBySubject } from "@/lib/gradingStore";
 import RubricSettings from "./RubricSettings";
 import { compareNumber } from "@/lib/problemBank";
@@ -92,6 +93,15 @@ async function TeacherHome() {
                 <Suspense fallback={<p className="text-muted">불러오는 중…</p>}>
                   <Grading />
                 </Suspense>
+              </div>
+            ),
+          },
+          {
+            id: "stats",
+            label: "📊 반별 현황",
+            content: (
+              <div className="mx-auto max-w-6xl">
+                <ClassStats subjects={Object.keys(SUBJECTS)} />
               </div>
             ),
           },
