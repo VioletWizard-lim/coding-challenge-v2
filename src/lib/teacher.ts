@@ -97,3 +97,40 @@ export async function createStudents(students: NewStudent[]): Promise<Set<string
   if (error) throw new Error(`학생 등록 실패: ${error.message}`);
   return new Set((data ?? []).map((r) => String(r.id)));
 }
+
+/* ───────── 교사 계정 (관리자 페이지) ───────── */
+
+export type TeacherRow = { id: string; name: string };
+
+/** 교사 계정 목록 (비밀번호 칸은 가져오지 않는다) */
+export function listTeachers(): Promise<TeacherRow[]> {
+  return fetchAll<TeacherRow>(() => db().from("users").select("id, name").eq("role", "teacher").order("id"));
+}
+
+/**
+ * 교사 계정을 만든다. 같은 아이디(학생·교사·관리자 모두)가 있으면 만들지 않는다(false).
+ * 교사도 v1을 쓰므로 v1 로그인용 평문 비밀번호도 함께 저장한다 (v1 운영이 끝나면 뺀다).
+ */
+export async function createTeacher(id: string, name: string, password: string): Promise<boolean> {
+  const { data, error } = await db()
+    .from("users")
+    .upsert([{ id, name, role: "teacher", password, password_hash: await bcrypt.hash(password, 10) }], {
+      onConflict: "id",
+      ignoreDuplicates: true,
+    })
+    .select("id");
+  if (error) throw new Error(`교사 계정 만들기 실패: ${error.message}`);
+  return (data ?? []).length === 1;
+}
+
+/** 교사 비밀번호를 새로 정한다 (교사 계정만) */
+export async function resetTeacherPassword(id: string, password: string): Promise<boolean> {
+  const { data, error } = await db()
+    .from("users")
+    .update({ password, password_hash: await bcrypt.hash(password, 10) })
+    .eq("id", id)
+    .eq("role", "teacher")
+    .select("id");
+  if (error) throw new Error(`비밀번호 저장 실패: ${error.message}`);
+  return (data ?? []).length === 1;
+}

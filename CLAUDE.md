@@ -70,7 +70,7 @@ v1 사이트는 수업에서 계속 운영 중이다. v2 작업이 v1을 깨뜨�
 
 ### 기존 테이블 (v1)
 
-`users`: `id`(학번/아이디, PK), `password`(평문), `role`('student'|'teacher'), `name`, `grade`, `class`, `programming_grade`, `programming_class`, `subjects`(쉼표 구분 문자열, 예: "프로그래밍,정보")
+`users`: `id`(학번/아이디, PK), `password`(평문), `role`('student'|'teacher', v2 전용 관리자는 'admin' — v1은 로그인 때 역할을 골라서 admin은 v1에 못 들어감, 관리자 평문 비밀번호는 첫 로그인 때 지움), `name`, `grade`, `class`, `programming_grade`, `programming_class`, `subjects`(쉼표 구분 문자열, 예: "프로그래밍,정보")
 
 `submissions`: `id`, `submitted_at`, `name`, `subject`, `problem`(예: "2-3"), `code`, `description`, `grade`, `class`, `year`, `init_code`, `edit_log`(jsonb), `score_function`(0~40), `score_understanding`(0~40, 화면 표기 "코드 설명"), `score_challenge`(0~20), `score_total`, `feedback`, `wrong_reason`
 

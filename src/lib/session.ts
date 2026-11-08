@@ -3,7 +3,8 @@ import { jwtVerify, SignJWT } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-export type Role = "student" | "teacher";
+/** admin: 관리자 계정(교사 계정 관리 등). v1은 로그인할 때 역할을 고르므로 admin 계정은 v1에 들어갈 수 없다 */
+export type Role = "student" | "teacher" | "admin";
 export type Session = { id: string; role: Role; name: string };
 
 const COOKIE = "cc_session";
@@ -11,7 +12,7 @@ const COOKIE = "cc_session";
  * 로그인 유지 시간. 교실 PC를 여러 학생이 같이 쓰므로 학생은 짧게(블록 수업 한 번 정도),
  * 교사는 채점하는 동안 끊기지 않게 길게 둔다.
  */
-const SESSION_HOURS: Record<Role, number> = { student: 2, teacher: 8 };
+const SESSION_HOURS: Record<Role, number> = { student: 2, teacher: 8, admin: 8 };
 
 function secretKey() {
   const secret = process.env.SESSION_SECRET;
@@ -47,7 +48,7 @@ export async function getSession(): Promise<Session | null> {
   try {
     const { payload } = await jwtVerify(token, secretKey(), { algorithms: ["HS256"] });
     const role = payload.role;
-    if (!payload.sub || (role !== "student" && role !== "teacher")) return null;
+    if (!payload.sub || (role !== "student" && role !== "teacher" && role !== "admin")) return null;
     return { id: payload.sub, role, name: String(payload.name ?? "") };
   } catch {
     return null;
@@ -62,4 +63,4 @@ export async function requireRole(role: Role): Promise<Session> {
   return session;
 }
 
-export const homeFor = (role: Role) => (role === "teacher" ? "/teacher" : "/student");
+export const homeFor = (role: Role) => (role === "admin" ? "/admin" : role === "teacher" ? "/teacher" : "/student");
