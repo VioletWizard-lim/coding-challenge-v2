@@ -33,6 +33,32 @@ const selectClass =
 
 type Home = Extract<PracticeHome, { ok: true }>;
 
+/** 개념은 이만큼까지 함께 고른다 */
+const MAX_PICK = 3;
+/** 이 창에서 고른 과목 (다시 들어와도 같은 과목) */
+const SUBJECT_KEY = "practice:subject";
+/** "만들기"를 누른 시각 (만드는 중에 화면을 떠나도 돌아와서 이어 받게) */
+const CREATING_KEY = "practice:creating";
+
+const readSession = <T,>(key: string): T | null => {
+  try {
+    return JSON.parse(sessionStorage.getItem(key) ?? "null") as T | null;
+  } catch {
+    return null;
+  }
+};
+const writeSession = (key: string, value: unknown) => {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
+const markCreating = () => writeSession(CREATING_KEY, Date.now());
+const readCreating = () => {
+  const at = readSession<number>(CREATING_KEY);
+  return typeof at === "number" && Date.now() - at < 120_000 ? at : null;
+};
+
 const statusOf = (p: PracticeProblem) =>
   p.solvedAt
     ? { text: "✅ 통과", tone: "bg-green-100 text-green-800" }
@@ -49,25 +75,52 @@ export default function PracticeTab({ userId }: { userId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [subject, setSubject] = useState("");
   const [level, setLevel] = useState(2);
-  const [concept, setConcept] = useState("");
+  const [concepts, setConcepts] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [creating, startCreate] = useTransition();
   const [openId, setOpenId] = useState<number | null>(null);
+  /** 만드는 중에 화면을 떠났다 돌아온 경우: 서버에서 다 만들어질 때까지 목록을 다시 불러온다 */
+  const [waiting, setWaiting] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    loadPracticeHome().then((r) => {
-      if (!alive) return;
-      if (!r.ok) return setError(r.error);
-      setHome(r);
-      const first = r.settings.find((s) => s.enabled) ?? r.settings[0];
-      setSubject(first?.subject ?? "");
-      setConcept(first?.concepts[0] ?? "");
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const pending = readCreating();
+    const load = (tries: number) =>
+      loadPracticeHome().then((r) => {
+        if (!alive) return;
+        if (!r.ok) return setError(r.error);
+        setHome(r);
+        if (tries === 0) {
+          const saved = readSession<string>(SUBJECT_KEY);
+          const first = r.settings.find((s) => s.subject === saved && s.enabled) ?? r.settings.find((s) => s.enabled) ?? r.settings[0];
+          setSubject(first?.subject ?? "");
+        }
+        // 떠나기 전에 누른 "만들기"가 끝났는지: 그 뒤에 만들어진 문제가 보이면 그 문제를 연다
+        if (!pending) return;
+        const made = r.problems.find((p) => new Date(p.createdAt).getTime() >= pending - 60_000);
+        if (made) {
+          writeSession(CREATING_KEY, null);
+          setWaiting(false);
+          setOpenId(made.id);
+        } else if (tries < 12 && Date.now() - pending < 120_000) {
+          setWaiting(true);
+          timer = setTimeout(() => load(tries + 1), 5000);
+        } else {
+          writeSession(CREATING_KEY, null);
+          setWaiting(false);
+        }
+      });
+    load(0);
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (subject) writeSession(SUBJECT_KEY, subject);
+  }, [subject]);
 
   if (error) return <p className="rounded-lg bg-amber-50 px-4 py-3 text-amber-900">{error}</p>;
   if (!home) return <p className="text-muted">불러오는 중…</p>;
@@ -91,8 +144,10 @@ export default function PracticeTab({ userId }: { userId: string }) {
 
   function create(input: CreateInput) {
     setMessage(null);
+    markCreating();
     startCreate(async () => {
       const r = await createPractice(input);
+      writeSession(CREATING_KEY, null);
       if (r.remaining !== undefined) setHome((h) => h && { ...h, remaining: r.remaining! });
       if (!r.ok) return setMessage(r.error);
       setHome((h) => h && { ...h, problems: [r.problem, ...h.problems], remaining: r.remaining });
@@ -102,8 +157,22 @@ export default function PracticeTab({ userId }: { userId: string }) {
 
   const stuck = home.stuck.filter((s) => s.subject === subject);
   const out = home.remaining === 0;
-  const busy = creating || out;
-  const mine = home.problems.filter((p) => p.subject === subject);
+  const busy = creating || waiting || out;
+  const mine = home.problems;
+  const allowed = settings?.concepts ?? [];
+  const levelPicker = (
+    <label className="flex shrink-0 items-center gap-1.5 text-sm text-muted">
+      난이도
+      <select value={level} onChange={(e) => setLevel(Number(e.target.value))} className={`${selectClass} py-1.5`}>
+        {LEVELS.map((l) => (
+          <option key={l.value} value={l.value}>
+            {l.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const picked = concepts.filter((c) => allowed.includes(c));
 
   return (
     <div className="flex flex-col gap-5">
@@ -119,10 +188,7 @@ export default function PracticeTab({ userId }: { userId: string }) {
             과목
             <select
               value={subject}
-              onChange={(e) => {
-                setSubject(e.target.value);
-                setConcept(home.settings.find((s) => s.subject === e.target.value)?.concepts[0] ?? "");
-              }}
+              onChange={(e) => setSubject(e.target.value)}
               className={selectClass}
             >
               {home.settings.map((s) => (
@@ -131,16 +197,6 @@ export default function PracticeTab({ userId }: { userId: string }) {
             </select>
           </label>
         )}
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          난이도
-          <select value={level} onChange={(e) => setLevel(Number(e.target.value))} className={selectClass}>
-            {LEVELS.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </label>
         <span className="rounded-full bg-page px-3 py-1 text-sm text-muted" title="하루에 만들 수 있는 연습 문제 수">
           오늘 남은 만들기 {home.remaining}/{home.limit}
         </span>
@@ -150,6 +206,11 @@ export default function PracticeTab({ userId }: { userId: string }) {
         <p className="rounded-lg bg-page px-4 py-3 text-muted">이 과목은 지금 선생님이 연습 모드를 꺼 두었어요.</p>
       ) : (
         <>
+          {waiting && !creating && (
+            <p role="status" className="rounded-lg bg-blue-50 px-4 py-3 text-blue-900">
+              🤖 아까 만들기 시작한 연습 문제를 마무리하는 중이에요… 다 되면 바로 열어 줄게요.
+            </p>
+          )}
           {creating && (
             <p role="status" className="rounded-lg bg-blue-50 px-4 py-3 text-blue-900">
               🤖 AI가 내 기록을 보고 문제를 만들고, 답이 맞는지 직접 실행해 확인하는 중이에요… (20초 정도 걸려요)
@@ -162,7 +223,10 @@ export default function PracticeTab({ userId }: { userId: string }) {
           )}
 
           <section className="flex flex-col gap-3 rounded-xl border border-violet-200 bg-white p-5">
-            <h3 className="font-bold">🧩 내가 막혔던 곳에서 만들기</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="mr-auto font-bold">🧩 내가 막혔던 곳에서 만들기</h3>
+              {levelPicker}
+            </div>
             <p className="-mt-2 text-xs text-muted">최근 제출의 작성 기록에서 여러 번 난 오류와 오래 멈춘 문제를 찾았어요.</p>
             {stuck.length ? (
               <ul className="grid gap-2 sm:grid-cols-2">
@@ -193,28 +257,47 @@ export default function PracticeTab({ userId }: { userId: string }) {
 
           <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
             <h3 className="font-bold">📚 개념 골라 만들기</h3>
-            <div className="flex flex-wrap items-center gap-2">
-              <select value={concept} onChange={(e) => setConcept(e.target.value)} aria-label="개념" className={selectClass}>
-                {settings?.concepts.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={busy || !concept}
-                onClick={() => create({ subject, mode: "concept", concept, level })}
-                className="rounded-lg bg-brand px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                연습 문제 만들기
-              </button>
+            <p className="-mt-2 text-xs text-muted">
+              {MAX_PICK}개까지 함께 고를 수 있어요. 여러 개를 고르면 그 개념을 함께 쓰는 문제가 나와요 (예: 반복문 + 리스트).
+            </p>
+            <div className="flex flex-wrap items-start gap-3">
+            <div className="flex flex-1 flex-wrap gap-1.5" role="group" aria-label="개념">
+              {allowed.map((c) => {
+                const on = picked.includes(c);
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={!on && picked.length >= MAX_PICK}
+                    onClick={() => setConcepts(on ? picked.filter((x) => x !== c) : [...picked, c])}
+                    className={`rounded-full border px-2.5 py-1 text-sm disabled:opacity-40 ${
+                      on ? "border-brand bg-brand-soft font-bold text-brand" : "border-line text-muted hover:border-brand"
+                    }`}
+                  >
+                    {on ? "✓ " : ""}
+                    {c}
+                  </button>
+                );
+              })}
             </div>
+            {levelPicker}
+            </div>
+            <button
+              type="button"
+              disabled={busy || !picked.length}
+              onClick={() => create({ subject, mode: "concept", concepts: picked, level })}
+              className="self-start rounded-lg bg-brand px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {picked.length ? `${picked.length}개 개념으로 연습 문제 만들기` : "개념을 골라 주세요"}
+            </button>
             {settings?.note && <p className="text-xs text-muted">📌 선생님 안내: {settings.note}</p>}
           </section>
         </>
       )}
 
       <section className="flex flex-col gap-3">
-        <h3 className="font-bold">📝 내 연습 문제 ({mine.length})</h3>
+        <h3 className="font-bold">📝 내 연습 문제 ({mine.length}){home.settings.length > 1 && <span className="font-normal text-sm text-muted"> · 모든 과목</span>}</h3>
         {mine.length ? (
           <ul className="flex flex-col gap-2">
             {mine.map((p) => {
@@ -228,6 +311,7 @@ export default function PracticeTab({ userId }: { userId: string }) {
                   >
                     <span className="font-bold">{p.title}</span>
                     <span className="text-sm text-muted">
+                      {home.settings.length > 1 && `${p.subject} · `}
                       {p.source === "stuck" ? `🧩 ${p.basis}` : `📚 ${p.concept}`} · {levelLabel(p.level)}
                     </span>
                     <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${st.tone}`}>{st.text}</span>
