@@ -32,11 +32,14 @@ export async function verifyLogin(id: string, password: string): Promise<Session
 
   if (plainOk && "password_hash" in data) {
     const hash = await bcrypt.hash(password, 10);
-    const { error: updateError } = await db().from("users").update({ password_hash: hash }).eq("id", data.id);
+    // 관리자 계정은 v1을 쓰지 않으므로, 해시를 만들면 평문 비밀번호를 지운다
+    const values = data.role === "admin" ? { password_hash: hash, password: null } : { password_hash: hash };
+    const { error: updateError } = await db().from("users").update(values).eq("id", data.id);
     if (updateError) console.warn("password_hash 저장 실패:", updateError.message);
   }
 
-  return { id: String(data.id), role: data.role === "teacher" ? "teacher" : "student", name: data.name ?? "" };
+  const role = data.role === "admin" ? "admin" : data.role === "teacher" ? "teacher" : "student";
+  return { id: String(data.id), role, name: data.name ?? "" };
 }
 
 /** 로그인한 사용자의 최신 정보(과목·반 등)를 DB에서 읽는다. 비밀번호 컬럼은 돌려주지 않는다. */
