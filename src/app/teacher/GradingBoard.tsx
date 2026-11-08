@@ -15,7 +15,8 @@ import {
   type RubricPart,
 } from "@/lib/grading";
 import ReplaySection from "../student/ReplaySection";
-import { loadGrading, loadStudentReplay, removeSubmission, saveGrade, setWrong } from "./actions";
+import { loadGrading, loadStudentReplay, makeGradingDraft, removeSubmission, saveGrade, setWrong } from "./actions";
+import type { GradingDraft } from "@/lib/gradingDraft";
 import { RUBRIC_CHANGED_EVENT } from "./RubricSettings";
 
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
@@ -64,6 +65,9 @@ export default function GradingBoard({
   const [pending, startTransition] = useTransition();
   const [reload, setReload] = useState(0);
   const savers = useRef(new Map<number, () => Promise<boolean>>());
+  /** 아직 초안이 없는 미채점 카드들의 "초안 만들기" */
+  const drafters = useRef(new Map<number, () => Promise<boolean>>());
+  const [drafting, setDrafting] = useState<{ done: number; total: number } | null>(null);
   const [dirty, setDirty] = useState<Set<number>>(new Set());
   const [savingAll, setSavingAll] = useState(false);
   const { showTab } = useStudentNav();
@@ -117,6 +121,21 @@ export default function GradingBoard({
       return next;
     });
   }, []);
+
+  /** 이 쪽의 미채점 제출 초안을 차례로 만든다 (저장은 교사가 확인 뒤) */
+  async function draftAll() {
+    const list = [...drafters.current.values()];
+    if (!list.length) return;
+    if (!confirm(`이 쪽의 미채점 제출 ${list.length}개에 AI 채점 초안을 만들까요? (AI 비용이 들어요. 저장은 확인한 뒤 직접 눌러요)`)) return;
+    setDrafting({ done: 0, total: list.length });
+    let failed = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (!(await list[i]())) failed++;
+      setDrafting({ done: i + 1, total: list.length });
+    }
+    setDrafting(null);
+    if (failed) setError(`${failed}개는 초안을 만들지 못했어요. 그 제출의 안내를 확인하세요.`);
+  }
 
   async function saveAll() {
     setSavingAll(true);
@@ -200,13 +219,29 @@ export default function GradingBoard({
           <span>{pending ? "불러오는 중…" : `${data.total}개${filter.ungradedOnly ? " (미채점)" : ""}`}</span>
           <button
             type="button"
+            onClick={draftAll}
+            disabled={!!drafting || !data.rows.some((r) => !isGraded(r))}
+            title="이 쪽의 미채점 제출마다 AI가 채점 기준대로 점수·감점 이유 초안을 채워요"
+            className="ml-auto rounded-lg border border-violet-400 px-3 py-1.5 font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-40"
+          >
+            {drafting ? `🤖 초안 만드는 중… (${drafting.done}/${drafting.total})` : "🤖 이 쪽 미채점 AI 초안"}
+          </button>
+          <button
+            type="button"
             onClick={saveAll}
             disabled={!dirty.size || savingAll}
-            className="ml-auto rounded-lg bg-brand px-3 py-1.5 font-bold text-white disabled:opacity-40"
+            className="rounded-lg bg-brand px-3 py-1.5 font-bold text-white disabled:opacity-40"
           >
             {savingAll ? "저장 중…" : `💾 바뀐 채점 모두 저장 (${dirty.size})`}
           </button>
-          <button type="button" onClick={() => setReload((n) => n + 1)} className="rounded-lg border border-line px-3 py-1.5 hover:bg-page">
+          <button
+            type="button"
+            onClick={() => {
+              if (dirty.size && !confirm(`저장하지 않은 채점이 ${dirty.size}개 있어요. 저장하지 않고 새로 불러올까요?`)) return;
+              setReload((n) => n + 1);
+            }}
+            className="rounded-lg border border-line px-3 py-1.5 hover:bg-page"
+          >
             ↻ 새로 불러오기
           </button>
         </div>
@@ -215,10 +250,11 @@ export default function GradingBoard({
       <ul className={`flex flex-col gap-4 ${pending ? "opacity-50" : ""}`}>
         {data?.rows.map((row) => (
           <GradingCard
-            key={row.id}
+            key={`${row.id}-${reload}`}
             row={row}
             rubric={data.rubric.parts}
             savers={savers}
+            drafters={drafters}
             onDirty={onDirty}
             onRemoved={() => setReload((n) => n + 1)}
           />
@@ -237,12 +273,14 @@ function GradingCard({
   row: initial,
   rubric,
   savers,
+  drafters,
   onDirty,
   onRemoved,
 }: {
   row: GradingRow;
   rubric: RubricPart[];
   savers: React.RefObject<Map<number, () => Promise<boolean>>>;
+  drafters: React.RefObject<Map<number, () => Promise<boolean>>>;
   onDirty: (id: number, dirty: boolean) => void;
   onRemoved: () => void;
 }) {
@@ -256,6 +294,24 @@ function GradingCard({
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [pending, startTransition] = useTransition();
   const [showReplay, setShowReplay] = useState(false);
+  const [draft, setDraft] = useState<(GradingDraft & { reused: boolean; saved: boolean }) | null>(null);
+  const [drafting, setDrafting] = useState(false);
+
+  /** AI 채점 초안: 칸을 채우기만 하고 저장은 교사가 */
+  async function makeDraft(again = false): Promise<boolean> {
+    setDrafting(true);
+    setMessage(null);
+    const r = await makeGradingDraft(row.id, parts, again);
+    setDrafting(false);
+    if (!r.ok) {
+      setMessage({ text: r.message, ok: false });
+      return false;
+    }
+    setDraft({ ...r.draft, reused: r.reused, saved: r.saved });
+    setScores(r.draft.parts.map((p) => String(p.score)));
+    setFeedback(r.draft.feedback);
+    return true;
+  }
 
   // 아직 채점하지 않은 제출이면 과목 기준이 바뀔 때 따라간다
   useEffect(() => {
@@ -290,9 +346,12 @@ function GradingCard({
     onDirty(row.id, dirty);
     if (dirty) savers.current.set(row.id, save);
     else savers.current.delete(row.id);
+    if (!isGraded(row) && !draft && !dirty) drafters.current.set(row.id, () => makeDraft());
+    else drafters.current.delete(row.id);
   });
   useEffect(() => () => {
     savers.current.delete(initial.id);
+    drafters.current.delete(initial.id);
     onDirty(initial.id, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 사라질 때 한 번
   }, []);
@@ -377,6 +436,44 @@ function GradingCard({
             </button>
           )}
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => makeDraft(!!draft)}
+          disabled={drafting}
+          title="채점 기준·문제·코드·코드 설명·작성 과정 요약을 보고 AI가 점수와 감점 이유 초안을 채워요. 저장은 확인한 뒤 직접 눌러요."
+          className="rounded-lg border border-violet-400 px-3 py-1.5 text-sm font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+        >
+          {drafting ? "🤖 AI가 채점하는 중…" : draft ? "🤖 초안 다시 만들기" : "🤖 AI 채점 초안"}
+        </button>
+        {draft && (
+          <span className="text-xs text-muted">
+            AI가 만든 초안이에요. 확인하고 고친 뒤 <b>저장</b>을 눌러 주세요.
+            {draft.reused && " (전에 만든 초안을 불러왔어요)"}
+          </span>
+        )}
+      </div>
+      {draft && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2 text-sm">
+          <p className="text-xs font-bold text-violet-700">🤖 AI 채점 이유</p>
+          <ul className="flex flex-col gap-1">
+            {draft.parts.map((p) => (
+              <li key={p.name}>
+                <b>
+                  {p.name} {p.score}/{p.max}
+                </b>{" "}
+                <span className="text-muted">{p.reason}</span>
+              </li>
+            ))}
+          </ul>
+          {draft.note && (
+            <p className="text-xs">
+              <b>교사 메모(학생에게 안 보여요)</b> {draft.note}
+            </p>
+          )}
+          {!draft.saved && <p className="text-xs text-amber-800">초안 기록을 남기려면 Supabase에서 013 SQL을 실행해 주세요.</p>}
+        </div>
+      )}
       {parts.some((p) => p.desc) && (
         <dl className="grid gap-x-3 gap-y-0.5 rounded-lg bg-page px-3 py-2 text-xs text-muted sm:grid-cols-[auto_1fr]">
           {parts
