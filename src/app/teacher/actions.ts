@@ -29,6 +29,8 @@ import type { AiChat } from "@/lib/aiChat";
 import { chatsForReplay, listChatsSince, setChatFlag } from "@/lib/aiChatStore";
 import type { AiReview } from "@/lib/aiReview";
 import { getReview, listReviewsSince, setReviewFlag } from "@/lib/aiReviewStore";
+import { normalizeSettings, practiceLimit, type PracticeForTeacher, type PracticeSettings } from "@/lib/practice";
+import { getPracticeSettings, listPracticeSince, PracticeNotReadyError, savePracticeSettings, setPracticeFlag } from "@/lib/practiceStore";
 import { compareNumber, isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
@@ -428,7 +430,7 @@ export async function deleteFeedbackNote(id: number): Promise<{ ok: boolean; err
 }
 
 export type TeacherChatsResult =
-  | { ok: true; ready: boolean; chats: AiChat[]; reviews: AiReview[] }
+  | { ok: true; ready: boolean; chats: AiChat[]; reviews: AiReview[]; practice: PracticeForTeacher[] }
   | { ok: false; message: string };
 
 /** 학생 AI 대화 열람 (최근 days일). 미성년자 보호: 교사는 모든 학생의 AI 대화를 볼 수 있다 */
@@ -437,8 +439,8 @@ export async function loadAiChats(days: number): Promise<TeacherChatsResult> {
   const span = [7, 30, 180].includes(Number(days)) ? Number(days) : 7;
   try {
     const since = new Date(Date.now() - span * 86_400_000).toISOString();
-    const [chats, reviews] = await Promise.all([listChatsSince(since), listReviewsSince(since)]);
-    return { ok: true, ...chats, reviews: reviews.reviews };
+    const [chats, reviews, practice] = await Promise.all([listChatsSince(since), listReviewsSince(since), listPracticeSince(since)]);
+    return { ok: true, ...chats, reviews: reviews.reviews, practice: practice.items };
   } catch (err) {
     console.error("AI 대화 열람 오류:", err);
     return { ok: false, message: "AI 대화를 불러오지 못했어요. 잠시 후 다시 시도하세요." };
@@ -464,6 +466,48 @@ export async function flagAiReview(id: number, flag: boolean): Promise<{ ok: boo
     return (await setReviewFlag(Number(id), flag ? "teacher" : null)) ? { ok: true } : { ok: false, message: "찾지 못했어요." };
   } catch (err) {
     console.error("되돌아보기 표시 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 학생 연습 문제 부적절 표시하기(flag=true)·풀기(false) */
+export async function flagPractice(id: number, flag: boolean): Promise<{ ok: boolean; message?: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return (await setPracticeFlag(Number(id), flag ? "teacher" : null)) ? { ok: true } : { ok: false, message: "찾지 못했어요." };
+  } catch (err) {
+    console.error("연습 문제 표시 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 설정 탭: 과목별 연습 모드 설정 (ready=false면 015 실행 전) */
+export async function loadPracticeSettings(): Promise<
+  { ok: true; ready: boolean; settings: PracticeSettings[]; limit: number } | { ok: false; message: string }
+> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return { ok: true, ...(await getPracticeSettings(Object.keys(SUBJECTS))), limit: practiceLimit() };
+  } catch (err) {
+    console.error("연습 모드 설정 조회 오류:", err);
+    return { ok: false, message: "연습 모드 설정을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 과목의 연습 모드 설정 저장: 켜고 끄기, 쓸 수 있는 개념(문법 범위), 범위 안내 */
+export async function saveSubjectPractice(input: PracticeSettings): Promise<{ ok: true; settings: PracticeSettings } | { ok: false; message: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const subject = String(input?.subject ?? "");
+  if (!Object.keys(SUBJECTS).includes(subject)) return { ok: false, message: "과목이 맞지 않아요." };
+  const settings = normalizeSettings(input, subject);
+  if (!settings) return { ok: false, message: "개념은 30개, 개념 이름은 40자, 안내는 500자까지 쓸 수 있어요." };
+  if (settings.enabled && !settings.concepts.length) return { ok: false, message: "켜 두려면 개념을 하나 이상 골라 주세요." };
+  try {
+    await savePracticeSettings(settings);
+    return { ok: true, settings };
+  } catch (err) {
+    if (err instanceof PracticeNotReadyError) return { ok: false, message: "연습 모드 설정을 저장하려면 Supabase에서 015 SQL을 먼저 실행해 주세요." };
+    console.error("연습 모드 설정 저장 오류:", err);
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

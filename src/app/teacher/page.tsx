@@ -12,6 +12,7 @@ import GradingBoard from "./GradingBoard";
 import ClassStats from "./ClassStats";
 import { pendingBySubject } from "@/lib/gradingStore";
 import RubricSettings from "./RubricSettings";
+import PracticeSettingsPanel from "./PracticeSettings";
 import { compareNumber } from "@/lib/problemBank";
 import AiUsageCard from "./AiUsageCard";
 import HealthCard from "./HealthCard";
@@ -142,8 +143,9 @@ async function TeacherHome() {
             id: "settings",
             label: "⚙️ 설정",
             content: (
-              <div className="mx-auto max-w-4xl">
+              <div className="mx-auto flex max-w-4xl flex-col gap-5">
                 <RubricSettings />
+                <PracticeSettingsPanel />
               </div>
             ),
           },

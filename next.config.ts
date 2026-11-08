@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "4mb",
     },
   },
+  // 연습 모드: 서버에서 AI가 만든 참고 답안을 Pyodide로 돌려 확인한다 (src/lib/pyRunner.ts).
+  // 파일 경로로 불러오므로 배포 묶음에 pyodide 파일을 함께 넣는다 (학생 화면의 서버 액션에서만 씀)
+  outputFileTracingIncludes: {
+    "/student": ["./node_modules/pyodide/**/*"],
+  },
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

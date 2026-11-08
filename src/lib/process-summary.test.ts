@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lineDiff, processSummaryText, splitMomentRefs, summarizeProcess } from "./process-summary";
+import { lineDiff, processSummaryText, splitMomentRefs, stuckBrief, stuckPoints, summarizeProcess } from "./process-summary";
 
 const MIN = 60_000;
 // 한 줄 입력: 문서 끝(line, ch)에 text를 넣는 편집 이벤트
@@ -83,3 +83,38 @@ describe("줄 차이와 순간 표시", () => {
 function s0() {
   return summarizeProcess("", [typeAt(0, 0, 0, "x"), [1000, "r:ok"]]);
 }
+
+describe("내가 막혔던 곳 (연습 문제의 근거)", () => {
+  const sub = (id: number, problem: string, log: unknown[]) => ({ id, subject: "프로그래밍", problem, title: `문제${id}`, init: "", log });
+  const typeErrors = (fixed: boolean) => [
+    typeAt(0, 0, 0, "print('a' + 1)"),
+    [1000, "r:TypeError"],
+    [2000, "r:TypeError"],
+    ...(fixed ? [[3000, "r:ok"]] : []),
+  ];
+
+  it("여러 문제에서 반복된 오류를 모으고, 그때의 코드를 근거로 담는다", () => {
+    const points = stuckPoints([sub(1, "2-3", typeErrors(false)), sub(2, "2-4", typeErrors(true)), sub(3, "1-1", [typeAt(0, 0, 0, "x"), [1000, "r:NameError"]])]);
+    const p = points.find((x) => x.id === "err:프로그래밍:TypeError")!;
+    expect(p.label).toBe("TypeError 4번");
+    expect(p.evidence).toContain("외 1문제");
+    expect(p.evidence).toContain("1문제는 스스로 고쳤어요");
+    expect(p.concept).toContain("자료형");
+    expect(p.text).toContain("print('a' + 1)");
+    // 한 번만 난 오류는 막힌 곳이 아님
+    expect(points.some((x) => x.id.includes("NameError"))).toBe(false);
+  });
+
+  it("3분 넘게 멈춘 문제도 막힌 곳 (멈추기 직전 코드와 함께)", () => {
+    const points = stuckPoints([sub(5, "3-1", [typeAt(0, 0, 0, "for i in"), typeAt(4 * MIN, 0, 8, " range(3):")])]);
+    expect(points).toHaveLength(1);
+    expect(points[0]).toMatchObject({ id: "pause:5", kind: "pause", label: "4분 0초 멈춤" });
+    expect(points[0].text).toContain("for i in");
+  });
+
+  it("개념 참고 글", () => {
+    const points = stuckPoints([sub(1, "2-3", typeErrors(false))]);
+    expect(stuckBrief(points, "프로그래밍")).toContain("TypeError 2번");
+    expect(stuckBrief([], "프로그래밍")).toContain("없음");
+  });
+});

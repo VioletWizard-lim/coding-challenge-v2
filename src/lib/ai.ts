@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { REVIEW_SCHEMA } from "./aiReview";
 import { DRAFT_SCHEMA } from "./gradingDraft";
+import { PRACTICE_SCHEMA } from "./practice";
 import { toProblems, WORKSHEET_SCHEMA, type ExtractedProblem } from "./worksheet";
 
 /**
@@ -228,6 +229,84 @@ export async function makeReview(input: { problemText: string; processText: stri
     ],
   });
   if (message.stop_reason === "refusal") throw new AiRefusedError("AI가 되돌아보기를 만들지 않았어요.");
+  const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  return {
+    raw: JSON.parse(text),
+    model: message.model ?? model,
+    inputTokens: message.usage?.input_tokens ?? 0,
+    outputTokens: message.usage?.output_tokens ?? 0,
+  };
+}
+
+/* ───────────── 연습 문제 만들기 (학생용) ───────────── */
+
+const PRACTICE_SYSTEM = `당신은 한국 고등학교 정보 수업에서 학생 한 명에게 맞춘 파이썬 연습 문제를 만드는 도우미입니다. 사용자는 고등학생(미성년자)입니다.
+
+## 무엇을 근거로 만드는가
+학생의 작성 기록에서 찾은 "막혔던 곳"(반복된 오류와 그때의 코드, 오래 멈춘 문제와 멈추기 직전의 코드)이 주어집니다.
+- 그 막힌 지점을 다시 연습할 수 있는 **새** 문제를 만드세요. 원래 수업 문제와 같은 문제나 같은 이야기를 쓰지 말고, 막힌 개념이 꼭 필요하도록 만드세요.
+- 예: 문자열과 숫자를 더하다가 TypeError가 반복됐다면, input()으로 받은 값을 int()로 바꿔 계산해야 하는 짧은 문제.
+- 학생이 개념을 직접 골랐으면 그 개념의 문제를 만들되, 함께 주어진 막힌 곳 참고가 그 개념과 관련 있으면 반영하세요.
+
+## 문제 형식
+- title: 짧은 제목(20자 안팎). description: 상황과 할 일을 쉬운 해요체로 3~6문장. conditions: 지킬 조건 1~4개.
+- 입력은 input()으로만 받고 출력은 print()로 합니다. 파일, 인터넷, 무작위(random), 시간, 그래픽은 쓰지 않습니다. 같은 입력이면 항상 같은 출력이 나와야 합니다.
+- tests: 2~4개. inputs는 input()에 차례로 들어갈 줄들(입력이 없으면 빈 배열), output은 print 결과 전체입니다. input()의 안내 글은 출력에 넣지 않습니다(확인할 때 안내 글은 빼고 봅니다). 서로 다른 경우(예: 조건문이면 참·거짓 모두)를 고르게 넣습니다.
+- 문제 설명에 출력 모양(띄어쓰기, 단위, 줄 나눔)을 분명히 적어서 테스트 출력과 정확히 맞출 수 있게 합니다.
+- starter_code: 필요하면 input() 줄이나 주석 정도만. 문제를 대신 풀어 주지 않습니다. 없으면 빈 문자열.
+- solution: 모든 테스트를 통과하는 참고 답안. 학생에게는 보이지 않고 서버가 실제로 돌려 테스트를 확인하는 데 씁니다. 주어진 문법 범위 안에서 씁니다.
+- 난이도: 쉬움은 5줄 안팎, 보통은 10줄 안팎, 어려움은 15줄 안팎의 답이 나오는 문제.
+- 교사가 정한 문법 범위 밖의 것(범위에 없는 개념, import, class, lambda, 컴프리헨션 등)은 쓰지 않습니다.
+
+${SAFETY}`;
+
+export type PracticeReply = { raw: unknown; model: string; inputTokens: number; outputTokens: number };
+
+/**
+ * 연습 문제 만들기. 학생의 막힌 곳(작성 기록 요약, process-summary.ts의 stuckPoints)이 반드시 함께 간다 (CLAUDE.md 규칙 1).
+ * fix가 있으면 앞서 만든 문제가 서버 확인을 통과하지 못한 이유를 알려 주고 다시 만들게 한다. 학생 이름·아이디는 보내지 않는다.
+ */
+export async function makePractice(input: {
+  scopeText: string;
+  request: string;
+  stuckText: string;
+  avoidTitles: string[];
+  fix?: { previous: unknown; problem: string };
+}): Promise<PracticeReply> {
+  const model = helperModel();
+  const fallback = /haiku/.test(model) ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
+  const messages: Anthropic.Beta.BetaMessageParam[] = [
+    {
+      role: "user",
+      content: [
+        `<scope>\n${input.scopeText}\n</scope>`,
+        `<stuck>\n${input.stuckText}\n</stuck>`,
+        input.avoidTitles.length ? `<already_made>\n${input.avoidTitles.map((t) => `- ${t}`).join("\n")}\n</already_made>` : "",
+        `<request>\n${input.request}\n</request>`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    },
+  ];
+  if (input.fix) {
+    messages.push(
+      { role: "assistant", content: JSON.stringify(input.fix.previous) },
+      {
+        role: "user",
+        content: `서버에서 참고 답안을 실제로 돌려 보니 문제가 있어요:\n${input.fix.problem}\n\n테스트의 기대 출력과 참고 답안이 정확히 맞도록(문제 설명의 출력 모양도 함께) 고쳐서 문제 전체를 다시 주세요.`,
+      },
+    );
+  }
+  const message = await aiClient().beta.messages.create({
+    model,
+    max_tokens: 6000,
+    ...fallback,
+    output_config: { effort: "low", format: { type: "json_schema", schema: PRACTICE_SCHEMA } },
+    system: PRACTICE_SYSTEM,
+    messages,
+  });
+  if (message.stop_reason === "refusal") throw new AiRefusedError("AI가 연습 문제를 만들지 않았어요.");
+  if (message.stop_reason === "max_tokens") throw new Error("연습 문제가 너무 길어요.");
   const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   return {
     raw: JSON.parse(text),

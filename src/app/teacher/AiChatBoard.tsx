@@ -5,10 +5,15 @@ import AiAnswer from "@/components/AiAnswer";
 import { useStudentNav } from "@/components/SideTabs";
 import type { AiChat } from "@/lib/aiChat";
 import type { AiReview } from "@/lib/aiReview";
+import { levelLabel, type PracticeForTeacher } from "@/lib/practice";
 
 type Common = Pick<AiChat, "id" | "userId" | "subject" | "problem" | "createdAt" | "flaggedBy">;
 /** 목록 한 줄: AI 도우미 대화 또는 AI 되돌아보기 */
-type Item = Common & { key: string } & ({ type: "chat"; chat: AiChat } | { type: "review"; review: AiReview });
+type Item = Common & { key: string } & (
+    | { type: "chat"; chat: AiChat }
+    | { type: "review"; review: AiReview }
+    | { type: "practice"; practice: PracticeForTeacher }
+  );
 const pick = (x: Common): Common => ({
   id: x.id,
   userId: x.userId,
@@ -19,7 +24,7 @@ const pick = (x: Common): Common => ({
 });
 import { classOptions, inClass } from "@/lib/classes";
 import type { StudentRow } from "@/lib/teacher";
-import { flagAiChat, flagAiReview, loadAiChats } from "./actions";
+import { flagAiChat, flagAiReview, flagPractice, loadAiChats } from "./actions";
 
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
@@ -43,7 +48,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   const [picked, setPicked] = useState("");
   const [studentId, setStudentId] = useState("");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
-  const [data, setData] = useState<{ ready: boolean; chats: AiChat[]; reviews: AiReview[] } | null>(null);
+  const [data, setData] = useState<{ ready: boolean; chats: AiChat[]; reviews: AiReview[]; practice: PracticeForTeacher[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [reload, setReload] = useState(0);
@@ -53,7 +58,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
       const r = await loadAiChats(days);
       if (!r.ok) return setError(r.message);
       setError(null);
-      setData({ ready: r.ready, chats: r.chats, reviews: r.reviews });
+      setData({ ready: r.ready, chats: r.chats, reviews: r.reviews, practice: r.practice });
     });
   }, [days, reload]);
 
@@ -65,6 +70,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   const all: Item[] = [
     ...(data?.chats ?? []).map((c) => ({ type: "chat" as const, key: `c${c.id}`, ...pick(c), chat: c })),
     ...(data?.reviews ?? []).map((r) => ({ type: "review" as const, key: `r${r.id}`, ...pick(r), review: r })),
+    ...(data?.practice ?? []).map((p) => ({ type: "practice" as const, key: `p${p.id}`, ...pick({ ...p, problem: "" }), practice: p })),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const chats = all.filter(
     (c) => (!picked || ids.has(c.userId)) && (!studentId || c.userId === studentId) && (!flaggedOnly || c.flaggedBy),
@@ -74,7 +80,8 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   function toggleFlag(item: Item) {
     const next = !item.flaggedBy;
     const flagged = next ? ("teacher" as const) : null;
-    (item.type === "chat" ? flagAiChat(item.id, next) : flagAiReview(item.id, next)).then((r) => {
+    const save = item.type === "chat" ? flagAiChat : item.type === "review" ? flagAiReview : flagPractice;
+    save(item.id, next).then((r) => {
       if (!r.ok) return setError(r.message ?? "저장하지 못했어요.");
       setData(
         (d) =>
@@ -82,6 +89,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
             ...d,
             chats: item.type === "chat" ? d.chats.map((x) => (x.id === item.id ? { ...x, flaggedBy: flagged } : x)) : d.chats,
             reviews: item.type === "review" ? d.reviews.map((x) => (x.id === item.id ? { ...x, flaggedBy: flagged } : x)) : d.reviews,
+            practice: item.type === "practice" ? d.practice.map((x) => (x.id === item.id ? { ...x, flaggedBy: flagged } : x)) : d.practice,
           },
       );
     });
@@ -150,7 +158,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
         </p>
       )}
       {data?.ready && (
-        <p className="text-sm text-muted">{pending ? "불러오는 중…" : `${chats.length}개 (도우미 대화·되돌아보기)`}</p>
+        <p className="text-sm text-muted">{pending ? "불러오는 중…" : `${chats.length}개 (도우미 대화·되돌아보기·연습 문제)`}</p>
       )}
       <ul className={`flex flex-col gap-3 ${pending ? "opacity-50" : ""}`}>
         {chats.map((c) => {
@@ -166,11 +174,14 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                   {s?.name && s.name !== c.userId && ` ${s.name}`}
                 </span>
                 <span className="text-muted">
-                  {c.subject} {problemLabel(c.subject, c.problem)}
+                  {c.subject} {c.type === "practice" ? `연습 · ${c.practice.title}` : problemLabel(c.subject, c.problem)}
                 </span>
                 <span className="text-muted tabular-nums">{timeFormat.format(new Date(c.createdAt))}</span>
                 {c.type === "review" && (
                   <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-700">🔁 되돌아보기</span>
+                )}
+                {c.type === "practice" && (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">🧪 연습 문제</span>
                 )}
                 {c.flaggedBy && (
                   <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">
@@ -185,7 +196,9 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                   {c.flaggedBy ? "표시 풀기" : "🚩 부적절한 내용으로 표시"}
                 </button>
               </div>
-              {c.type === "chat" ? (
+              {c.type === "practice" ? (
+                <PracticeItem p={c.practice} />
+              ) : c.type === "chat" ? (
                 <>
                   <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
                     <b>질문</b> {c.chat.question}
@@ -221,5 +234,49 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
       </ul>
       {data?.ready && !pending && chats.length === 0 && <p className="text-sm text-muted">이 조건의 AI 대화가 없어요.</p>}
     </section>
+  );
+}
+
+/** 학생이 받은 연습 문제: 근거(막힌 곳), 문제, 테스트, 참고 답안(교사만), 푼 결과 */
+function PracticeItem({ p }: { p: PracticeForTeacher }) {
+  return (
+    <div className="flex flex-col gap-1.5 text-sm">
+      <p className="text-muted">
+        {p.source === "stuck" ? `🧩 막힌 곳에서: ${p.basis}` : `📚 개념: ${p.concept}`} · {levelLabel(p.level)} ·{" "}
+        {p.solvedAt ? "✅ 통과" : p.passed !== null ? `${p.passed}/${p.tests.length} 통과 (확인 ${p.checks}번)` : "아직 안 풀어 봄"}
+      </p>
+      <div className="rounded-lg bg-page px-3 py-2 leading-6">
+        <p>
+          <b className="text-blue-700">🤖 AI</b> <b>{p.title}</b>
+        </p>
+        <p className="whitespace-pre-wrap">{p.description}</p>
+        {p.conditions.length > 0 && (
+          <ol className="list-decimal pl-5">
+            {p.conditions.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ol>
+        )}
+      </div>
+      <details>
+        <summary className="cursor-pointer text-muted">테스트 {p.tests.length}개 · 참고 답안 (학생에게는 안 보임){p.code !== null && " · 학생 코드"}</summary>
+        <div className="mt-1 grid gap-2 sm:grid-cols-2">
+          {p.tests.map((t, i) => (
+            <pre key={i} className="whitespace-pre-wrap rounded border border-line px-2 py-1 font-mono text-xs">
+              {t.inputs.length ? `입력: ${t.inputs.join(" / ")}\n` : ""}
+              {t.output}
+            </pre>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-muted">참고 답안 (서버에서 실행해 모든 테스트 통과를 확인함)</p>
+        <pre className="whitespace-pre-wrap rounded bg-page px-2 py-1 font-mono text-xs">{p.solution}</pre>
+        {p.code !== null && (
+          <>
+            <p className="mt-2 text-xs text-muted">학생의 마지막 확인 때 코드</p>
+            <pre className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1 font-mono text-xs">{p.code}</pre>
+          </>
+        )}
+      </details>
+    </div>
   );
 }

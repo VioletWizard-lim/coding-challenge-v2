@@ -257,3 +257,150 @@ export function splitMomentRefs(text: string, moments: Moment[]): ({ text: strin
   if (last < text.length) parts.push({ text: text.slice(last) });
   return parts;
 }
+
+/* ───────── 여러 제출에서 "내가 막혔던 곳" (연습 문제 만들기의 근거) ───────── */
+
+/** 막힌 곳을 찾을 제출 (최근 것부터) */
+export type StuckSource = { id: number; subject: string; problem: string; title: string; init: string; log: unknown };
+
+/** 막힌 곳 하나: 자주 난 오류 종류, 또는 오래 멈춘 문제 */
+export type StuckPoint = {
+  /** "err:프로그래밍:TypeError" 또는 "pause:123" (학생이 고를 때 쓰는 값) */
+  id: string;
+  kind: "error" | "pause";
+  subject: string;
+  /** 막혔을 수 있는 개념 (멈춤은 문제에서 AI가 짐작) */
+  concept: string;
+  /** 학생 화면에 보이는 한 줄 (예: "TypeError 7번") */
+  label: string;
+  /** 학생 화면에 보이는 근거 (예: "2-3 성적 계산 외 2문제 · 2문제는 스스로 고쳤어요") */
+  evidence: string;
+  /** AI에 보낼 근거 글 (그때의 코드 포함) */
+  text: string;
+};
+
+/** 막힌 곳을 볼 최근 제출 수 (과목마다) */
+export const STUCK_WINDOW = 30;
+const SNIPPET_LINES = 20;
+const snippet = (code: string) => {
+  const lines = code.split("\n");
+  return lines.length > SNIPPET_LINES ? `${lines.slice(0, SNIPPET_LINES).join("\n")}\n…(뒷부분 생략)` : code;
+};
+
+/** 기록을 따라가며 오류 종류마다 마지막으로 그 오류가 난 때의 코드, 가장 오래 멈추기 직전의 코드 */
+function snapshots(init: string, log: unknown) {
+  const events = validEntries(log);
+  const atError = new Map<string, string>();
+  let longest = { ms: 0, code: "" };
+  let doc = init;
+  let away = false;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (i > 0 && !away) {
+      const gap = e[0] - events[i - 1][0];
+      if (gap >= PAUSE_MS && gap > longest.ms) longest = { ms: gap, code: doc };
+    }
+    if (e.length > 2) {
+      doc = applyEditEvent(doc, e as EditEvent);
+      continue;
+    }
+    if (e[1] === "b") away = true;
+    else if (e[1] === "f") away = false;
+    else if (e[1].startsWith("r:") && e[1] !== "r:ok") atError.set(e[1].slice(2) || "오류", doc);
+  }
+  return { atError, longest };
+}
+
+/**
+ * 최근 제출들의 작성 기록에서 "막혔던 곳"을 찾는다 (과목마다 최근 STUCK_WINDOW개).
+ * - 오류: 오류 종류마다 몇 번, 몇 문제에서, 스스로 고쳤는지. 2번 이상 난 오류만
+ * - 멈춤: 3분 넘게 멈춘 문제 (가장 길게 멈춘 2개)
+ * 못 고친 오류가 많은 것부터. 학생 이름·아이디는 담지 않는다.
+ */
+export function stuckPoints(subs: StuckSource[]): StuckPoint[] {
+  const bySubject = new Map<string, StuckSource[]>();
+  for (const s of subs) {
+    if (validEntries(s.log).length < 2) continue;
+    const list = bySubject.get(s.subject) ?? [];
+    if (list.length < STUCK_WINDOW) bySubject.set(s.subject, [...list, s]);
+  }
+  const points: (StuckPoint & { weight: number })[] = [];
+  for (const [subject, list] of bySubject) {
+    type Agg = { count: number; streak: number; problems: { sub: StuckSource; count: number; fixed: boolean; code: string }[] };
+    const errors = new Map<string, Agg>();
+    const pauses: { sub: StuckSource; ms: number; code: string }[] = [];
+    for (const sub of list) {
+      const summary = summarizeProcess(sub.init, sub.log);
+      const snap = snapshots(sub.init, sub.log);
+      for (const e of summary.errors) {
+        const agg = errors.get(e.kind) ?? { count: 0, streak: 0, problems: [] };
+        agg.count += e.count;
+        agg.streak = Math.max(agg.streak, e.longestStreak);
+        agg.problems.push({ sub, count: e.count, fixed: e.fixed, code: snap.atError.get(e.kind) ?? "" });
+        errors.set(e.kind, agg);
+      }
+      if (snap.longest.ms >= 3 * 60_000) pauses.push({ sub, ms: snap.longest.ms, code: snap.longest.code });
+    }
+    const name = (s: StuckSource) => (s.title && s.title !== s.problem ? `${s.problem} ${s.title}` : `${s.problem}번`);
+    for (const [kind, agg] of errors) {
+      if (agg.count < 2) continue;
+      const fixed = agg.problems.filter((p) => p.fixed).length;
+      const unfixed = agg.problems.length - fixed;
+      const concept = CONCEPTS[kind] ?? `${kind} 오류`;
+      const top = [...agg.problems].sort((a, b) => b.count - a.count);
+      const others = agg.problems.length - 1;
+      const text = [
+        `## 학생이 막혔던 곳 (최근 제출의 작성 기록에서 찾음)`,
+        `- ${kind}가 최근 ${agg.problems.length}문제에서 모두 ${agg.count}번 났음 (연달아 최대 ${agg.streak}번)`,
+        `- 그중 ${fixed}문제는 뒤에 스스로 고쳐 실행에 성공했고, ${unfixed}문제는 못 고친 채 끝남`,
+        `- 오류로 짐작한 막힌 개념: ${concept}`,
+        ...top
+          .filter((p) => p.code.trim())
+          .slice(0, 2)
+          .map((p) => `\n### 그때의 코드 (문제 ${name(p.sub)}, ${kind}가 났을 때)\n\`\`\`python\n${snippet(p.code)}\n\`\`\``),
+      ].join("\n");
+      points.push({
+        id: `err:${subject}:${kind}`,
+        kind: "error",
+        subject,
+        concept,
+        label: `${kind} ${agg.count}번`,
+        evidence: [
+          others ? `${name(top[0].sub)} 외 ${others}문제` : name(top[0].sub),
+          fixed ? `${fixed}문제는 스스로 고쳤어요` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        text,
+        weight: unfixed * 10 + agg.count,
+      });
+    }
+    for (const p of pauses.sort((a, b) => b.ms - a.ms).slice(0, 2)) {
+      points.push({
+        id: `pause:${p.sub.id}`,
+        kind: "pause",
+        subject,
+        concept: "",
+        label: `${formatDuration(p.ms)} 멈춤`,
+        evidence: name(p.sub),
+        text: [
+          `## 학생이 막혔던 곳 (작성 기록에서 찾음)`,
+          `- 문제 ${name(p.sub)}를 풀다가 ${formatDuration(p.ms)} 동안 아무것도 쓰지 않고 멈춰 있었음`,
+          `- 아래는 멈추기 직전의 코드. 이 코드와 문제를 보고 다음에 쓸 부분에서 어떤 개념이 막혔을지 짐작하세요.`,
+          `\n### 멈추기 직전의 코드\n\`\`\`python\n${snippet(p.code) || "(아직 아무것도 안 씀)"}\n\`\`\``,
+        ].join("\n"),
+        weight: Math.min(9, p.ms / 60_000),
+      });
+    }
+  }
+  return points
+    .sort((a, b) => b.weight - a.weight)
+    .map((p) => ({ id: p.id, kind: p.kind, subject: p.subject, concept: p.concept, label: p.label, evidence: p.evidence, text: p.text }));
+}
+
+/** 개념을 골라 만들 때 함께 보내는 짧은 참고: 그 과목에서 자주 막힌 오류들 */
+export function stuckBrief(points: StuckPoint[], subject: string): string {
+  const errors = points.filter((p) => p.subject === subject && p.kind === "error").slice(0, 3);
+  if (!errors.length) return "- 최근 작성 기록에서 두 번 넘게 반복된 오류는 없음";
+  return errors.map((p) => `- ${p.label} (${p.evidence}) → ${p.concept}`).join("\n");
+}
