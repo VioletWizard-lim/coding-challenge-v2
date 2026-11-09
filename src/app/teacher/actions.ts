@@ -36,6 +36,8 @@ import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv"
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
 import { getUserProfile } from "@/lib/auth";
 import { listSolvedPractice } from "@/lib/practiceStore";
+import { MAX_AI_NOTE, normalizeAiSettings, unitOfProblem, type AiSettings } from "@/lib/aiSettings";
+import { AiSettingsNotReadyError, getAiSettings, saveAiSettings } from "@/lib/aiSettingsStore";
 import type { StudentProblemForTeacher } from "@/lib/studentProblem";
 import { listForTeacher, reviewStudentProblem, setStudentProblemFlag } from "@/lib/studentProblemStore";
 import { computeAchievements, unitProblemsOf, type AchievementStatus } from "@/lib/achievements";
@@ -523,6 +525,43 @@ export async function flagPractice(id: number, flag: boolean): Promise<{ ok: boo
     return (await setPracticeFlag(Number(id), flag ? "teacher" : null)) ? { ok: true } : { ok: false, message: "찾지 못했어요." };
   } catch (err) {
     console.error("연습 문제 표시 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 설정 탭: 과목별 AI 기능 설정과 과목마다 문제가 있는 단원 (ready=false면 017 실행 전) */
+export async function loadAiSettings(): Promise<
+  { ok: true; ready: boolean; settings: AiSettings[]; units: Record<string, string[]> } | { ok: false; message: string }
+> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const subjects = Object.keys(SUBJECTS);
+    const [{ ready, settings }, { problems }] = await Promise.all([getAiSettings(subjects), listAllProblems()]);
+    const units: Record<string, string[]> = {};
+    for (const subject of subjects) {
+      const list = [...new Set(problems.filter((p) => p.subject === subject).map((p) => unitOfProblem(p.number)))];
+      units[subject] = list.filter((u) => /^\d+$/.test(u)).sort((a, b) => Number(a) - Number(b));
+    }
+    return { ok: true, ready, settings, units };
+  } catch (err) {
+    console.error("AI 설정 조회 오류:", err);
+    return { ok: false, message: "AI 기능 설정을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 과목의 AI 기능 설정 저장: 도우미·되돌아보기 켜고 끄기, 도우미를 끌 단원, 선생님 지침 */
+export async function saveSubjectAi(input: AiSettings): Promise<{ ok: true; settings: AiSettings } | { ok: false; message: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const subject = String(input?.subject ?? "");
+  if (!Object.keys(SUBJECTS).includes(subject)) return { ok: false, message: "과목이 맞지 않아요." };
+  const settings = normalizeAiSettings(input, subject);
+  if (!settings) return { ok: false, message: `선생님 지침은 ${MAX_AI_NOTE}자까지 쓸 수 있어요.` };
+  try {
+    await saveAiSettings(settings);
+    return { ok: true, settings };
+  } catch (err) {
+    if (err instanceof AiSettingsNotReadyError) return { ok: false, message: "AI 기능 설정을 저장하려면 Supabase에서 017 SQL을 먼저 실행해 주세요." };
+    console.error("AI 설정 저장 오류:", err);
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
