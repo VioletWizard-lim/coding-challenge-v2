@@ -66,7 +66,7 @@ export default function TrialPageCard() {
               ? "AI 키가 없어 꺼져 있어요"
               : info.codeSet
                 ? "켜짐 — Vercel 환경변수 TRY_ACCESS_CODE의 코드를 심사위원 안내문에 적어 주세요"
-                : "꺼짐 — Vercel 환경변수 TRY_ACCESS_CODE를 정하면 켜져요 (없으면 예시 기록·코드 쓰기·재생만)"}
+                : "꺼짐 — 체험 코드는 직접 정하는 값이에요. Vercel → Settings → Environment Variables에 TRY_ACCESS_CODE(예: line2027)를 넣고 Redeploy 하면 켜져요 (없으면 예시 기록·코드 쓰기·재생만)"}
           </li>
           <li>
             📊 오늘 체험 AI: {info.remaining === null ? "확인하지 못함" : `${info.limit - info.remaining}번 씀 · ${info.remaining}번 남음`} (사이트 전체 하루{" "}
