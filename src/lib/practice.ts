@@ -54,6 +54,9 @@ export const LEVELS = [
 export const levelLabel = (n: number) => LEVELS.find((l) => l.value === n)?.label ?? "보통";
 
 /** 교사가 과목마다 고를 수 있는 개념 (기본값: 모두 켬) */
+/** 개념 골라 만들기: 한 문제에 함께 고를 수 있는 개념 수 */
+export const MAX_CONCEPTS_PER_PROBLEM = 3;
+
 export const DEFAULT_CONCEPTS = [
   "출력과 문자열(print)",
   "변수와 입력(input)",

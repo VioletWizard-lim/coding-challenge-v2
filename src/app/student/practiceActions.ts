@@ -6,6 +6,7 @@ import { getUserProfile } from "@/lib/auth";
 import { isValidLog } from "@/lib/editLog";
 import {
   levelLabel,
+  MAX_CONCEPTS_PER_PROBLEM,
   practiceLimit,
   toDraft,
   verifyDraft,
@@ -97,7 +98,6 @@ export type CreateInput =
 export type CreateResult = { ok: true; problem: PracticeProblem; remaining: number } | { ok: false; error: string; remaining?: number };
 
 /** 개념은 한 문제에 이만큼까지 */
-const MAX_CONCEPTS_PER_PROBLEM = 3;
 
 /** AI가 만든 문제를 서버에서 확인하고, 통과 못 하면 이유를 알려 주고 한 번 더 만든다 */
 const MAX_TRIES = 2;

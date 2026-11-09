@@ -1,5 +1,6 @@
 import "server-only";
-import { jwtVerify, SignJWT } from "jose";
+import { createHash } from "node:crypto";
+import { EncryptJWT, jwtDecrypt, jwtVerify, SignJWT } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -69,19 +70,49 @@ export const homeFor = (role: Role) => (role === "admin" ? "/admin" : role === "
 
 const TRIAL_COOKIE = "cc_try";
 
-/** 체험 코드가 맞았을 때: 서명된 쿠키 (8시간, 로그인과는 따로) */
+/** 체험 코드의 지문 (코드 자체는 쿠키에 넣지 않음). 코드를 바꾸면 지문이 달라져 예전 코드로 연 브라우저는 바로 막힌다 */
+function trialKeyPrint(code = process.env.TRY_ACCESS_CODE ?? ""): string {
+  return createHash("sha256").update(`try:${code.trim().toLowerCase()}`).digest("hex").slice(0, 24);
+}
+
+/** 체험 코드가 맞았을 때: 서명된 쿠키 (8시간 또는 브라우저를 닫을 때까지, 로그인과는 따로) */
 export async function grantTrial() {
-  const token = await new SignJWT({ try: true }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("8h").sign(secretKey());
+  const token = await new SignJWT({ try: true, k: trialKeyPrint() })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("8h")
+    .sign(secretKey());
   (await cookies()).set(TRIAL_COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" });
 }
 
+/** 이 브라우저가 지금의 체험 코드를 넣었는지 (코드를 바꾸면 false) */
 export async function hasTrial(): Promise<boolean> {
   const token = (await cookies()).get(TRIAL_COOKIE)?.value;
-  if (!token) return false;
+  if (!token || !process.env.TRY_ACCESS_CODE?.trim()) return false;
   try {
     const { payload } = await jwtVerify(token, secretKey(), { algorithms: ["HS256"] });
-    return payload.try === true;
+    return payload.try === true && payload.k === trialKeyPrint();
   } catch {
     return false;
+  }
+}
+
+/* ───────── 체험 연습 문제: 참고 답안을 체험자에게 보이지 않게 암호화해 브라우저에 맡긴다 ───────── */
+
+const sealKey = () => createHash("sha256").update(`trial-seal:${process.env.SESSION_SECRET ?? ""}`).digest();
+
+export type TrialSealed = { title: string; problemText: string; solution: string };
+
+export async function sealTrialProblem(p: TrialSealed): Promise<string> {
+  return new EncryptJWT({ ...p }).setProtectedHeader({ alg: "dir", enc: "A256GCM" }).setIssuedAt().setExpirationTime("8h").encrypt(sealKey());
+}
+
+export async function openTrialProblem(token: string): Promise<TrialSealed | null> {
+  try {
+    const { payload } = await jwtDecrypt(String(token ?? ""), sealKey());
+    if (typeof payload.problemText !== "string" || typeof payload.solution !== "string") return null;
+    return { title: String(payload.title ?? ""), problemText: payload.problemText, solution: payload.solution };
+  } catch {
+    return null;
   }
 }

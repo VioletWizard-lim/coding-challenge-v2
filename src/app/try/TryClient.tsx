@@ -10,7 +10,8 @@ import type { AiChat } from "@/lib/aiChat";
 import type { AiReview } from "@/lib/aiReview";
 import type { Recording } from "@/lib/editLog";
 import type { HelpChat } from "@/lib/helpTrail";
-import { errorName, judge, type TestOutcome } from "@/lib/practice";
+import { asProblem, DEFAULT_CONCEPTS, errorName, judge, LEVELS, levelLabel, MAX_CONCEPTS_PER_PROBLEM, type TestOutcome } from "@/lib/practice";
+import type { StuckPoint } from "@/lib/process-summary";
 import {
   SAMPLE_CHAT,
   SAMPLE_PROBLEM_ID,
@@ -21,19 +22,32 @@ import {
   TRIAL_PROBLEMS,
   TRIAL_SUBJECT,
   trialStorageKey,
+  type TrialProblem,
 } from "@/lib/trial";
 import AiHelper, { type HelperBackend } from "../student/AiHelper";
 import ReviewPanel, { type ReviewBackend } from "../student/ReviewPanel";
-import { trialAsk, trialFollowUp, trialReview, trialStatus, unlockTrial, type TrialStatus } from "./actions";
+import {
+  createTrialPractice,
+  trialAsk,
+  trialFollowUp,
+  trialReview,
+  trialStatus,
+  trialStuck,
+  unlockTrial,
+  type TrialPractice,
+  type TrialRecord,
+  type TrialStatus,
+} from "./actions";
 
-type Step = "intro" | "sample" | "write" | "replay" | "reflect";
+type Step = "intro" | "sample" | "write" | "replay" | "practice" | "reflect";
 /** 체험 순서 (왼쪽 메뉴, 위에서 아래로 차례대로) */
 const STEPS: [Step, string, string][] = [
   ["intro", "① 시작하기", "이 사이트가 무엇인지, 체험 AI를 쓰는 방법"],
   ["sample", "② 예시 학생의 기록", "실제 학생 기록처럼 만든 예시로 재생·AI 도움·되돌아보기를 먼저 봐요."],
   ["write", "③ 코드 쓰기", "편집기가 입력·붙여넣기·실행을 기록해요. 막히면 AI 도우미에게 물어봐요."],
   ["replay", "④ 재생하며 되돌아보기", "내가 쓴 과정을 다시 보고, AI가 그 과정의 순간을 짚어 질문해요."],
-  ["reflect", "⑤ 오늘의 성찰", "수업을 마치며 오늘을 글로 정리해요."],
+  ["practice", "⑤ 연습 문제", "내가 막혔던 곳(작성 기록)이나 고른 개념으로 AI가 나에게 맞는 연습 문제를 만들어요."],
+  ["reflect", "⑥ 오늘의 성찰", "수업을 마치며 오늘을 글로 정리해요."],
 ];
 
 /** 이 브라우저에 남아 있는 체험 문제의 작성 기록 (④에서 다른 문제의 과정을 볼 때) */
@@ -48,6 +62,25 @@ function savedRecording(problemId: string): Recording | null {
 /** 코드를 쓰거나 실행한 기록이 있는지 (창 이탈·복귀만 있으면 재생할 것이 없음) */
 const hasWork = (rec: Recording | null) =>
   !!rec && Array.isArray(rec.log) && (rec.log as unknown[]).some((e) => Array.isArray(e) && (e.length >= 3 || String(e[1]).startsWith("r:")));
+
+/** 체험 중에 만든 연습 문제 (이 브라우저에만, 참고 답안은 서버가 암호화한 token 안에) */
+type Practice = TrialPractice & { id: string; n: number };
+const PRACTICE_KEY = "try_practices";
+
+function loadPractices(): Practice[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(PRACTICE_KEY) ?? "[]");
+    return Array.isArray(list) ? list.filter((p) => p && typeof p.id === "string" && typeof p.token === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 연습 문제를 ③·④에서 체험 문제처럼 쓰는 모양으로 */
+function practiceAsProblem(p: Practice): TrialProblem & { token: string } {
+  const view = { ...asProblem({ ...p, subject: TRIAL_SUBJECT }), number: `연습 ${p.n}` };
+  return { id: p.id, view, tests: p.tests, token: p.token };
+}
 
 const toHelp = (c: AiChat): HelpChat => ({ at: c.at ?? 0, question: c.question, answer: c.answer, moments: c.moments });
 
@@ -71,7 +104,30 @@ export default function TryClient() {
   const [aiOpen, setAiOpen] = useState(true);
   const [note, setNote] = useState<string | null>(null);
 
-  const problem = TRIAL_PROBLEMS.find((p) => p.id === problemId)!;
+  const [practices, setPractices] = useState<Practice[]>([]);
+  useEffect(() => {
+    setPractices(loadPractices()); // eslint-disable-line react-hooks/set-state-in-effect -- 브라우저에 남은 연습 문제를 처음 한 번 읽어 옴
+  }, []);
+  const addPractice = (p: TrialPractice) => {
+    const next: Practice = { ...p, id: `P${Date.now()}`, n: practices.length + 1 };
+    const list = [...practices, next];
+    setPractices(list);
+    try {
+      localStorage.setItem(PRACTICE_KEY, JSON.stringify(list));
+    } catch {}
+    return next.id;
+  };
+  const allProblems: (TrialProblem & { token?: string })[] = [...TRIAL_PROBLEMS, ...practices.map(practiceAsProblem)];
+  const problem = allProblems.find((p) => p.id === problemId) ?? allProblems[0];
+  const problemName = (p: TrialProblem & { token?: string }) => `${p.token ? "🧪" : "체험"} ${p.view.number}. ${p.view.title}`;
+  /** 연습 문제면 서버가 문제·참고 답안을 알 수 있게 token을 함께 보낸다 */
+  const practiceToken = problem.token;
+  /** ⑤에서 막힌 곳을 찾을 때 보내는 체험 기록 (코드를 쓴 문제만) */
+  const myRecords = (): TrialRecord[] =>
+    allProblems.flatMap((p) => {
+      const r = savedRecording(p.id);
+      return r && hasWork(r) ? [{ problemId: p.id, title: p.view.title, init: r.init, log: r.log }] : [];
+    });
   const unlocked = !!status?.unlocked;
 
   useEffect(() => {
@@ -127,7 +183,7 @@ export default function TryClient() {
 
   /** 체험 문제 1·2·3 버튼 (③ 코드 쓰기, ④ 재생하며 되돌아보기에서 함께 씀) */
   const problemButtons = (onPick: (id: string) => void) =>
-    TRIAL_PROBLEMS.map((p) => (
+    allProblems.map((p) => (
       <button
         key={p.id}
         type="button"
@@ -135,7 +191,8 @@ export default function TryClient() {
         aria-pressed={p.id === problemId}
         className={`rounded-lg border px-3 py-1.5 text-sm ${p.id === problemId ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white"}`}
       >
-        체험 {p.view.number}. {p.view.title}
+        {p.token ? "🧪 " : "체험 "}
+        {p.view.number}. {p.view.title}
       </button>
     ));
   /** ④에서 다른 문제를 고르면: 그 문제를 고르고(③ 편집기도 그 문제로), 이 브라우저에 남은 그 문제의 기록으로 재생 */
@@ -157,7 +214,7 @@ export default function TryClient() {
               : "지금은 체험 AI가 꺼져 있어요. AI 도우미가 어떻게 돕는지는 ② 예시 학생의 기록에서 볼 수 있어요.",
           },
     ask: async (x) => {
-      const r = await trialAsk({ problemId, ...x, history: (chats[problemId] ?? []).map((c) => ({ question: c.question, answer: c.answer })) });
+      const r = await trialAsk({ problemId, practiceToken, ...x, history: (chats[problemId] ?? []).map((c) => ({ question: c.question, answer: c.answer })) });
       if (r.ok) {
         setChats((all) => ({ ...all, [problemId]: [...(all[problemId] ?? []), r.chat] }));
         remainingNote(r.remaining);
@@ -178,7 +235,7 @@ export default function TryClient() {
   const reviewBackend: ReviewBackend = {
     start: async () => {
       if (!rec) return { ok: false, error: "먼저 코드를 써 주세요." };
-      const r = await trialReview({ problemId, init: rec.init, log: rec.log, code: rec.code });
+      const r = await trialReview({ problemId, practiceToken, init: rec.init, log: rec.log, code: rec.code });
       if (!r.ok) return r;
       setReview(r.review);
       remainingNote(r.remaining);
@@ -204,6 +261,7 @@ export default function TryClient() {
       if (!cur || !q || !rec) return { ok: false, error: "되돌아보기를 먼저 받아 주세요." };
       const r = await trialFollowUp({
         problemId,
+        practiceToken,
         init: rec.init,
         log: rec.log,
         code: rec.code,
@@ -298,7 +356,10 @@ export default function TryClient() {
               ④ <b className="text-ink">재생하며 되돌아보기</b>에서 내 과정을 다시 보고 AI 질문에 답해요.
             </li>
             <li>
-              ⑤ <b className="text-ink">오늘의 성찰</b>을 써요.
+              ⑤ <b className="text-ink">연습 문제</b>: 내가 막혔던 곳이나 고른 개념으로 AI가 새 문제를 만들어 줘요.
+            </li>
+            <li>
+              ⑥ <b className="text-ink">오늘의 성찰</b>을 써요.
             </li>
           </ul>
             <TrialGate status={status} onStatus={setStatus} />
@@ -320,7 +381,7 @@ export default function TryClient() {
             </aside>
             <div className="flex min-w-0 flex-col gap-4">
               {!aiOpen && <AiHelperButton onOpen={() => setAiOpen(true)} />}
-              <RecordingEditor key={`${problemId}:${resetKey}`} ref={recorder} storageKey={trialStorageKey(problemId)} />
+              <RecordingEditor key={`${problemId}:${resetKey}`} ref={recorder} storageKey={trialStorageKey(problemId)} initialCode={problem.view.starterCode} />
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
@@ -360,7 +421,7 @@ export default function TryClient() {
           <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
             <div className="flex flex-wrap gap-2">{problemButtons(replayProblem)}</div>
             <h2 className="text-lg font-bold">
-              ▶ 내 작성 과정 — 체험 {problem.view.number}. {problem.view.title}
+              ▶ 내 작성 과정 — {problemName(problem)}
             </h2>
             {rec && hasWork(rec) ? (
               <Replayer
@@ -396,7 +457,26 @@ export default function TryClient() {
           </section>
         )}
 
-        {step === "reflect" && <TrialReflection problemLabel={`체험 ${problem.view.number}. ${problem.view.title}`} />}
+        {step === "practice" && (
+          <TrialPracticeStep
+            enabled={!!status.enabled}
+            unlocked={unlocked}
+            records={myRecords}
+            practices={practices}
+            onRemaining={remainingNote}
+            onCreated={(p) => {
+              const id = addPractice(p);
+              pickProblem(id);
+              go("write");
+            }}
+            onOpen={(id) => {
+              pickProblem(id);
+              go("write");
+            }}
+          />
+        )}
+
+        {step === "reflect" && <TrialReflection problemLabel={problemName(problem)} />}
 
         {/* 순서대로: 이전 / 다음 */}
         <div className="flex items-center gap-3 border-t border-line pt-4">
@@ -592,5 +672,214 @@ function TrialReflection({ problemLabel }: { problemLabel: string }) {
         </p>
       )}
     </section>
+  );
+}
+
+/** ⑤ 연습 문제: 체험 기록의 막힌 곳 또는 개념으로 AI가 만들고(서버에서 참고 답안 실행 확인), 만든 문제는 ③에서 푼다 */
+function TrialPracticeStep({
+  enabled,
+  unlocked,
+  records,
+  practices,
+  onRemaining,
+  onCreated,
+  onOpen,
+}: {
+  enabled: boolean;
+  unlocked: boolean;
+  records: () => TrialRecord[];
+  practices: Practice[];
+  onRemaining: (n: number) => void;
+  onCreated: (p: TrialPractice) => void;
+  onOpen: (id: string) => void;
+}) {
+  const [source, setSource] = useState<"mine" | "sample">("mine");
+  const [points, setPoints] = useState<StuckPoint[] | null>(null);
+  const [concepts, setConcepts] = useState<string[]>([]);
+  const [level, setLevel] = useState(2);
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  // 어느 기록에서 막힌 곳을 찾을지: 내 체험 기록 / 예시 학생의 기록
+  const sourceRecords = (): TrialRecord[] =>
+    source === "sample" ? [{ problemId: SAMPLE_PROBLEM_ID, title: "예시 학생의 기록", init: SAMPLE_RECORDING.init, log: SAMPLE_RECORDING.log }] : records();
+
+  useEffect(() => {
+    let alive = true;
+    trialStuck(sourceRecords()).then((r) => alive && setPoints(r.ok ? r.points : []));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 기록 출처를 바꿀 때 다시 찾는다
+  }, [source]);
+
+  async function create(input: { mode: "stuck"; pointId: string } | { mode: "concept"; concepts: string[] }) {
+    setCreating(true);
+    setMessage(null);
+    const r = await createTrialPractice({ ...input, level, records: sourceRecords() });
+    setCreating(false);
+    if (!r.ok) return setMessage(r.error);
+    onRemaining(r.remaining);
+    onCreated(r.practice);
+  }
+
+  const blocked = !unlocked;
+  const levelPicker = (
+    <label className="flex shrink-0 items-center gap-1.5 text-sm text-muted">
+      난이도
+      <select value={level} onChange={(e) => setLevel(Number(e.target.value))} className="rounded-lg border border-line bg-white px-2 py-1.5">
+        {LEVELS.map((l) => (
+          <option key={l.value} value={l.value}>
+            {l.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      {blocked && (
+        <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {enabled
+            ? "연습 문제는 AI가 만들어요. ① 시작하기에서 체험 코드를 입력하시면 만들어 보실 수 있습니다."
+            : "현재 체험용 AI는 사용하지 않도록 설정되어 있어, 연습 문제 만들기는 보기만 하실 수 있습니다."}
+        </p>
+      )}
+      {creating && (
+        <p role="status" className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          🤖 AI가 기록을 보고 문제를 만들고, 참고 답안을 서버에서 직접 실행해 확인하는 중이에요… (20초 정도 걸려요)
+        </p>
+      )}
+      {message && (
+        <p role="alert" className="text-sm text-danger">
+          {message}
+        </p>
+      )}
+
+      <section className="flex flex-col gap-3 rounded-xl border border-violet-200 bg-white p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="mr-auto font-bold">🧩 막혔던 곳에서 만들기</h3>
+          <div className="flex rounded-lg border border-line p-0.5 text-sm" role="group" aria-label="기록 고르기">
+            {(
+              [
+                ["mine", "내 체험 기록"],
+                ["sample", "예시 학생의 기록"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={source === id}
+                onClick={() => setSource(id)}
+                className={`rounded-md px-2.5 py-1 ${source === id ? "bg-violet-600 text-white" : "text-muted hover:text-ink"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {levelPicker}
+        </div>
+        <p className="-mt-2 text-xs text-muted">작성 기록에서 두 번 넘게 난 오류와 오래 멈춘 곳을 찾아요. 실제 수업에서는 최근 제출 30개의 기록에서 찾아요.</p>
+        {points === null ? (
+          <p className="text-sm text-muted">기록을 살펴보는 중…</p>
+        ) : points.length ? (
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {points.map((pt) => (
+              <li key={pt.id} className="flex flex-col gap-1.5 rounded-lg border border-line px-4 py-3">
+                <p className="font-bold">
+                  {pt.kind === "error" ? "⚠️" : "⏸"} {pt.label}
+                </p>
+                <p className="text-sm text-muted">{pt.evidence}</p>
+                {pt.concept && <p className="text-sm">→ {pt.concept}</p>}
+                <button
+                  type="button"
+                  disabled={blocked || creating}
+                  onClick={() => create({ mode: "stuck", pointId: pt.id })}
+                  className="mt-1 self-start rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  이걸로 연습 문제 만들기
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted">
+            {source === "mine" ? (
+              <>
+                아직 체험 기록에서 여러 번 막힌 곳이 없어요.{" "}
+                <button type="button" onClick={() => setSource("sample")} className="font-bold text-violet-700 underline">
+                  예시 학생의 기록
+                </button>
+                으로 보거나, 아래에서 개념을 골라 보세요.
+              </>
+            ) : (
+              "예시 기록에서 막힌 곳을 찾지 못했어요."
+            )}
+          </p>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="mr-auto font-bold">📚 개념 골라 만들기</h3>
+          {levelPicker}
+        </div>
+        <p className="-mt-2 text-xs text-muted">{MAX_CONCEPTS_PER_PROBLEM}개까지 함께 고를 수 있어요. 실제 수업에서는 선생님이 고를 수 있는 개념을 정해요.</p>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="개념">
+          {DEFAULT_CONCEPTS.map((c) => {
+            const on = concepts.includes(c);
+            return (
+              <button
+                key={c}
+                type="button"
+                aria-pressed={on}
+                disabled={!on && concepts.length >= MAX_CONCEPTS_PER_PROBLEM}
+                onClick={() => setConcepts(on ? concepts.filter((x) => x !== c) : [...concepts, c])}
+                className={`rounded-full border px-2.5 py-1 text-sm disabled:opacity-40 ${
+                  on ? "border-brand bg-brand-soft font-bold text-brand" : "border-line text-muted hover:border-brand"
+                }`}
+              >
+                {on ? "✓ " : ""}
+                {c}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          disabled={blocked || creating || !concepts.length}
+          onClick={() => create({ mode: "concept", concepts })}
+          className="self-start rounded-lg bg-brand px-3 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {concepts.length ? `${concepts.length}개 개념으로 연습 문제 만들기` : "개념을 골라 주세요"}
+        </button>
+      </section>
+
+      {practices.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h3 className="font-bold">📝 만든 연습 문제 ({practices.length})</h3>
+          <ul className="flex flex-col gap-2">
+            {practices.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(p.id)}
+                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-white px-4 py-3 text-left hover:border-brand"
+                >
+                  <span className="font-bold">
+                    🧪 연습 {p.n}. {p.title}
+                  </span>
+                  <span className="text-sm text-muted">
+                    {p.basis ? `🧩 ${p.basis}` : `📚 ${p.concept}`} · {levelLabel(p.level)}
+                  </span>
+                  <span className="ml-auto text-sm font-bold text-brand">③ 코드 쓰기에서 풀기 →</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }
