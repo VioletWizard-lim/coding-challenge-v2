@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/session";
 import { classLabel } from "@/lib/yearEnd";
-import { backupZip } from "@/lib/yearEndStore";
+import { ALL_YEARS, backupZip } from "@/lib/yearEndStore";
 
 export const maxDuration = 300;
 
@@ -11,6 +11,19 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const year = Number(url.searchParams.get("year"));
   const cls = url.searchParams.get("cls") ?? "";
+  // 학생 한 명의 모든 기록 백업 (삭제 요청 처리 전)
+  const student = url.searchParams.get("student") ?? "";
+  if (student) {
+    if (!/^[A-Za-z0-9_.-]{1,40}$/.test(student)) return new Response("학생 아이디가 맞지 않아요.", { status: 400 });
+    const name = `line-by-line-학생-${student}-백업.zip`;
+    return new Response(backupZip(ALL_YEARS, "", student), {
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename="line-by-line-student-${student}-backup.zip"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        "cache-control": "no-store",
+      },
+    });
+  }
   if (cls && !/^(class|prog):[^:]{1,20}$/.test(cls)) return new Response("반을 다시 골라 주세요.", { status: 400 });
   if (!Number.isInteger(year) || year < 2020 || year > 2100) return new Response("학년도를 고르세요.", { status: 400 });
   const name = `line-by-line-${year}학년도${cls ? `-${classLabel(cls).replace(/\s/g, "")}` : ""}-백업.zip`;
