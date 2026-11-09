@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
-import { MAX_REVIEW_ANSWER, type AiReview } from "@/lib/aiReview";
+import { canFollowUp, MAX_REVIEW_ANSWER, type AiReview } from "@/lib/aiReview";
 import { flagAiReview } from "../teacher/actions";
-import { flagMyReview, saveMyReviewAnswers, startMyReview } from "./actions";
+import { askReviewFollowUp, flagMyReview, saveMyReviewAnswers, startMyReview } from "./actions";
 
 /**
  * AI 되돌아보기 (재생기 아래). 학생: 질문을 받고 답을 적는다. 교사: 질문과 학생 답을 읽고 🚩 표시한다.
  * 질문마다 AI가 짚은 순간 버튼이 있어 누르면 재생기가 그 시점으로 간다.
+ * 답을 저장하면 질문마다 한 번 "AI에게 내 답 보여 주기" → AI가 과정 기록을 근거로 짧게 반응하고 한 번 더 묻는다.
  */
 export default function ReviewPanel({
   submissionId,
@@ -26,6 +27,9 @@ export default function ReviewPanel({
 }) {
   const [review, setReview] = useState(initial);
   const [answers, setAnswers] = useState<string[]>(initial?.questions.map((q) => q.answer) ?? []);
+  const [follows, setFollows] = useState<string[]>(initial?.questions.map((q) => q.followUp?.answer ?? "") ?? []);
+  /** 이어 묻기를 기다리는 질문 번호 */
+  const [asking, setAsking] = useState<number | null>(null);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [pending, startTransition] = useTransition();
   const [flagged, setFlagged] = useState(initial?.flaggedBy ?? null);
@@ -42,13 +46,27 @@ export default function ReviewPanel({
       if (!r.ok) return setMessage({ text: r.error, ok: false });
       setReview(r.review);
       setAnswers(r.review.questions.map((q) => q.answer));
+      setFollows(r.review.questions.map((q) => q.followUp?.answer ?? ""));
+    });
+  }
+
+  function askFollowUp(i: number) {
+    setMessage(null);
+    setAsking(i);
+    startTransition(async () => {
+      const r = await askReviewFollowUp(submissionId, i);
+      setAsking(null);
+      if (!r.ok) return setMessage({ text: r.error, ok: false });
+      setReview(r.review);
+      // 저장하지 않은 두 번째 답은 그대로 두고, 새로 생긴 칸만 더한다
+      setFollows((list) => r.review.questions.map((q, k) => list[k] ?? q.followUp?.answer ?? ""));
     });
   }
 
   function save() {
     setMessage(null);
     startTransition(async () => {
-      const r = await saveMyReviewAnswers(submissionId, answers);
+      const r = await saveMyReviewAnswers(submissionId, answers, follows);
       if (!r.ok) return setMessage({ text: r.error, ok: false });
       setReview(r.review);
       setMessage({ text: "✅ 내 답을 저장했어요. 선생님도 볼 수 있어요.", ok: true });
@@ -95,7 +113,7 @@ export default function ReviewPanel({
     );
   }
 
-  const changed = review.questions.some((q, i) => q.answer !== (answers[i] ?? ""));
+  const changed = review.questions.some((q, i) => q.answer !== (answers[i] ?? "") || (q.followUp?.answer ?? "") !== (follows[i] ?? ""));
   return (
     <section aria-label="AI와 되돌아보기" className="flex flex-col gap-3 rounded-xl border border-violet-200 bg-violet-50/50 p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -153,6 +171,53 @@ export default function ReviewPanel({
               <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
                 <b>학생 답</b> {q.answer || <span className="text-muted">(아직 안 씀)</span>}
               </p>
+            )}
+            {q.followUp ? (
+              <div className="ml-3 flex flex-col gap-1.5 border-l-2 border-violet-200 pl-3">
+                <p className="text-sm leading-7">
+                  <b className="text-violet-700">🤖 이어서</b> <span className="text-xs font-bold text-blue-700">AI가 만든 답변입니다</span>
+                  <br />
+                  <AiAnswer chat={{ answer: q.followUp.reply, moments: q.followUp.moments }} onMoment={(m) => seek(m.at)} />
+                  {q.followUp.question && (
+                    <>
+                      <br />
+                      <AiAnswer chat={{ answer: q.followUp.question, moments: q.followUp.moments }} onMoment={(m) => seek(m.at)} />
+                    </>
+                  )}
+                </p>
+                {role === "student" ? (
+                  <textarea
+                    value={follows[i] ?? ""}
+                    onChange={(e) => setFollows((list) => review.questions.map((_, k) => (k === i ? e.target.value : (list[k] ?? ""))))}
+                    rows={2}
+                    maxLength={MAX_REVIEW_ANSWER}
+                    aria-label={`질문 ${i + 1}의 이어진 질문에 대한 내 답`}
+                    placeholder="한 번 더 생각해 보고 적어 보세요. (적지 않아도 괜찮아요)"
+                    className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
+                    <b>학생 답</b> {q.followUp.answer || <span className="text-muted">(아직 안 씀)</span>}
+                  </p>
+                )}
+              </div>
+            ) : (
+              role === "student" &&
+              canFollowUp(q) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => askFollowUp(i)}
+                    disabled={pending || q.answer !== (answers[i] ?? "")}
+                    className="rounded-lg border border-violet-300 bg-white px-3 py-1 text-sm font-bold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                  >
+                    {asking === i ? "AI가 내 답을 읽는 중…" : "🤖 AI에게 내 답 보여 주기"}
+                  </button>
+                  <span className="text-xs text-muted">
+                    {q.answer !== (answers[i] ?? "") ? "고친 답을 먼저 저장해 주세요." : "AI가 내 과정을 보고 한 번 더 물어봐요 (질문마다 한 번)."}
+                  </span>
+                </div>
+              )
             )}
           </li>
         ))}

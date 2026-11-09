@@ -1,6 +1,6 @@
 import "server-only";
 import { kstDayStart, type Usage } from "./aiChat";
-import type { AiReview, ReviewQuestion } from "./aiReview";
+import { countFollowUpsSince, readFollowUp, type AiReview, type ReviewQuestion } from "./aiReview";
 import { db, fetchAll, type RangeQuery } from "./db";
 
 type ReviewRow = {
@@ -31,6 +31,7 @@ const fromRow = (r: ReviewRow): AiReview => ({
         moment: q?.moment && typeof q.moment.at === "number" ? q.moment : null,
         question: String(q?.question ?? ""),
         answer: String(q?.answer ?? ""),
+        followUp: readFollowUp(q?.followUp),
       }))
     : [],
   flaggedBy: r.flagged_by === "student" || r.flagged_by === "teacher" ? r.flagged_by : null,
@@ -60,16 +61,20 @@ export async function getReview(submissionId: number): Promise<{ ready: boolean;
   return { ready: true, review: data ? fromRow(data) : null };
 }
 
-/** 오늘(한국 시간) 이 학생이 만든 되돌아보기 수 (AI 하루 한도에 함께 센다). 표가 없으면 0 */
+/** 오늘(한국 시간) 이 학생이 만든 되돌아보기 수 + 이어 묻기 수 (AI 하루 한도에 함께 센다). 표가 없으면 0 */
 export async function countTodayReviews(userId: string): Promise<number> {
-  const { count, error } = await db()
+  const today = kstDayStart();
+  // 이어 묻기는 questions 안에 있으므로, 오늘 고친 되돌아보기를 읽어 센다 (오늘 만든 것도 오늘 고친 것에 들어감)
+  const { data, error } = await db()
     .from("ai_reviews")
-    .select("id", { count: "exact", head: true })
+    .select("created_at, questions")
     .eq("user_id", userId)
-    .gte("created_at", kstDayStart());
+    .gte("updated_at", today);
   if (error && tableMissing(error.message)) return 0;
   check(error, "되돌아보기 수 조회 실패");
-  return count ?? 0;
+  const rows = ((data ?? []) as Pick<ReviewRow, "created_at" | "questions">[]).map((r) => ({ createdAt: r.created_at, review: fromRow({ ...r, questions: r.questions } as ReviewRow) }));
+  const since = Date.parse(today);
+  return rows.reduce((n, r) => n + (Date.parse(r.createdAt) >= since ? 1 : 0) + countFollowUpsSince(r.review.questions, today), 0);
 }
 
 export async function insertReview(row: {
@@ -143,15 +148,23 @@ export async function listReviewsSince(since: string): Promise<{ ready: boolean;
 /** 사용량 카드용: 기간 안의 되돌아보기 토큰 */
 export async function reviewUsageSince(since: string): Promise<(Usage & { createdAt: string })[]> {
   try {
-    const rows = await fetchAll<Pick<ReviewRow, "id" | "model" | "input_tokens" | "output_tokens" | "created_at">>(
+    type Cols = Pick<ReviewRow, "id" | "model" | "input_tokens" | "output_tokens" | "created_at" | "questions">;
+    // 이어 묻기는 처음 질문보다 나중에 만들어지므로, 그 기간에 고친 되돌아보기를 읽어 둘 다 센다
+    const rows = await fetchAll<Cols>(
       () =>
         db()
           .from("ai_reviews")
-          .select("id, model, input_tokens, output_tokens, created_at")
-          .gte("created_at", since)
-          .order("id") as unknown as RangeQuery<Pick<ReviewRow, "id" | "model" | "input_tokens" | "output_tokens" | "created_at">>,
+          .select("id, model, input_tokens, output_tokens, created_at, questions")
+          .gte("updated_at", since)
+          .order("id") as unknown as RangeQuery<Cols>,
     );
-    return rows.map((r) => ({ model: r.model, inputTokens: r.input_tokens, outputTokens: r.output_tokens, createdAt: r.created_at }));
+    const from = Date.parse(since);
+    return rows.flatMap((r) => [
+      ...(Date.parse(r.created_at) >= from ? [{ model: r.model, inputTokens: r.input_tokens, outputTokens: r.output_tokens, createdAt: r.created_at }] : []),
+      ...fromRow(r as ReviewRow)
+        .questions.flatMap((q) => (q.followUp && Date.parse(q.followUp.createdAt) >= from ? [q.followUp] : []))
+        .map((f) => ({ model: f.model, inputTokens: f.inputTokens, outputTokens: f.outputTokens, createdAt: f.createdAt })),
+    ]);
   } catch (err) {
     if (tableMissing(String((err as Error).message))) return [];
     throw err;
