@@ -101,7 +101,7 @@ export function normalizeSettings(value: unknown, subject: string): PracticeSett
 }
 
 /** 학생 하루 연습 문제 만들기 횟수 (환경변수 PRACTICE_DAILY_LIMIT로 바꿈) */
-export const DEFAULT_PRACTICE_LIMIT = 5;
+export const DEFAULT_PRACTICE_LIMIT = 7;
 export function practiceLimit(value = process.env.PRACTICE_DAILY_LIMIT): number {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_PRACTICE_LIMIT;
