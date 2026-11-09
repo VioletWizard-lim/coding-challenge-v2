@@ -42,8 +42,10 @@ export default function TeacherDashboard({
         {/* 바로 가기: 한 줄로 (좁은 화면에서는 옆으로 밀어서 봄) */}
         <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {[
-          ["📝 채점", "grading"],
+          // 왼쪽 메뉴와 같은 순서
           ["📚 문제 관리", "problems"],
+          ["📝 채점", "grading"],
+          ["📊 반별 현황", "stats"],
           ["🧭 학생별 학습 여정", "journey"],
           ["💭 성찰 모아보기", "reflections"],
           ["🤖 AI 대화", "ai"],
