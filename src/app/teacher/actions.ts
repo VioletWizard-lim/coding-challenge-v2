@@ -35,6 +35,7 @@ import { compareNumber, isOpen, openStatus, parseExamples, validateProblem, type
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
 import { getUserProfile } from "@/lib/auth";
+import { listSolvedPractice } from "@/lib/practiceStore";
 import { computeAchievements, unitProblemsOf, type AchievementStatus } from "@/lib/achievements";
 import { buildJourney, type Journey } from "@/lib/journey";
 import { allowedSubjects, SUBJECTS } from "@/lib/problems";
@@ -352,17 +353,19 @@ export async function loadStudentJourney(studentId: string): Promise<StudentJour
   try {
     const profile = await getUserProfile(String(studentId ?? ""));
     if (!profile || profile.role !== "student") return { ok: false, message: "학생을 찾지 못했어요." };
-    const [{ summaries, records, today }, mine, open, notes] = await Promise.all([
+    const [{ summaries, records, today }, mine, open, notes, practice] = await Promise.all([
       getMyJourneyData(profile),
       listMyReflections(profile.id),
       listOpenProblems(allowedSubjects(profile.subjects)),
       listMyNotes(profile.id),
+      listSolvedPractice(profile.id),
     ]);
     const achievements = computeAchievements(
       records,
       mine.reflections.map((r) => ({ date: r.classDate, savedAt: r.updatedAt })),
       unitProblemsOf(open),
       notes.notes,
+      practice,
     );
     return { ok: true, journey: buildJourney(summaries, today), reflections: mine.reflections, achievements };
   } catch (err) {

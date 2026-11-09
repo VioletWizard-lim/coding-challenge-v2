@@ -8,7 +8,7 @@ import { MIN_AWAY_MS, PAUSE_MS, validEntries } from "./replay";
 /** 학생 화면의 업적 탭 id (새 업적 알림의 "보러 가기"가 이 탭으로 옮긴다) */
 export const ACHIEVEMENTS_TAB = "achievements";
 
-export type AchievementArea = "hand" | "debug" | "rewrite" | "reflect" | "steady" | "hidden";
+export type AchievementArea = "hand" | "debug" | "rewrite" | "reflect" | "steady" | "practice" | "hidden";
 
 export const AREAS: { id: AchievementArea; label: string }[] = [
   { id: "hand", label: "✍️ 내 손으로" },
@@ -16,6 +16,7 @@ export const AREAS: { id: AchievementArea; label: string }[] = [
   { id: "rewrite", label: "🔁 고쳐쓰기" },
   { id: "reflect", label: "🪞 돌아보기" },
   { id: "steady", label: "📅 꾸준함·몰입" },
+  { id: "practice", label: "🧪 연습" },
   { id: "hidden", label: "❓ 숨은 업적" },
 ];
 
@@ -62,6 +63,18 @@ export const ACHIEVEMENTS: Def[] = [
   { code: "focus10", area: "steady", icon: "🎧", name: "몰입 10분", desc: "창을 벗어나지 않고 10분 넘게 이어서 작업" },
   { code: "unit_master", area: "steady", icon: "🏔️", name: "단원 정복", desc: "한 단원의 공개된 문제를 모두 제출" },
   { code: "steady5", area: "steady", icon: "👣", name: "꾸준한 발걸음", tiers: [5], unit: "일", desc: ["서로 다른 날 5일 이상 제출"] },
+  { code: "first_practice", area: "practice", icon: "🧪", name: "첫 연습 통과", desc: "연습 모드에서 받은 문제를 처음으로 모두 통과" },
+  { code: "beyond_stuck", area: "practice", icon: "🪜", name: "막힌 곳 넘어서기", desc: "내가 막혔던 곳에서 만든 연습 문제를 통과" },
+  { code: "solo_practice", area: "practice", icon: "💪", name: "혼자 힘으로", desc: "AI 도우미에게 묻지 않고 연습 문제를 통과" },
+  {
+    code: "practice_steady",
+    area: "practice",
+    icon: "🏋️",
+    name: "꾸준한 연습",
+    tiers: [3, 10],
+    unit: "문제",
+    desc: ["연습 문제 3개 통과", "연습 문제 10개 통과"],
+  },
   {
     code: "one_shot",
     area: "hidden",
@@ -103,6 +116,9 @@ export type AchievementSubmission = {
   pasteCount: number;
   editCount: number;
 };
+
+/** 업적 계산에 쓰는 연습 문제 한 건 (모두 통과한 것만) */
+export type AchievementPractice = { id: number; source: "concept" | "stuck"; solvedAt: string; log: unknown };
 
 /** 달성 한 건: 언제, 어느 제출의 어느 순간에 */
 export type Earned = {
@@ -229,6 +245,7 @@ export function computeAchievements(
   reflectionDates: { date: string; savedAt: string }[],
   unitProblems: Record<string, string[]>,
   notes: { submissionId: number; at: number; createdAt: string }[] = [],
+  practice: AchievementPractice[] = [],
 ): AchievementStatus[] {
   const list = [...subs].sort((a, b) => a.submittedAt.localeCompare(b.submittedAt) || a.id - b.id);
   const found = new Map<string, Earned[]>(); // code → 단계별 달성
@@ -308,6 +325,17 @@ export function computeAchievements(
     const s = list.find((x) => x.id === firstNote.submissionId);
     put("found_stuck", 0, s ? { ...at(s, firstNote.at), earnedAt: firstNote.createdAt } : { earnedAt: firstNote.createdAt });
   }
+
+  // 연습 모드: 통과한 순서대로 (업적은 칭찬만, 연습 횟수로 순위를 매기지 않는다)
+  const solved = [...practice].sort((a, b) => a.solvedAt.localeCompare(b.solvedAt) || a.id - b.id);
+  solved.forEach((p, i) => {
+    const earned = { earnedAt: p.solvedAt };
+    put("first_practice", 0, earned);
+    if (p.source === "stuck") put("beyond_stuck", 0, earned);
+    if (!validEntries(p.log).some((e) => e[1] === "q")) put("solo_practice", 0, earned);
+    def("practice_steady").tiers!.forEach((n, t) => i + 1 >= n && put("practice_steady", t, earned));
+  });
+  counts.set("practice_steady", solved.length);
 
   counts.set("own_hands", direct);
   counts.set("reflector", reflectDays.size);
