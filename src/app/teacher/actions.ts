@@ -41,6 +41,7 @@ import { MAX_AI_NOTE, normalizeAiSettings, unitOfProblem, type AiSettings } from
 import { AiSettingsNotReadyError, getAiSettings, saveAiSettings } from "@/lib/aiSettingsStore";
 import type { StudentProblemForTeacher } from "@/lib/studentProblem";
 import { listForTeacher, reviewStudentProblem, setStudentProblemFlag } from "@/lib/studentProblemStore";
+import { createDeleteRequest, DeleteRequestsNotReadyError, listDeleteRequests, setRequestStatus, type DeleteRequest } from "@/lib/deleteRequestStore";
 import { computeAchievements, unitProblemsOf, type AchievementStatus } from "@/lib/achievements";
 import { buildJourney, type Journey } from "@/lib/journey";
 import { allowedSubjects, SUBJECTS } from "@/lib/problems";
@@ -804,5 +805,49 @@ export async function loadClassStats(subject: string, year?: number): Promise<Cl
   } catch (err) {
     console.error("반별 현황 오류:", err);
     return { ok: false, message: "반별 현황을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/* ───────────── 학생 삭제 요청 (지우는 것은 관리자) ───────────── */
+
+/** 학생 관리 화면: 기다리는 삭제 요청 (ready=false면 020 실행 전) */
+export async function loadPendingDeleteRequests(): Promise<{ ok: true; ready: boolean; requests: DeleteRequest[] } | { ok: false; message: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const r = await listDeleteRequests(200);
+    return { ok: true, ready: r.ready, requests: r.requests.filter((x) => x.status === "pending") };
+  } catch (err) {
+    console.error("삭제 요청 조회 오류:", err);
+    return { ok: false, message: "삭제 요청을 불러오지 못했어요." };
+  }
+}
+
+/** 학생 삭제를 관리자에게 요청한다 (전학, 잘못 만든 계정, 개인정보 삭제 요청 등) */
+export async function requestStudentDelete(studentId: string, reason: string): Promise<{ ok: true; request: DeleteRequest } | { ok: false; message: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "teacher") return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const why = String(reason ?? "").trim();
+  if (!why) return { ok: false, message: "삭제 이유를 적어 주세요." };
+  if (why.length > 300) return { ok: false, message: "이유는 300자까지 쓸 수 있어요." };
+  try {
+    const profile = await getUserProfile(String(studentId ?? ""));
+    if (!profile || profile.role !== "student") return { ok: false, message: "학생을 찾지 못했어요." };
+    return { ok: true, request: await createDeleteRequest(profile.id, profile.name, why, session.id) };
+  } catch (err) {
+    if (err instanceof DeleteRequestsNotReadyError) return { ok: false, message: "삭제 요청을 쓰려면 Supabase에서 020 SQL을 먼저 실행해 주세요." };
+    console.error("삭제 요청 오류:", err);
+    return { ok: false, message: "요청하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 내가 보낸 삭제 요청 취소 (아직 처리 전일 때만) */
+export async function cancelDeleteRequest(id: number): Promise<{ ok: boolean; message?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "teacher") return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return (await setRequestStatus(Number(id), "canceled", session.id, "", session.id)) ? { ok: true } : { ok: false, message: "취소할 요청이 없어요." };
+  } catch (err) {
+    console.error("삭제 요청 취소 오류:", err);
+    return { ok: false, message: "취소하지 못했어요." };
   }
 }

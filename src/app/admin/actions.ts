@@ -5,8 +5,10 @@ import { refresh } from "next/cache";
 import { getSession } from "@/lib/session";
 import { createTeacher, listStudents, resetTeacherPassword } from "@/lib/teacher";
 import { classOptions } from "@/lib/classes";
+import { getUserProfile } from "@/lib/auth";
+import { getDeleteRequest, listDeleteRequests, setRequestStatus, type DeleteRequest } from "@/lib/deleteRequestStore";
 import { canClean, confirmPhrase, yearTable } from "@/lib/yearEnd";
-import { computeYearStats, countYear, deleteYear, listYearStats, restoreRows, saveYearStats, YearStatsNotReadyError } from "@/lib/yearEndStore";
+import { ALL_YEARS, computeYearStats, countYear, deleteYear, listYearStats, restoreRows, saveYearStats, YearStatsNotReadyError } from "@/lib/yearEndStore";
 
 /** 관리자만 쓸 수 있다 (모든 관리자 액션에서 다시 확인) */
 const isAdmin = async () => (await getSession())?.role === "admin";
@@ -153,5 +155,81 @@ export async function restoreChunk(
   } catch (err) {
     console.error("되살리기 오류:", err);
     return { ok: false, message: String((err as Error)?.message ?? "되살리지 못했어요.") };
+  }
+}
+
+/* ───────────── 학생 삭제 요청 처리 ───────────── */
+
+/** 학생 한 명 지우기 확인 문구 */
+const studentPhrase = (id: string, name: string) => `${id} ${name} 삭제`;
+
+export type DeleteRequestsInfo =
+  | { ok: true; ready: boolean; requests: (DeleteRequest & { phrase: string; exists: boolean })[] }
+  | { ok: false; message: string };
+
+/** 교사가 보낸 학생 삭제 요청 (기다리는 것 + 최근 처리한 것) */
+export async function loadDeleteRequests(): Promise<DeleteRequestsInfo> {
+  if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  try {
+    const { ready, requests } = await listDeleteRequests(50);
+    const withInfo = await Promise.all(
+      requests.map(async (r) => {
+        const profile = r.status === "pending" ? await getUserProfile(r.studentId) : null;
+        return { ...r, phrase: studentPhrase(r.studentId, profile?.name ?? r.studentName), exists: !!profile };
+      }),
+    );
+    return { ok: true, ready, requests: withInfo };
+  } catch (err) {
+    console.error("삭제 요청 조회 오류:", err);
+    return { ok: false, message: "삭제 요청을 불러오지 못했어요." };
+  }
+}
+
+/** 지울 학생의 기록 수 (모든 학년도) */
+export async function studentRecordCounts(studentId: string): Promise<{ ok: true; counts: { table: string; label: string; count: number | null }[] } | { ok: false; message: string }> {
+  if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  try {
+    return { ok: true, counts: (await countYear(ALL_YEARS, "", String(studentId))).counts };
+  } catch (err) {
+    console.error("학생 기록 수 조회 오류:", err);
+    return { ok: false, message: "기록 수를 불러오지 못했어요." };
+  }
+}
+
+/** 요청대로 학생 한 명의 계정과 모든 기록을 지운다 (확인 문구 "아이디 이름 삭제") */
+export async function deleteRequestedStudent(
+  requestId: number,
+  phrase: string,
+): Promise<{ ok: true; deleted: number } | { ok: false; message: string }> {
+  const session = await getSession();
+  if (session?.role !== "admin") return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  try {
+    const request = await getDeleteRequest(Number(requestId));
+    if (!request || request.status !== "pending") return { ok: false, message: "처리할 요청이 없어요." };
+    const profile = await getUserProfile(request.studentId);
+    if (profile && profile.role !== "student") return { ok: false, message: "학생 계정만 지울 수 있어요." };
+    const expect = studentPhrase(request.studentId, profile?.name ?? request.studentName);
+    if (String(phrase ?? "").trim() !== expect) return { ok: false, message: `확인 문구를 "${expect}"라고 정확히 적어 주세요.` };
+    const deleted = await deleteYear(ALL_YEARS, true, "", request.studentId);
+    await setRequestStatus(request.id, "done", session.id);
+    refresh();
+    return { ok: true, deleted: deleted.reduce((s, d) => s + (d.deleted ?? 0), 0) };
+  } catch (err) {
+    console.error("학생 삭제 오류:", err);
+    return { ok: false, message: "지우는 중에 문제가 생겼어요. 다시 누르면 남은 기록을 지울 수 있어요." };
+  }
+}
+
+/** 삭제 요청 거절 (요청한 교사에게 보일 이유) */
+export async function rejectDeleteRequest(requestId: number, note: string): Promise<{ ok: boolean; message?: string }> {
+  const session = await getSession();
+  if (session?.role !== "admin") return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  try {
+    return (await setRequestStatus(Number(requestId), "rejected", session.id, String(note ?? "").trim().slice(0, 300)))
+      ? { ok: true }
+      : { ok: false, message: "처리할 요청이 없어요." };
+  } catch (err) {
+    console.error("삭제 요청 거절 오류:", err);
+    return { ok: false, message: "저장하지 못했어요." };
   }
 }

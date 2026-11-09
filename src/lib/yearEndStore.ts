@@ -16,7 +16,11 @@ const chunks = <T,>(list: T[], size = CHUNK) => Array.from({ length: Math.ceil(l
 
 type Row = Record<string, unknown>;
 
+/** 학생 한 명을 지울 때처럼 모든 학년도를 볼 때 쓰는 학년도 값 */
+export const ALL_YEARS = 0;
+
 const rangeFor = (year: number, dateColumn: string) => {
+  if (year === ALL_YEARS) return dateColumn === "class_date" ? { from: "2000-01-01", to: "2100-01-01" } : { from: "2000-01-01T00:00:00+09:00", to: "2100-01-01T00:00:00+09:00" };
   const r = schoolYearRange(year);
   return dateColumn === "class_date" ? { from: r.fromDate, to: r.toDate } : { from: r.from, to: r.to };
 };
@@ -24,7 +28,15 @@ const rangeFor = (year: number, dateColumn: string) => {
 /**
  * 고른 범위: 그 학년도 제출·학생 문제 번호, 지울 학생 계정, 반을 골랐으면 그 반 학생들(students)과 반(cls, "class:2-3"·"prog:2-5")
  */
-type Scope = { submissions: number[]; problems: number[]; users: string[]; students: string[] | null; cls: string };
+type Scope = {
+  submissions: number[];
+  problems: number[];
+  users: string[];
+  students: string[] | null;
+  cls: string;
+  /** 예전 사이트 제출(아이디 없음)을 이름으로 찾을 때 맞아야 하는 "학년-반"들 */
+  legacyClasses: string[];
+};
 
 /** 학생 아이디를 담은 칸 (반을 고르면 이 칸으로 거른다) */
 const USER_COL: Record<string, string> = {
@@ -52,15 +64,26 @@ async function allStudents(): Promise<StudentRow[]> {
   }
 }
 
-/** 범위 만들기: 학년도(와 반)의 제출·학생 문제 번호, 지울 학생 계정 */
-export async function buildScope(year: number, cls: string, everyStudent: boolean): Promise<Scope & { classStudents: number }> {
+/**
+ * 범위 만들기: 학년도(와 반, 또는 학생 한 명)의 제출·학생 문제 번호, 지울 학생 계정.
+ * studentId를 주면 그 학생 한 명의 기록과 계정 (year가 ALL_YEARS면 모든 학년도)
+ */
+export async function buildScope(year: number, cls: string, everyStudent: boolean, studentId = ""): Promise<Scope & { classStudents: number }> {
   const students = await allStudents();
-  const picked = cls ? students.filter((s) => inClass(s, cls)) : null;
-  const base: Scope = { submissions: [], problems: [], users: [], students: picked ? picked.map((s) => s.id) : null, cls };
+  const picked = studentId ? students.filter((s) => s.id === studentId) : cls ? students.filter((s) => inClass(s, cls)) : null;
+  const legacyClasses = studentId
+    ? picked!.flatMap((s) => [`${s.grade}-${s.class}`, `${s.programming_grade}-${s.programming_class}`])
+    : cls
+      ? [cls.split(":")[1]]
+      : [];
+  const base: Scope = { submissions: [], problems: [], users: [], students: picked ? picked.map((s) => s.id) : null, cls, legacyClasses };
   base.submissions = await idsOf(yearTable("submissions")!, year, base, picked);
   base.problems = await idsOf(yearTable("student_problems")!, year, base, picked);
-  const candidates = await studentsToDelete(year, everyStudent);
-  base.users = picked ? candidates.filter((id) => base.students!.includes(id)) : candidates;
+  if (studentId) base.users = picked!.map((s) => s.id);
+  else {
+    const candidates = await studentsToDelete(year, everyStudent);
+    base.users = picked ? candidates.filter((id) => base.students!.includes(id)) : candidates;
+  }
   return { ...base, classStudents: picked ? picked.length : students.length };
 }
 
@@ -69,7 +92,7 @@ async function idsOf(spec: YearTable, year: number, scope: Scope, picked: Studen
   const ids: number[] = [];
   for await (const rows of rowPages(spec, year, scope, "id")) ids.push(...rows.map((r) => Number(r.id)));
   if (spec.table === "submissions" && picked?.length) {
-    const value = scope.cls.split(":")[1];
+    const allowed = new Set(scope.legacyClasses);
     const names = [...new Set(picked.map((s) => s.name))];
     const { from, to } = rangeFor(year, "submitted_at");
     for (const part of chunks(names)) {
@@ -84,7 +107,7 @@ async function idsOf(spec: YearTable, year: number, scope: Scope, picked: Studen
           .order("id")
           .range(start, start + 999);
         if (error) throw new Error(`제출 조회 실패: ${error.message}`);
-        for (const r of data ?? []) if (`${r.grade}-${r.class}` === value) ids.push(Number(r.id));
+        for (const r of data ?? []) if (allowed.has(`${r.grade}-${r.class}`)) ids.push(Number(r.id));
         if ((data ?? []).length < 1000) break;
       }
     }
@@ -175,11 +198,11 @@ export async function studentsToDelete(year: number, all: boolean): Promise<stri
 }
 
 /** 표마다 그 학년도(와 반) 기록 수, 지울 학생 계정 수 (표가 없으면 null) */
-export async function countYear(year: number, cls = ""): Promise<{
+export async function countYear(year: number, cls = "", studentId = ""): Promise<{
   counts: { table: string; label: string; count: number | null }[];
   students: { withRecords: number; all: number };
 }> {
-  const [scope, every] = await Promise.all([buildScope(year, cls, false), buildScope(year, cls, true)]);
+  const [scope, every] = await Promise.all([buildScope(year, cls, false, studentId), buildScope(year, cls, true, studentId)]);
   const counts = await Promise.all(
     YEAR_TABLES.filter((t) => t.table !== "users").map(async (spec) => {
       if (spec.table === "submissions") return { table: spec.table, label: spec.label, count: scope.submissions.length };
@@ -213,12 +236,12 @@ async function tableExists(table: string) {
  * 전체 백업: ZIP 안에 표마다 CSV(엑셀로 열림) + schema.json(되살릴 때 칸 종류) + 이름 없는 통계 + 안내.
  * 학생 계정은 모든 학생 계정을 넣는다(평문 비밀번호 칸은 빼고). 조금씩 흘려보내서 커도 끊기지 않는다.
  */
-export function backupZip(year: number, cls = ""): ReadableStream<Uint8Array> {
+export function backupZip(year: number, cls = "", studentId = ""): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   const schema: BackupSchema = {};
   async function* entries(): AsyncGenerator<ZipEntry> {
     // 학생 계정은 (그 반의) 모든 학생 계정을 넣는다 (되살릴 때 이미 있는 계정은 건너뜀)
-    const scope = await buildScope(year, cls, true);
+    const scope = await buildScope(year, cls, true, studentId);
     if (scope.students) scope.users = scope.students;
     for (const spec of YEAR_TABLES) {
       const kinds: Record<string, string> = {};
@@ -245,15 +268,20 @@ export function backupZip(year: number, cls = ""): ReadableStream<Uint8Array> {
       }
       yield { name: `${spec.table}.csv`, data: csv() };
     }
-    yield { name: "schema.json", data: [enc.encode(JSON.stringify({ schoolYear: year, cls, createdAt: new Date().toISOString(), tables: schema }, null, 1))] };
-    const stats = await computeYearStats(year);
-    yield { name: "이름없는통계.csv", data: [enc.encode("\uFEFF" + statsCsv(stats))] };
+    yield {
+      name: "schema.json",
+      data: [enc.encode(JSON.stringify({ schoolYear: year === ALL_YEARS ? null : year, cls, student: studentId || null, createdAt: new Date().toISOString(), tables: schema }, null, 1))],
+    };
+    // 학생 한 명 백업에는 통계를 넣지 않는다 (한 명의 숫자는 통계가 아님)
+    if (!studentId) yield { name: "이름없는통계.csv", data: [enc.encode("\uFEFF" + statsCsv(await computeYearStats(year)))] };
     yield {
       name: "안내.txt",
       data: [
         enc.encode(
           [
-            `Line by Line ${year}학년도${cls ? ` ${cls.replace("class:", "").replace("prog:", "프로그래밍 ")}반` : ""} 학생 기록 백업 (${new Date().toISOString()})`,
+            studentId
+              ? `Line by Line 학생 한 명(${studentId})의 모든 기록 백업 (${new Date().toISOString()})`
+              : `Line by Line ${year}학년도${cls ? ` ${cls.replace("class:", "").replace("prog:", "프로그래밍 ")}반` : ""} 학생 기록 백업 (${new Date().toISOString()})`,
             "",
             "- 표마다 CSV 파일 하나씩이에요. 엑셀로 열어 볼 수 있어요 (=, + 등으로 시작하는 글 앞에는 ' 가 붙어 있어요).",
             "- 이 ZIP 파일을 그대로 관리자 페이지 '백업에서 되돌리기'에 올리면 사이트에 다시 넣을 수 있어요.",
@@ -289,7 +317,7 @@ export async function computeYearStats(year: number): Promise<StatRow[]> {
   const collect = async <T,>(table: string, date: string, columns: string) => {
     const out: T[] = [];
     const spec = { table, label: table, by: { date }, key: ["id"], id: true };
-    await eachRows(spec, year, { submissions: [], problems: [], users: [], students: null, cls: "" }, columns, (rows) => void out.push(...(rows as T[])));
+    await eachRows(spec, year, { submissions: [], problems: [], users: [], students: null, cls: "", legacyClasses: [] }, columns, (rows) => void out.push(...(rows as T[])));
     return out;
   };
   const [reflections, chats, reviews, practice, studentProblems, users] = await Promise.all([
@@ -348,8 +376,8 @@ export async function listYearStats(): Promise<{ ready: boolean; years: { year: 
 }
 
 /** 지우기: 그 학년도(와 반)의 학생 기록 전부 (가리키는 기록부터, 학생 계정은 마지막에). 지운 수를 돌려준다 */
-export async function deleteYear(year: number, everyStudent: boolean, cls = ""): Promise<{ table: string; deleted: number | null }[]> {
-  const scope = await buildScope(year, cls, everyStudent);
+export async function deleteYear(year: number, everyStudent: boolean, cls = "", studentId = ""): Promise<{ table: string; deleted: number | null }[]> {
+  const scope = await buildScope(year, cls, everyStudent, studentId);
   const out: { table: string; deleted: number | null }[] = [];
   for (const spec of [...YEAR_TABLES].reverse()) {
     let deleted = 0;
