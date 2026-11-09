@@ -17,3 +17,17 @@ describe("오늘의 성찰 검사", () => {
     expect(validateReflection({ ...base, aiQuestions: "가".repeat(MAX_REFLECTION_TEXT + 1) })).toContain("AI에게 질문한 내용");
   });
 });
+
+describe("내 성찰 CSV", () => {
+  it("날짜 순, 학습지와 같은 칸 이름", async () => {
+    const { reflectionCsvRows } = await import("./reflection");
+    const base = { userId: "s1", grade: "2", class: "3", updatedAt: "", hardestProblem: "", hardestReason: "", aiQuestions: "", keyConcepts: "" };
+    const rows = reflectionCsvRows([
+      { ...base, subject: "프로그래밍", classDate: "2026-11-05", keyConcepts: "반복문" },
+      { ...base, subject: "프로그래밍", classDate: "2026-11-02", hardestProblem: "1-6", hardestReason: "=SUM 같은 글" },
+    ]);
+    expect(rows.map((r) => r["날짜"])).toEqual(["2026-11-02", "2026-11-05"]);
+    expect(rows[0]).toMatchObject({ "가장 어려웠던 문제": "1-6", "어려웠던 이유": "=SUM 같은 글" });
+    expect(Object.keys(rows[0])).toEqual(["날짜", "과목", "가장 어려웠던 문제", "어려웠던 이유", "AI에게 질문한 내용", "오늘 배운 핵심 개념"]);
+  });
+});

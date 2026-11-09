@@ -189,7 +189,13 @@ export default function ReflectionForm({
           </span>
         )}
       </div>
-      <p className="text-xs text-muted">지난 성찰은 🧭 나의 학습 여정 → 날짜별 기록에서 다시 볼 수 있어요.</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        <span>지난 성찰은 🧭 나의 학습 여정 → 날짜별 기록에서 다시 볼 수 있어요.</span>
+        <a href="/api/student/reflections" download className="rounded-lg border border-line px-2.5 py-1 font-bold text-brand hover:bg-brand-soft">
+          📥 내 성찰 모두 내려받기 (CSV)
+        </a>
+        <span>성찰은 학년도가 끝나는 다음 해 2월 말까지만 보관해요. 간직하고 싶으면 그 전에 내려받아 두세요.</span>
+      </div>
     </section>
   );
 }

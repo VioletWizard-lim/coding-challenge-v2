@@ -58,3 +58,20 @@ export function validateReflection(r: ReflectionInput): string | null {
 /** 다 비었는지 (목록에서 "아직 안 씀"과 구분) */
 export const isEmptyReflection = (r: ReflectionInput) =>
   !r.hardestProblem && !r.hardestReason && !r.aiQuestions && !r.keyConcepts;
+
+/** 학생이 내려받는 내 성찰 CSV의 줄들 (날짜 순). 학년도 말 정리 전에 학생이 자기 글을 간직할 수 있게 */
+export function reflectionCsvRows(list: Reflection[]): Record<string, string>[] {
+  return [...list]
+    .sort((a, b) => a.classDate.localeCompare(b.classDate) || a.subject.localeCompare(b.subject))
+    .map((r) => ({
+      날짜: r.classDate,
+      과목: r.subject,
+      "가장 어려웠던 문제": r.hardestProblem,
+      [REFLECTION_FIELDS.hardestReason]: r.hardestReason,
+      [REFLECTION_FIELDS.aiQuestions]: r.aiQuestions,
+      [REFLECTION_FIELDS.keyConcepts]: r.keyConcepts,
+    }));
+}
+
+/** 성찰이 하나도 없을 때도 머리줄은 있게 */
+export const REFLECTION_CSV_HEAD = ["날짜", "과목", "가장 어려웠던 문제", REFLECTION_FIELDS.hardestReason, REFLECTION_FIELDS.aiQuestions, REFLECTION_FIELDS.keyConcepts];
