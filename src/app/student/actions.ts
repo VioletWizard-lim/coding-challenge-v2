@@ -22,6 +22,7 @@ import { asProblem, practiceKey } from "@/lib/practice";
 import { getPractice } from "@/lib/practiceStore";
 import { helperBlocked, reviewBlocked } from "@/lib/aiSettings";
 import { aiSettingsFor } from "@/lib/aiSettingsStore";
+import { listWatched, markReplayWatched } from "@/lib/replayViewStore";
 import { classKeyOf, studentAsProblem, studentProblemKey } from "@/lib/studentProblem";
 import { solvableBy } from "@/lib/studentProblemStore";
 import { validEntries } from "@/lib/replay";
@@ -186,6 +187,20 @@ export async function saveMyNote(input: { submissionId: number; at: number; text
   } catch (err) {
     console.error("메모 저장 오류:", err);
     return { ok: false, error: "메모를 저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 내 재생을 ▶로 끝까지 봤을 때 (업적 "나를 보는 눈"). 처음이면 화면을 새로 불러와 업적 알림 */
+export async function markMyReplayWatched(submissionId: number): Promise<void> {
+  const session = await getSession();
+  if (!session || session.role !== "student" || !Number.isInteger(submissionId)) return;
+  try {
+    const profile = await getUserProfile(session.id);
+    if (!profile || !(await isMySubmission(submissionId, profile))) return;
+    const first = !(await listWatched(session.id)).length;
+    if ((await markReplayWatched(session.id, submissionId)) && first) refresh();
+  } catch (err) {
+    console.error("재생 기록 저장 오류:", err);
   }
 }
 

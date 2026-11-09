@@ -27,6 +27,8 @@ type Props = {
   chats?: HelpChat[];
   /** 재생기 아래에 붙일 내용 (예: AI 되돌아보기). seek로 재생기를 그 시각으로 옮길 수 있다 */
   extra?: (seek: (t: number) => void) => ReactNode;
+  /** ▶ 재생으로 끝까지 봤을 때 (학생: 업적 "나를 보는 눈") */
+  onEnd?: () => void;
 };
 
 /** 메모를 남기기 좋은 순간: 오류, 오래 멈춤, 크게 지움 */
@@ -77,7 +79,7 @@ function editSpec(state: EditorState, e: EditEvent) {
 /** 작성 과정 재생기 (교사·학생 공용). v1 replay.html과 같은 기록을 읽는다. */
 const NO_CHATS: HelpChat[] = [];
 
-export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions, chats = NO_CHATS, extra }: Props) {
+export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions, chats = NO_CHATS, extra, onEnd }: Props) {
   const analysis = useMemo(() => analyzeLog(init, log), [init, log]);
   const { edits, stats, startTime } = analysis;
   // 도움도 과정의 일부: AI 도움 요청 ↔ 그때의 대화, AI 답 붙여넣기, 도움 뒤 첫 실행
@@ -165,7 +167,10 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
     view.dispatch({ ...editSpec(view.state, edits[i]), scrollIntoView: true });
     indexRef.current = i + 1;
     setIndex(i + 1);
-    if (i + 1 >= edits.length) return stop();
+    if (i + 1 >= edits.length) {
+      onEnd?.();
+      return stop();
+    }
     let gap = (edits[i + 1][0] - edits[i][0]) / settings.current.speed;
     if (settings.current.skipIdle) gap = Math.min(gap, SKIP_IDLE_MAX_MS);
     timerRef.current = setTimeout(step, Math.max(gap, 8));

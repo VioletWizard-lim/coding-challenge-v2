@@ -66,6 +66,13 @@ export default function TeacherDashboard({
             )}
           </button>
         ))}
+          <a
+            href="/guide"
+            target="_blank"
+            className="whitespace-nowrap rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm text-muted hover:border-brand hover:text-brand"
+          >
+            📖 사용 안내
+          </a>
         </div>
       </div>
 

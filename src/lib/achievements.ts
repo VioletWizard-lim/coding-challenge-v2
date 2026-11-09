@@ -8,11 +8,12 @@ import { MIN_AWAY_MS, PAUSE_MS, validEntries } from "./replay";
 /** 학생 화면의 업적 탭 id (새 업적 알림의 "보러 가기"가 이 탭으로 옮긴다) */
 export const ACHIEVEMENTS_TAB = "achievements";
 
-export type AchievementArea = "hand" | "debug" | "rewrite" | "reflect" | "steady" | "practice" | "hidden";
+export type AchievementArea = "hand" | "debug" | "help" | "rewrite" | "reflect" | "steady" | "practice" | "hidden";
 
 export const AREAS: { id: AchievementArea; label: string }[] = [
   { id: "hand", label: "✍️ 내 손으로" },
   { id: "debug", label: "🔧 디버깅" },
+  { id: "help", label: "🤝 도움 활용" },
   { id: "rewrite", label: "🔁 고쳐쓰기" },
   { id: "reflect", label: "🪞 돌아보기" },
   { id: "steady", label: "📅 꾸준함·몰입" },
@@ -48,6 +49,13 @@ export const ACHIEVEMENTS: Def[] = [
   },
   { code: "error_friend", area: "debug", icon: "🤝", name: "오류는 친구", desc: "오류가 난 뒤 스스로 고쳐 실행에 성공" },
   { code: "persistent", area: "debug", icon: "🧗", name: "끈기의 코더", desc: "한 문제에서 오류가 3번 넘게 난 뒤 끝내 성공" },
+  {
+    code: "help_own",
+    area: "help",
+    icon: "🌉",
+    name: "힌트에서 내 답으로",
+    desc: "AI 도우미에게 물어본 뒤, 붙여넣기 없이 내 손으로 고쳐 실행에 성공",
+  },
   { code: "polisher", area: "rewrite", icon: "🪚", name: "다듬는 사람", desc: "한 제출에서 지우고 고친 횟수 10번 이상" },
   { code: "retry", area: "rewrite", icon: "🔄", name: "다시 도전", desc: "오답 처리된 문제를 다시 내서 통과" },
   {
@@ -59,6 +67,7 @@ export const ACHIEVEMENTS: Def[] = [
     unit: "일",
     desc: ["오늘의 성찰 처음 쓰기", "서로 다른 날 5일 성찰 쓰기"],
   },
+  { code: "self_watch", area: "reflect", icon: "👀", name: "나를 보는 눈", desc: "내 작성 과정 재생을 끝까지 보기" },
   { code: "found_stuck", area: "reflect", icon: "🔍", name: "막힌 곳 발견", desc: "내 재생을 보며 그 순간에 타임라인 메모 남기기" },
   { code: "focus10", area: "steady", icon: "🎧", name: "몰입 10분", desc: "창을 벗어나지 않고 10분 넘게 이어서 작업" },
   { code: "unit_master", area: "steady", icon: "🏔️", name: "단원 정복", desc: "한 단원의 공개된 문제를 모두 제출" },
@@ -155,6 +164,27 @@ const at = (s: AchievementSubmission, time?: number): Earned => ({
 const isRun = (kind: string) => kind.startsWith("r:");
 const isDirect = (s: AchievementSubmission) => s.hasLog && s.pasteCount === 0 && s.typedChars > 0;
 
+/**
+ * AI 도움 요청("q") 뒤, 다음 성공 실행까지 붙여넣기가 없었던 첫 성공의 시각 (없으면 null).
+ * 도움을 받은 뒤 스스로 써서 해결한 순간 — 도움도 과정의 일부로 칭찬한다.
+ */
+export function helpOwnTime(log: unknown): number | null {
+  let asked = false;
+  let pasted = false;
+  for (const e of validEntries(log)) {
+    const [t, kind] = e;
+    if (kind === "q") {
+      asked = true;
+      pasted = false;
+    } else if (asked && e.length > 2 && kind === "p") pasted = true;
+    else if (asked && kind === "r:ok") {
+      if (!pasted) return t;
+      asked = false;
+    }
+  }
+  return null;
+}
+
 /** 오류 뒤 처음 성공한 실행의 시각 (없으면 null) */
 export function firstFixTime(log: unknown): number | null {
   let failing = false;
@@ -246,6 +276,8 @@ export function computeAchievements(
   unitProblems: Record<string, string[]>,
   notes: { submissionId: number; at: number; createdAt: string }[] = [],
   practice: AchievementPractice[] = [],
+  /** 학생이 끝까지 본 내 재생 (나를 보는 눈) */
+  watched: { submissionId: number; watchedAt: string }[] = [],
 ): AchievementStatus[] {
   const list = [...subs].sort((a, b) => a.submittedAt.localeCompare(b.submittedAt) || a.id - b.id);
   const found = new Map<string, Earned[]>(); // code → 단계별 달성
@@ -282,6 +314,9 @@ export function computeAchievements(
     if (s.editCount >= 10) put("polisher", 0, at(s));
     const passed = (s.scoreTotal ?? 0) > 0 && !s.wrongReason;
     if (passed && before.some((b) => b.wrongReason)) put("retry", 0, at(s));
+
+    const helpOwn = helpOwnTime(s.log);
+    if (helpOwn !== null) put("help_own", 0, at(s, helpOwn));
 
     const focus = focusTime(s.log);
     if (focus !== null) put("focus10", 0, at(s, focus));
@@ -324,6 +359,12 @@ export function computeAchievements(
   if (firstNote) {
     const s = list.find((x) => x.id === firstNote.submissionId);
     put("found_stuck", 0, s ? { ...at(s, firstNote.at), earnedAt: firstNote.createdAt } : { earnedAt: firstNote.createdAt });
+  }
+
+  const firstWatch = [...watched].sort((a, b) => a.watchedAt.localeCompare(b.watchedAt))[0];
+  if (firstWatch) {
+    const s = list.find((x) => x.id === firstWatch.submissionId);
+    put("self_watch", 0, s ? { ...at(s), earnedAt: firstWatch.watchedAt } : { earnedAt: firstWatch.watchedAt });
   }
 
   // 연습 모드: 통과한 순서대로 (업적은 칭찬만, 연습 횟수로 순위를 매기지 않는다)

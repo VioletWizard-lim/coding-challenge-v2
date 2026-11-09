@@ -17,6 +17,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <footer className="border-t border-line px-4 py-3 text-center text-xs text-muted">
           <Link href="/privacy" className="hover:text-brand hover:underline">
             개인정보·AI 이용 안내
+          </Link> ·{" "}
+          <Link href="/guide" className="hover:text-brand hover:underline">
+            선생님용 사용 안내
           </Link>
         </footer>
       </body>

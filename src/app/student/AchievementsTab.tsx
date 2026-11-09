@@ -1,4 +1,5 @@
 import { listSolvedPractice } from "@/lib/practiceStore";
+import { listWatched } from "@/lib/replayViewStore";
 import { computeAchievements, unitProblemsOf } from "@/lib/achievements";
 import { getAchievementsSeen } from "@/lib/achievementStore";
 import type { Problem } from "@/lib/problemBank";
@@ -19,12 +20,13 @@ export default async function AchievementsTab({
 }) {
   let list, seen;
   try {
-    const [{ records }, mine, seenRecord, notes, practice] = await Promise.all([
+    const [{ records }, mine, seenRecord, notes, practice, watched] = await Promise.all([
       getMyJourneyData(owner),
       listMyReflections(userId),
       getAchievementsSeen(userId),
       listMyNotes(userId),
       listSolvedPractice(userId),
+      listWatched(userId),
     ]);
     seen = seenRecord;
     list = computeAchievements(
@@ -33,6 +35,7 @@ export default async function AchievementsTab({
       unitProblemsOf(problems),
       notes.notes,
       practice,
+      watched,
     );
   } catch (err) {
     console.error(err);

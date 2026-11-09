@@ -5,7 +5,7 @@ import Replayer from "@/components/Replayer";
 import type { NoteActions } from "@/components/ReplayNotes";
 import type { NoteAuthor } from "@/lib/timelineNotes";
 import { deleteFeedbackNote, saveFeedbackNote } from "../teacher/actions";
-import { deleteMyNote, loadMyReplay, saveMyNote, type ReplayResult } from "./actions";
+import { deleteMyNote, loadMyReplay, markMyReplayWatched, saveMyNote, type ReplayResult } from "./actions";
 import ReviewPanel from "./ReviewPanel";
 
 export type ReplayLoader = (submissionId: number) => Promise<ReplayResult>;
@@ -69,6 +69,8 @@ export default function ReplaySection({
           />
         )}
         startAt={startAt}
+        // 학생이 내 재생을 끝까지 보면 남긴다 (업적 "나를 보는 눈")
+        onEnd={noteRole === "student" && loader === loadMyReplay ? () => void markMyReplayWatched(submissionId) : undefined}
         notes={notes.notes}
         // 메모 표가 아직 없으면(008 실행 전) 쓰기 버튼을 숨긴다
         noteActions={notes.ready ? noteActionsFor(noteRole, submissionId) : undefined}
