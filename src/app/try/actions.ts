@@ -59,8 +59,8 @@ export async function trialStatus(): Promise<TrialStatus> {
 export async function unlockTrial(code: string): Promise<{ ok: true; status: TrialStatus } | { ok: false; error: string }> {
   const a = await access();
   if (!a.open && !a.preview) return { ok: false, error: "지금은 체험 페이지가 열려 있지 않아요." };
-  if (!process.env.TRY_ACCESS_CODE?.trim()) return { ok: false, error: "지금은 체험 AI가 꺼져 있어요. 예시 기록으로 둘러봐 주세요." };
-  if (!trialCodeMatches(code)) return { ok: false, error: "체험 코드가 맞지 않아요. 안내문의 코드를 확인해 주세요." };
+  if (!process.env.TRY_ACCESS_CODE?.trim()) return { ok: false, error: "현재 체험용 AI는 사용하지 않도록 설정되어 있습니다." };
+  if (!trialCodeMatches(code)) return { ok: false, error: "체험 코드가 맞지 않습니다. 접속 안내문의 코드를 다시 확인해 주세요." };
   await grantTrial();
   return { ok: true, status: await trialStatus() };
 }

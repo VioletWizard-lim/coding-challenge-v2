@@ -35,6 +35,19 @@ const STEPS: [Step, string, string][] = [
   ["reflect", "⑤ 오늘의 성찰", "수업을 마치며 오늘을 글로 정리해요."],
 ];
 
+/** 이 브라우저에 남아 있는 체험 문제의 작성 기록 (④에서 다른 문제의 과정을 볼 때) */
+function savedRecording(problemId: string): Recording | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(trialStorageKey(problemId)) ?? "null");
+    if (saved && Array.isArray(saved.log) && typeof saved.code === "string") return { init: String(saved.init ?? ""), log: saved.log, code: saved.code };
+  } catch {}
+  return null;
+}
+
+/** 코드를 쓰거나 실행한 기록이 있는지 (창 이탈·복귀만 있으면 재생할 것이 없음) */
+const hasWork = (rec: Recording | null) =>
+  !!rec && Array.isArray(rec.log) && (rec.log as unknown[]).some((e) => Array.isArray(e) && (e.length >= 3 || String(e[1]).startsWith("r:")));
+
 const toHelp = (c: AiChat): HelpChat => ({ at: c.at ?? 0, question: c.question, answer: c.answer, moments: c.moments });
 
 /**
@@ -109,6 +122,25 @@ export default function TryClient() {
       setChecking(false);
     }
   }
+
+  /** 체험 문제 1·2·3 버튼 (③ 코드 쓰기, ④ 재생하며 되돌아보기에서 함께 씀) */
+  const problemButtons = (onPick: (id: string) => void) =>
+    TRIAL_PROBLEMS.map((p) => (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => onPick(p.id)}
+        aria-pressed={p.id === problemId}
+        className={`rounded-lg border px-3 py-1.5 text-sm ${p.id === problemId ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white"}`}
+      >
+        체험 {p.view.number}. {p.view.title}
+      </button>
+    ));
+  /** ④에서 다른 문제를 고르면: 그 문제를 고르고(③ 편집기도 그 문제로), 이 브라우저에 남은 그 문제의 기록으로 재생 */
+  const replayProblem = (id: string) => {
+    pickProblem(id);
+    setRec(savedRecording(id));
+  };
 
   const remainingNote = (remaining: number) => setStatus((s) => (s ? { ...s, remaining } : s));
 
@@ -276,16 +308,7 @@ export default function TryClient() {
         {/* ① 코드 쓰기: 단계를 오가도 편집기가 사라지지 않게 숨기기만 한다 */}
         <section className={step === "write" ? "flex flex-col gap-4" : "hidden"}>
           <div className="flex flex-wrap gap-2">
-            {TRIAL_PROBLEMS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => pickProblem(p.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm ${p.id === problemId ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white"}`}
-              >
-                체험 {p.view.number}. {p.view.title}
-              </button>
-            ))}
+            {problemButtons(pickProblem)}
           </div>
           <div
             className={`grid gap-5 lg:grid-cols-[minmax(280px,2fr)_3fr] ${aiOpen ? "xl:grid-cols-[minmax(240px,1.4fr)_2.4fr_minmax(300px,1.6fr)]" : ""}`}
@@ -341,10 +364,11 @@ export default function TryClient() {
 
         {step === "replay" && (
           <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
+            <div className="flex flex-wrap gap-2">{problemButtons(replayProblem)}</div>
             <h2 className="text-lg font-bold">
               ▶ 내 작성 과정 — 체험 {problem.view.number}. {problem.view.title}
             </h2>
-            {rec && rec.log && (rec.log as unknown[]).length > 0 ? (
+            {rec && hasWork(rec) ? (
               <Replayer
                 key={`${problemId}:${(rec.log as unknown[]).length}`}
                 init={rec.init}
@@ -365,7 +389,7 @@ export default function TryClient() {
               />
             ) : (
               <p className="text-muted">
-                아직 기록이 없어요.{" "}
+                이 문제는 아직 쓴 코드가 없어요.{" "}
                 <button type="button" onClick={() => go("write")} className="font-bold text-brand underline">
                   ③ 코드 쓰기
                 </button>
@@ -412,59 +436,86 @@ function TrialGate({ status, onStatus }: { status: TrialStatus | null; onStatus:
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   if (!status) return null;
+
+  // 심사위원·방문자가 보는 안내 (받으신 접속 안내문을 따라가는 말투)
+  const notice = (tone: string, body: React.ReactNode) => (
+    <div className={`flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm leading-6 ${tone}`}>
+      <p className="font-bold">📋 체험 안내</p>
+      {body}
+    </div>
+  );
+  // 관리자 미리 보기에서만 보이는 설정 안내 (심사위원에게는 안 보임)
+  const adminNote = status.preview && (
+    <div className="rounded-xl border border-dashed border-line bg-white px-4 py-3 text-xs leading-5 text-muted">
+      🛠 <b>관리자에게만 보여요</b> · 체험 코드는 선생님이 정하는 값이에요. Vercel → Settings → Environment Variables에 <code>TRY_ACCESS_CODE</code>를
+      넣고 다시 배포(Redeploy)하면 위에 코드 입력 칸이 생겨요. 그 코드를 심사위원 접속 안내문에 적어 주세요.
+    </div>
+  );
+
   if (!status.enabled) {
     return (
-      <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-        지금은 체험용 AI가 꺼져 있어요. 코드 쓰기·재생은 그대로 해 볼 수 있고, AI 부분은 ② 예시 학생의 기록에서 볼 수 있어요.
-        {status.preview && (
-          <>
-            <br />
-            <b>관리자 안내</b>: 체험 코드는 선생님이 정하는 값이에요. Vercel → Settings → Environment Variables에 <code>TRY_ACCESS_CODE</code>(예:
-            line2027)를 넣고 다시 배포(Redeploy)하면 여기에 코드 칸이 생겨요. 그 코드를 심사위원 안내문에 적어 주세요.
-          </>
+      <>
+        {notice(
+          "border-amber-200 bg-amber-50 text-amber-950",
+          <p>
+            현재 체험용 AI는 사용하지 않도록 설정되어 있습니다. <b>코드 쓰기와 과정 재생</b>은 그대로 체험하실 수 있으며, AI 도우미와 AI 되돌아보기는{" "}
+            <b>② 예시 학생의 기록</b>에서 실제 화면과 같은 모습으로 보실 수 있습니다.
+          </p>,
         )}
-      </p>
+        {adminNote}
+      </>
     );
   }
   if (status.unlocked) {
-    return (
-      <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
-        ✅ 체험 AI를 쓸 수 있어요 (AI 도우미·되돌아보기·이어 묻기). 오늘 사이트 전체에서 남은 횟수: {status.remaining}/{status.limit}
-      </p>
+    return notice(
+      "border-green-200 bg-green-50 text-green-950",
+      <p>
+        ✅ 체험 코드가 확인되었습니다. <b>③ 코드 쓰기</b>에서 AI 도우미에게 질문하시고, <b>④ 재생하며 되돌아보기</b>에서 AI 되돌아보기를 받아 보실 수
+        있습니다. (오늘 남은 체험 AI 사용 횟수: {status.remaining}/{status.limit})
+      </p>,
     );
   }
   return (
-    <form
-      className="flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setPending(true);
-        const r = await unlockTrial(code);
-        setPending(false);
-        if (!r.ok) return setError(r.error);
-        setError(null);
-        onStatus(r.status);
-      }}
-    >
-      <span className="text-blue-900">
-        🔑 안내문의 <b>체험 코드</b>를 넣으면 진짜 AI(도우미·되돌아보기)를 써 볼 수 있어요.
-      </span>
-      <input
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        aria-label="체험 코드"
-        placeholder="체험 코드"
-        className="w-36 rounded-lg border border-line bg-white px-3 py-1.5"
-      />
-      <button
-        type="submit"
-        disabled={pending || !code.trim()}
-        className="rounded-lg bg-blue-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
-      >
-        {pending ? "확인 중…" : "넣기"}
-      </button>
-      {error && <span className="text-danger">{error}</span>}
-    </form>
+    <>
+      {notice(
+        "border-blue-200 bg-blue-50 text-blue-950",
+        <>
+          <p>
+            보내 드린 <b>접속 안내문에 적힌 체험 코드</b>를 입력하시면, 학생들이 실제로 쓰는 <b>AI 도우미</b>와 <b>AI 되돌아보기</b>를 직접 써 보실 수
+            있습니다. 체험 코드 없이도 코드 쓰기·과정 재생과 예시 학생의 기록은 모두 보실 수 있습니다.
+          </p>
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setPending(true);
+              const r = await unlockTrial(code);
+              setPending(false);
+              if (!r.ok) return setError(r.error);
+              setError(null);
+              onStatus(r.status);
+            }}
+          >
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              aria-label="체험 코드"
+              placeholder="체험 코드 입력"
+              className="w-44 rounded-lg border border-line bg-white px-3 py-1.5"
+            />
+            <button
+              type="submit"
+              disabled={pending || !code.trim()}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
+            >
+              {pending ? "확인 중…" : "확인"}
+            </button>
+            {error && <span className="text-danger">{error}</span>}
+          </form>
+        </>,
+      )}
+      {adminNote}
+    </>
   );
 }
 
