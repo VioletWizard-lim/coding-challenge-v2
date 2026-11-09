@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { loadTrialPage, saveTrialPage, type TrialPageInfo } from "./actions";
+import { loadTrialPage, saveTrialAi, saveTrialPage, type TrialPageInfo } from "./actions";
 
 /**
  * 🧪 체험 페이지(/try) 보이기/숨기기. 숨기면 첫 화면의 체험 버튼이 사라지고, /try는 "열려 있지 않아요"(관리자는 미리 보기),
@@ -17,8 +17,17 @@ export default function TrialPageCard() {
   }, []);
 
   function toggle(visible: boolean) {
+    run(() => saveTrialPage(visible));
+  }
+
+  function toggleAi(on: boolean) {
+    if (!on && !confirm("체험 AI를 끌까요? 이미 체험 코드를 넣은 사람도 바로 쓸 수 없게 되고, 다시 켜면 코드를 새로 넣어야 해요.")) return;
+    run(() => saveTrialAi(on));
+  }
+
+  function run(save: () => Promise<{ ok: true } | { ok: false; message: string }>) {
     startTransition(async () => {
-      const r = await saveTrialPage(visible);
+      const r = await save();
       if (!r.ok) return setError(r.message);
       setError(null);
       const next = await loadTrialPage();
@@ -59,20 +68,43 @@ export default function TrialPageCard() {
         할 수 있어요.
       </p>
       {info && (
-        <ul className="flex flex-col gap-1 text-sm">
-          <li>
-            {info.codeSet && info.aiReady ? "✅" : "⚠️"} 진짜 AI(체험 코드):{" "}
-            {!info.aiReady
-              ? "AI 키가 없어 꺼져 있어요"
-              : info.codeSet
-                ? "켜짐 — Vercel 환경변수 TRY_ACCESS_CODE의 코드를 심사위원 안내문에 적어 주세요"
-                : "꺼짐 — 체험 코드는 직접 정하는 값이에요. Vercel → Settings → Environment Variables에 TRY_ACCESS_CODE(예: line2027)를 넣고 Redeploy 하면 켜져요 (없으면 예시 기록·코드 쓰기·재생만)"}
-          </li>
-          <li>
-            📊 오늘 체험 AI: {info.remaining === null ? "확인하지 못함" : `${info.limit - info.remaining}번 씀 · ${info.remaining}번 남음`} (사이트 전체 하루{" "}
-            {info.limit}번, TRY_AI_DAILY_LIMIT)
-          </li>
-        </ul>
+        <div className="flex flex-col gap-2 rounded-lg border border-line px-4 py-3">
+          <div className="flex items-center gap-3">
+            <p className="font-bold">🤖 체험 AI</p>
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                info.aiOn && info.codeSet && info.aiReady ? "bg-green-100 text-green-800" : "bg-page text-muted"
+              }`}
+            >
+              {!info.aiOn ? "꺼 둠" : info.codeSet && info.aiReady ? "켜짐" : "준비 안 됨"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={info.aiOn}
+              aria-label="체험 AI 켜기"
+              disabled={pending}
+              onClick={() => toggleAi(!info.aiOn)}
+              className={`relative ml-auto h-7 w-12 rounded-full transition-colors disabled:opacity-50 ${info.aiOn ? "bg-green-600" : "bg-gray-300"}`}
+            >
+              <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${info.aiOn ? "left-6" : "left-1"}`} />
+            </button>
+          </div>
+          <p className="text-sm leading-6 text-muted">
+            체험 코드를 넣은 사람이 AI 도우미·되돌아보기·연습 문제를 진짜 AI로 써요. <b>끄면</b> 다시 배포하지 않아도 바로 막히고, 이미 코드를 넣은 브라우저도
+            함께 막혀요(다시 켜면 코드를 새로 넣어야 해요). 체험 페이지의 코드 쓰기·재생·예시 기록은 그대로 보여요.
+          </p>
+          <ul className="flex flex-col gap-1 text-sm">
+            {!info.aiReady && <li>⚠️ AI 키(ANTHROPIC_API_KEY)가 없어 쓸 수 없어요.</li>}
+            {!info.codeSet && (
+              <li>⚠️ 체험 코드가 없어요. Vercel → Settings → Environment Variables에 TRY_ACCESS_CODE를 넣고 Redeploy 하면 쓸 수 있어요.</li>
+            )}
+            <li>
+              📊 오늘 체험 AI: {info.remaining === null ? "확인하지 못함" : `${info.limit - info.remaining}번 씀 · ${info.remaining}번 남음`} (사이트 전체 하루{" "}
+              {info.limit}번)
+            </li>
+          </ul>
+        </div>
       )}
       {error && <p className="text-sm text-danger">{error}</p>}
     </section>

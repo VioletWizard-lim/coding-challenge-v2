@@ -67,18 +67,36 @@ export async function trialUsageSince(sinceIso: string): Promise<(Usage & { crea
 const VISIBLE_KEY = "try_page";
 
 /**
- * 체험 페이지를 열어 두었는지. 관리자가 🛠 관리자 페이지에서 켜고 끈다(기본: 숨김 — 심사 기간에만 열기).
- * 숨기면 첫 화면의 체험 버튼이 사라지고, /try는 "지금은 열려 있지 않아요"(관리자는 미리 보기), 체험 AI도 막힌다.
+ * 체험 페이지 설정 (app_status의 try_page 한 줄, 관리자가 🛠 관리자 → 🧪 체험 페이지에서 바꿈)
+ * - visible: 체험 페이지를 열어 두었는지 (기본 숨김 — 심사 기간에만). 숨기면 첫 화면 버튼이 사라지고 /try는 "열려 있지 않아요"(관리자는 미리 보기)
+ * - aiOn: 체험 AI를 쓰게 할지 (기본 켬). 끄면 다시 배포하지 않아도 체험 AI가 바로 막힘
+ * - epoch: 체험 AI를 끌 때마다 1씩 늘림 → 체험 코드 쿠키에 함께 묶여, 끈 뒤에는 예전에 코드를 넣은 브라우저도 다시 넣어야 함
  */
-export async function isTrialVisible(): Promise<boolean> {
+export type TrialSettings = { visible: boolean; aiOn: boolean; epoch: number };
+
+export async function getTrialSettings(): Promise<TrialSettings> {
   const { data, error } = await db().from("app_status").select("value").eq("key", VISIBLE_KEY).maybeSingle();
-  if (error) return false;
-  return (data?.value as { visible?: unknown } | null)?.visible === true;
+  const v = (error ? null : data?.value) as Partial<TrialSettings> | null;
+  return { visible: v?.visible === true, aiOn: v?.aiOn !== false, epoch: Number(v?.epoch) || 0 };
+}
+
+export async function isTrialVisible(): Promise<boolean> {
+  return (await getTrialSettings()).visible;
+}
+
+async function saveSettings(next: TrialSettings, by: string) {
+  const { error } = await db()
+    .from("app_status")
+    .upsert({ key: VISIBLE_KEY, value: { ...next, by, at: new Date().toISOString() }, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  if (error) throw new Error(`체험 페이지 설정 저장 실패: ${error.message}`);
 }
 
 export async function setTrialVisible(visible: boolean, by: string): Promise<void> {
-  const { error } = await db()
-    .from("app_status")
-    .upsert({ key: VISIBLE_KEY, value: { visible, by, at: new Date().toISOString() }, updated_at: new Date().toISOString() }, { onConflict: "key" });
-  if (error) throw new Error(`체험 페이지 설정 저장 실패: ${error.message}`);
+  await saveSettings({ ...(await getTrialSettings()), visible }, by);
+}
+
+/** 체험 AI 켜기/끄기. 끌 때는 epoch를 늘려 이미 코드를 넣은 브라우저도 막는다 */
+export async function setTrialAi(aiOn: boolean, by: string): Promise<void> {
+  const cur = await getTrialSettings();
+  await saveSettings({ ...cur, aiOn, epoch: aiOn ? cur.epoch : cur.epoch + 1 }, by);
 }

@@ -10,7 +10,7 @@ import { runPythonTests } from "@/lib/pyRunner";
 import { validEntries } from "@/lib/replay";
 import { getSession, grantTrial, hasTrial, openTrialProblem, sealTrialProblem } from "@/lib/session";
 import { findTrialProblem, trialCodeMatches, trialLimit, TRIAL_SUBJECT } from "@/lib/trial";
-import { isTrialVisible, recordTrialUsage, takeTrialTurn, trialRemaining } from "@/lib/trialStore";
+import { getTrialSettings, recordTrialUsage, takeTrialTurn, trialRemaining } from "@/lib/trialStore";
 
 /*
  * 🧪 체험 페이지(/try) 서버 기능. 로그인 없이 쓰므로:
@@ -35,17 +35,24 @@ export type TrialStatus = {
 };
 
 /** 체험 페이지를 볼 수 있는지: 관리자가 열어 두었거나, 관리자 계정으로 미리 보기 */
-async function access(): Promise<{ open: boolean; preview: boolean }> {
-  const [visible, session] = await Promise.all([isTrialVisible().catch(() => false), getSession()]);
-  return { open: visible, preview: !visible && session?.role === "admin" };
+async function access(): Promise<{ open: boolean; preview: boolean; aiOn: boolean; epoch: number }> {
+  const [settings, session] = await Promise.all([
+    getTrialSettings().catch(() => ({ visible: false, aiOn: false, epoch: 0 })),
+    getSession(),
+  ]);
+  return { open: settings.visible, preview: !settings.visible && session?.role === "admin", aiOn: settings.aiOn, epoch: settings.epoch };
 }
+
+/** 체험 AI를 켤 수 있는지: 체험 코드·AI 키가 있고, 관리자가 체험 AI를 꺼 두지 않았는지 */
+const aiEnabled = (a: { aiOn: boolean }) => a.aiOn && !!process.env.TRY_ACCESS_CODE?.trim() && !!process.env.ANTHROPIC_API_KEY;
 
 /** 체험 AI를 쓸 수 있는지 (페이지가 열렸는지, 코드를 정했는지, 이 브라우저가 코드를 넣었는지, 오늘 남은 횟수) */
 export async function trialStatus(): Promise<TrialStatus> {
-  const { open, preview } = await access();
+  const a = await access();
+  const { open, preview } = a;
   if (!open && !preview) return { open, preview, enabled: false, unlocked: false, remaining: 0, limit: trialLimit() };
-  const enabled = !!process.env.TRY_ACCESS_CODE?.trim() && !!process.env.ANTHROPIC_API_KEY;
-  const unlocked = enabled && (await hasTrial());
+  const enabled = aiEnabled(a);
+  const unlocked = enabled && (await hasTrial(a.epoch));
   let remaining = 0;
   if (unlocked) {
     try {
@@ -61,9 +68,9 @@ export async function trialStatus(): Promise<TrialStatus> {
 export async function unlockTrial(code: string): Promise<{ ok: true; status: TrialStatus } | { ok: false; error: string }> {
   const a = await access();
   if (!a.open && !a.preview) return { ok: false, error: "지금은 체험 페이지가 열려 있지 않아요." };
-  if (!process.env.TRY_ACCESS_CODE?.trim()) return { ok: false, error: "현재 체험용 AI는 사용하지 않도록 설정되어 있습니다." };
+  if (!aiEnabled(a)) return { ok: false, error: "현재 체험용 AI는 사용하지 않도록 설정되어 있습니다." };
   if (!trialCodeMatches(code)) return { ok: false, error: "체험 코드가 맞지 않습니다. 접속 안내문의 코드를 다시 확인해 주세요." };
-  await grantTrial();
+  await grantTrial(a.epoch);
   return { ok: true, status: await trialStatus() };
 }
 
@@ -91,7 +98,8 @@ async function check(input: Rec): Promise<{ ok: true; problemText: string; solut
 async function gateAi(): Promise<string | null> {
   const a = await access();
   if (!a.open && !a.preview) return "지금은 체험 페이지가 열려 있지 않아요.";
-  if (!(await hasTrial())) return "체험 코드를 먼저 넣어 주세요.";
+  if (!aiEnabled(a)) return "현재 체험용 AI는 사용하지 않도록 설정되어 있습니다.";
+  if (!(await hasTrial(a.epoch))) return "체험 코드를 먼저 넣어 주세요.";
   return null;
 }
 
