@@ -40,8 +40,8 @@ export default function TeacherDashboard({
           <h2 className="text-2xl font-black">{name}님, 안녕하세요! 👋</h2>
           <p className="text-muted">{dayFormat.format(new Date(`${data.today}T00:00:00Z`))} · 오늘 수업을 한눈에 봐요.</p>
         </div>
-        {/* 바로 가기: 한 줄로 (좁은 화면에서는 옆으로 밀어서 봄) */}
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {/* 바로 가기: 작게 만들어 보통 한 줄에 들어가게. 안 들어가면 스크롤 막대 없이 다음 줄로 */}
+        <div className="flex flex-wrap gap-1.5">
         {[
           // 왼쪽 메뉴와 같은 순서
           ["📚 문제 관리", "problems"],
@@ -56,7 +56,7 @@ export default function TeacherDashboard({
             key={tab}
             type="button"
             onClick={() => showTab(tab)}
-            className="shrink-0 whitespace-nowrap rounded-lg border border-line bg-white px-3 py-2 text-sm font-bold hover:border-brand hover:text-brand"
+            className="whitespace-nowrap rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm font-bold hover:border-brand hover:text-brand"
           >
             {label} →
             {tab === "student-problems" && !!data.studentPending && (
