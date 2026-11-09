@@ -5,6 +5,7 @@ import { listTeachers } from "@/lib/teacher";
 import AiUsageCard from "../teacher/AiUsageCard";
 import HealthCard from "../teacher/HealthCard";
 import TeacherAccounts from "./TeacherAccounts";
+import YearEndPanel from "./YearEndPanel";
 
 /** 🛠 관리자 페이지: 관리자(role=admin) 계정만. 교사 계정 관리, 서비스 상태 */
 export default function AdminPage() {
@@ -36,6 +37,7 @@ async function AdminHome() {
         <Suspense fallback={null}>
           <AiUsageCard />
         </Suspense>
+        <YearEndPanel />
       </div>
     </>
   );
