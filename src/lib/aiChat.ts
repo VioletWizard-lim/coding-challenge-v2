@@ -205,3 +205,19 @@ export function usageByModel(rows: Usage[]) {
   }
   return [...groups.entries()].map(([model, list]) => ({ model, count: list.length, ...estimateCost(list) }));
 }
+
+/**
+ * 교사 열람 화면에서 AI 대화의 순간을 재생으로 잇기: 대화가 어디서 나왔는지.
+ * "P12" = 연습 문제 12, "S7" = 학생이 만든 문제 7, 그 밖은 수업 문제(제출을 찾아야 함)
+ */
+export function chatSource(problem: string): { kind: "practice" | "student-problem"; id: number } | { kind: "class" } {
+  const m = /^([PS])(\d+)$/.exec(problem);
+  if (!m) return { kind: "class" };
+  return { kind: m[1] === "P" ? "practice" : "student-problem", id: Number(m[2]) };
+}
+
+/** 이 작성 기록 안에 이 시각의 도움 요청 [ms, "q"]가 있는지 (그 대화가 이 제출을 쓰는 중에 나왔는지) */
+export function hasAskAt(log: unknown, at: number): boolean {
+  if (!Array.isArray(log)) return false;
+  return log.some((e) => Array.isArray(e) && e.length === 2 && e[1] === "q" && typeof e[0] === "number" && Math.abs(e[0] - at) <= 1000);
+}

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatSource,
+  hasAskAt,
   dailyLimit,
   dropUnknownRefs,
   estimateCost,
@@ -146,5 +148,21 @@ describe("연습 문제: 참고 답안으로도 정답 알려 주기 검사", ()
 
   it("지울 때도 참고 답안 줄을 지운다", () => {
     expect(stripAnswerCode("`print('남은 돈:', str(money - spent) + '원')` 이렇게요", own, solution)).toBe("(이 부분은 직접 고쳐 보세요) 이렇게요");
+  });
+});
+
+describe("교사 열람: 대화를 재생으로 잇기", () => {
+  it("문제 키로 어디서 나온 대화인지 안다", () => {
+    expect(chatSource("P12")).toEqual({ kind: "practice", id: 12 });
+    expect(chatSource("S7")).toEqual({ kind: "student-problem", id: 7 });
+    expect(chatSource("2-3")).toEqual({ kind: "class" });
+    expect(chatSource("P")).toEqual({ kind: "class" });
+  });
+  it("기록 안의 도움 요청 시각으로 그 제출인지 확인한다", () => {
+    const log = [[1000, "i", 0, 0, 0, 0, "a"], [5000, "q"], [9000, "r:ok"]];
+    expect(hasAskAt(log, 5000)).toBe(true);
+    expect(hasAskAt(log, 5800)).toBe(true);
+    expect(hasAskAt(log, 9000)).toBe(false);
+    expect(hasAskAt(null, 5000)).toBe(false);
   });
 });

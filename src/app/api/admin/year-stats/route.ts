@@ -1,11 +1,11 @@
 import { getSession } from "@/lib/session";
-import { statsCsv } from "@/lib/yearEnd";
+import { mergeStatRows, statsCsv } from "@/lib/yearEnd";
 import { computeYearStats, listYearStats } from "@/lib/yearEndStore";
 
 export const maxDuration = 300;
 
 /**
- * 학년도별 이름 없는 통계 CSV (관리자·교사). 남겨 둔 통계가 있으면 그것을, 없으면 지금 기록으로 계산해서.
+ * 학년도별 이름 없는 통계 CSV (관리자·교사). 지금 남은 기록으로 계산해 남겨 둔 통계(지운 반의 숫자)와 합쳐서 (📈 수업 효과 화면과 같은 숫자).
  * 이름·아이디는 담지 않는다 (월 × 과목 × 반의 숫자만).
  */
 export async function GET(request: Request) {
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   if (!Number.isInteger(year) || year < 2020 || year > 2100) return new Response("학년도를 고르세요.", { status: 400 });
   try {
     const saved = (await listYearStats()).years.find((y) => y.year === year);
-    const rows = saved?.rows ?? (await computeYearStats(year));
+    const rows = mergeStatRows(saved?.rows ?? [], await computeYearStats(year));
     const name = `${year}학년도_이름없는통계.csv`;
     return new Response("﻿" + statsCsv(rows), {
       headers: {

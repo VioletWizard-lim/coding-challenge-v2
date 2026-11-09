@@ -243,6 +243,14 @@ export function yearStats(input: StatInput): StatRow[] {
   return c.result();
 }
 
+/** 남겨 둔 통계에 새로 계산한 것을 합친다 (같은 월·과목·반 칸은 새 값으로, 지운 반의 칸은 남은 값 그대로) */
+export function mergeStatRows(before: StatRow[], fresh: StatRow[]): StatRow[] {
+  const key = (r: StatRow) => `${r.month}|${r.subject}|${r.cls}`;
+  const merged = new Map(before.map((r) => [key(r), r]));
+  for (const r of fresh) merged.set(key(r), r);
+  return [...merged.values()].sort((a, b) => a.month.localeCompare(b.month) || a.subject.localeCompare(b.subject) || a.cls.localeCompare(b.cls, "ko", { numeric: true }));
+}
+
 const HEAD: [keyof StatRow, string][] = [
   ["month", "월"],
   ["subject", "과목"],

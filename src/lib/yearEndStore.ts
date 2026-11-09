@@ -2,7 +2,7 @@ import "server-only";
 import { csvLine, kindOf, type BackupSchema } from "./backupCsv";
 import { db } from "./db";
 import { inClass } from "./classes";
-import { OMIT_COLUMNS, schoolYearRange, statsCsv, StatCollector, YEAR_TABLES, yearTable, keyOf, type StatRow, type YearTable } from "./yearEnd";
+import { mergeStatRows, OMIT_COLUMNS, schoolYearRange, statsCsv, StatCollector, YEAR_TABLES, yearTable, keyOf, type StatRow, type YearTable } from "./yearEnd";
 import { zipStream, type ZipEntry } from "./zip";
 
 /**
@@ -355,10 +355,7 @@ export class YearStatsNotReadyError extends Error {}
 export async function saveYearStats(year: number, fresh: StatRow[]): Promise<void> {
   // 이미 남긴 통계와 합친다: 반을 하나씩 지운 뒤 다시 계산해도 지운 반의 숫자가 사라지지 않게 (같은 칸은 새 값으로)
   const before = (await listYearStats()).years.find((y) => y.year === year)?.rows ?? [];
-  const key = (r: StatRow) => `${r.month}|${r.subject}|${r.cls}`;
-  const merged = new Map(before.map((r) => [key(r), r]));
-  for (const r of fresh) merged.set(key(r), r);
-  const rows = [...merged.values()].sort((a, b) => a.month.localeCompare(b.month) || a.subject.localeCompare(b.subject) || a.cls.localeCompare(b.cls, "ko", { numeric: true }));
+  const rows = mergeStatRows(before, fresh);
   const { error } = await db().from("year_stats").upsert({ school_year: year, rows, created_at: new Date().toISOString() });
   if (error && /year_stats/.test(error.message) && missing(error.message)) throw new YearStatsNotReadyError(error.message);
   if (error) throw new Error(`통계 저장 실패: ${error.message}`);

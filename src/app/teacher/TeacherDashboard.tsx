@@ -51,6 +51,7 @@ export default function TeacherDashboard({
           ["🧭 학생별 학습 여정", "journey"],
           ["💭 성찰 모아보기", "reflections"],
           ["🤖 AI 대화", "ai"],
+          ["📈 수업 효과", "effect"],
         ].map(([label, tab]) => (
           <button
             key={tab}

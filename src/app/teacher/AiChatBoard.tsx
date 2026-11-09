@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
+import Replayer from "@/components/Replayer";
 import { useStudentNav } from "@/components/SideTabs";
 import type { AiChat } from "@/lib/aiChat";
 import type { AiReview } from "@/lib/aiReview";
 import { levelLabel, type PracticeForTeacher } from "@/lib/practice";
+import type { Moment } from "@/lib/process-summary";
+import ReplaySection from "../student/ReplaySection";
 
 type Common = Pick<AiChat, "id" | "userId" | "subject" | "problem" | "createdAt" | "flaggedBy">;
 /** 목록 한 줄: AI 도우미 대화 또는 AI 되돌아보기 */
@@ -24,7 +27,7 @@ const pick = (x: Common): Common => ({
 });
 import { classOptions, inClass } from "@/lib/classes";
 import type { StudentRow } from "@/lib/teacher";
-import { flagAiChat, flagAiReview, flagPractice, loadAiChats } from "./actions";
+import { findChatReplay, flagAiChat, flagAiReview, flagPractice, loadAiChats, loadStudentReplay, type ChatReplay } from "./actions";
 
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
@@ -52,6 +55,9 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [reload, setReload] = useState(0);
+  /** 순간 버튼을 눌러 연 재생 (목록 한 줄에 하나) */
+  const [opened, setOpened] = useState<{ key: string; at: number; label: string } | null>(null);
+  const openMoment = (key: string) => (m: Moment) => setOpened({ key, at: m.at, label: m.label });
 
   useEffect(() => {
     startTransition(async () => {
@@ -147,7 +153,7 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
       </div>
       <p className="text-xs leading-5 text-muted">
         학생은 AI 도우미 창에 &ldquo;대화는 선생님도 볼 수 있어요&rdquo;라는 안내를 봐요. 부적절한 대화는 🚩로 표시해 두세요.
-        학생이 &lsquo;이상한 답 알리기&rsquo;를 누른 대화도 🚩로 보여요. ‹ › 안은 AI가 가리킨 작성 과정의 순간이에요.
+        학생이 &lsquo;이상한 답 알리기&rsquo;를 누른 대화도 🚩로 보여요. 파란 순간 버튼(⏪)을 누르면 그 순간의 작성 과정 재생이 열려요.
       </p>
 
       {error && <p className="text-sm text-danger">{error}</p>}
@@ -204,8 +210,9 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                     <b>질문</b> {c.chat.question}
                   </p>
                   <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
-                    <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c.chat} />
+                    <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c.chat} onMoment={openMoment(c.key)} />
                   </p>
+                  {opened?.key === c.key && <ChatReplayPanel chatId={c.chat.id} at={opened.at} label={opened.label} onClose={() => setOpened(null)} />}
                 </>
               ) : (
                 <div className="flex flex-col gap-1.5 text-sm">
@@ -218,7 +225,9 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                     <div key={i} className="grid gap-1 rounded-lg border border-line px-3 py-2">
                       <p className="leading-6">
                         <b className="text-violet-700">질문 {i + 1}</b>
-                        {q.moment && <span className="text-blue-800"> ‹{q.moment.label}›</span>}{" "}
+                        {q.moment && (
+                          <MomentButton moment={q.moment} onClick={openMoment(c.key)} />
+                        )}{" "}
                         <AiAnswer chat={{ answer: q.question, moments: [] }} />
                       </p>
                       <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
@@ -226,6 +235,11 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                       </p>
                     </div>
                   ))}
+                  {opened?.key === c.key && (
+                    <ReplayFrame label={opened.label} onClose={() => setOpened(null)}>
+                      <ReplaySection key={opened.at} submissionId={c.review.submissionId} loader={loadStudentReplay} startAt={opened.at} noteRole="teacher" autoStart />
+                    </ReplayFrame>
+                  )}
                 </div>
               )}
             </li>
@@ -278,5 +292,57 @@ function PracticeItem({ p }: { p: PracticeForTeacher }) {
         )}
       </details>
     </div>
+  );
+}
+
+function MomentButton({ moment, onClick }: { moment: Moment; onClick: (m: Moment) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(moment)}
+      title="눌러서 이 순간의 재생 보기"
+      className="mx-0.5 inline-flex items-center gap-1 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 align-baseline text-sm font-medium text-blue-800 hover:bg-blue-100"
+    >
+      ⏪ {moment.label}
+    </button>
+  );
+}
+
+/** 순간 버튼으로 연 재생을 감싸는 틀 (어느 순간인지, 닫기) */
+function ReplayFrame({ label, onClose, children }: { label: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50/30 p-3">
+      <div className="flex items-center gap-2 text-sm">
+        <b className="text-blue-800">⏪ {label}</b>
+        <span className="text-muted">의 순간부터 재생해요</span>
+        <button type="button" onClick={onClose} className="ml-auto rounded-lg border border-line bg-white px-2 py-1 text-xs hover:bg-page">
+          재생 닫기
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** AI 도우미 대화의 순간 → 그 대화가 들어간 제출(수업 문제) 또는 풀이 기록(연습·학생이 만든 문제)의 재생 */
+function ChatReplayPanel({ chatId, at, label, onClose }: { chatId: number; at: number; label: string; onClose: () => void }) {
+  const [found, setFound] = useState<{ chatId: number; result: ChatReplay } | null>(null);
+  useEffect(() => {
+    if (found?.chatId === chatId) return; // 같은 대화의 다른 순간은 다시 찾지 않는다
+    findChatReplay(chatId).then((result) => setFound({ chatId, result }));
+  }, [chatId, found?.chatId]);
+  const r = found?.chatId === chatId ? found.result : null;
+  return (
+    <ReplayFrame label={label} onClose={onClose}>
+      {!r ? (
+        <p className="text-sm text-muted">기록을 찾는 중…</p>
+      ) : !r.ok ? (
+        <p className="text-sm text-muted">{r.error}</p>
+      ) : r.kind === "submission" ? (
+        <ReplaySection key={at} submissionId={r.submissionId} loader={loadStudentReplay} startAt={at} noteRole="teacher" autoStart />
+      ) : (
+        <Replayer key={at} init={r.data.init} code={r.data.code} log={r.data.log} chats={r.data.chats} startAt={at} />
+      )}
+    </ReplayFrame>
   );
 }

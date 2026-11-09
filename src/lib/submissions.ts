@@ -306,3 +306,22 @@ export async function submittedSince(owner: Owner, subject: string, problem: str
   );
   return rows.some(f.mine);
 }
+
+/**
+ * 이 학생이 이 시각 뒤에 낸 이 문제의 제출 번호 (먼저 낸 것부터, 몇 개만).
+ * 교사 열람 화면에서 작성 중에 나온 AI 대화가 어느 제출의 기록에 들어갔는지 찾을 때 쓴다(아이디가 있는 v2 제출만).
+ */
+export async function submissionIdsAfter(userId: string, subject: string, problem: string, sinceIso: string, limit = 5): Promise<number[]> {
+  if (!(await hasUserIdColumn())) return [];
+  const { data, error } = await db()
+    .from("submissions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("subject", subject)
+    .eq("problem", problem)
+    .gte("submitted_at", sinceIso)
+    .order("submitted_at", { ascending: true })
+    .limit(limit);
+  if (error) throw new Error(`제출 조회 실패: ${error.message}`);
+  return (data ?? []).map((r) => Number(r.id));
+}
