@@ -13,6 +13,7 @@ import ClassStats from "./ClassStats";
 import { pendingBySubject } from "@/lib/gradingStore";
 import RubricSettings from "./RubricSettings";
 import PracticeSettingsPanel from "./PracticeSettings";
+import AiSettingsPanel from "./AiSettingsPanel";
 import { compareNumber } from "@/lib/problemBank";
 import AiUsageCard from "./AiUsageCard";
 import HealthCard from "./HealthCard";
@@ -157,6 +158,7 @@ async function TeacherHome() {
             label: "⚙️ 설정",
             content: (
               <div className="mx-auto flex max-w-4xl flex-col gap-5">
+                <AiSettingsPanel />
                 <RubricSettings />
                 <PracticeSettingsPanel />
               </div>

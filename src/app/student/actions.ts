@@ -20,6 +20,8 @@ import { AiReviewsNotReadyError, countTodayReviews, getReview, insertReview, sav
 import { listAllProblems } from "@/lib/problemStore";
 import { asProblem, practiceKey } from "@/lib/practice";
 import { getPractice } from "@/lib/practiceStore";
+import { helperBlocked, reviewBlocked } from "@/lib/aiSettings";
+import { aiSettingsFor } from "@/lib/aiSettingsStore";
 import { classKeyOf, studentAsProblem, studentProblemKey } from "@/lib/studentProblem";
 import { solvableBy } from "@/lib/studentProblemStore";
 import { validEntries } from "@/lib/replay";
@@ -267,6 +269,11 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
       problemText = problemForAi(problem);
     }
 
+    // 선생님이 이 과목(또는 수업 문제의 단원)에서 AI 도우미를 꺼 두었는지
+    const ai = await aiSettingsFor(input.subject);
+    const blocked = helperBlocked(ai, input.problem);
+    if (blocked) return { ok: false, notReady: true, error: blocked };
+
     const limit = dailyLimit();
     const used = (await Promise.all([countTodayChats(session.id), countTodayReviews(session.id)])).reduce((a, b) => a + b, 0);
     if (used >= limit) {
@@ -283,6 +290,7 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
       processText: processSummaryText(summary),
       history: history.map((c) => ({ question: c.question, answer: c.answer })),
       question,
+      teacherNote: ai.note,
       leaks: (text) => leaksAnswer(text, ownCode, solution),
     });
     // 다시 받은 답에도 남아 있으면 코드 부분을 지워서 보여 준다 (마지막 안전장치)
@@ -322,6 +330,8 @@ export async function loadMyAiChats(subject: string, problem: string): Promise<C
   const session = await getSession();
   if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
   try {
+    const blocked = helperBlocked(await aiSettingsFor(String(subject)), String(problem));
+    if (blocked) return { ok: false, notReady: true, error: blocked };
     const limit = dailyLimit();
     const [chats, usedChats, usedReviews] = await Promise.all([
       listChatsForProblem(session.id, String(subject), String(problem)),
@@ -385,6 +395,9 @@ export async function startMyReview(submissionId: number): Promise<ReviewResult>
     if (!existing.ready) return { ok: false, notReady: true, error: "선생님이 AI 되돌아보기를 준비하고 있어요." };
     if (existing.review) return { ok: true, review: existing.review };
     if (validEntries(found.log).length < 2) return { ok: false, error: "작성 과정 기록이 없는 제출이라 되돌아볼 수 없어요." };
+    const ai = await aiSettingsFor(found.owner.subject);
+    const blocked = reviewBlocked(ai);
+    if (blocked) return { ok: false, error: blocked };
 
     const limit = dailyLimit();
     const used = (await Promise.all([countTodayChats(session.id), countTodayReviews(session.id)])).reduce((a, b) => a + b, 0);
@@ -398,6 +411,7 @@ export async function startMyReview(submissionId: number): Promise<ReviewResult>
       problemText: problem ? problemForAi(problem) : `${found.owner.problem}번 문제`,
       processText: processSummaryText(summary),
       finalCode: found.code,
+      teacherNote: ai.note,
     });
     const { intro, questions } = toReview(draft.raw, summary.moments);
     if (questions.length < MIN_QUESTIONS) return { ok: false, error: "AI가 질문을 만들지 못했어요. 잠시 후 다시 눌러 주세요." };

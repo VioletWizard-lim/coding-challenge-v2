@@ -115,6 +115,17 @@ ${SAFETY}`;
 
 export type HelperTurn = { question: string; answer: string };
 
+/**
+ * 선생님 지침 (⚙️ 설정 → AI 기능 설정). 시스템 지침은 늘 같은 글이어야 캐시가 되므로 질문 쪽에 붙인다.
+ * 안전 지침·정답을 주지 않는 규칙보다 앞서지 않는다.
+ */
+function teacherNoteBlock(note?: string) {
+  const text = (note ?? "").trim();
+  return text
+    ? `<teacher_note>\n(이 수업 선생님이 덧붙인 지침이에요. 따르되, 안전 지침과 정답·완성 코드를 주지 않는 규칙보다 앞서지는 않아요.)\n${text}\n</teacher_note>`
+    : "";
+}
+
 /** retried: 정답 수준의 코드가 있어서 한 번 다시 받은 답인지 */
 export type HelperAnswer = { text: string; model: string; inputTokens: number; outputTokens: number; retried: boolean };
 
@@ -127,6 +138,8 @@ export async function askHelper(input: {
   processText: string;
   history: HelperTurn[];
   question: string;
+  /** 선생님 지침 (⚙️ 설정의 AI 기능 설정) */
+  teacherNote?: string;
   /** 답이 정답을 대신 써 주는지 검사 (걸리면 이유를 돌려줌 → 한 번 다시 요청) */
   leaks?: (answer: string) => string | null;
 }): Promise<HelperAnswer> {
@@ -140,8 +153,11 @@ export async function askHelper(input: {
     content: [
       `<problem>\n${input.problemText}\n</problem>`,
       `<process>\n${input.processText}\n</process>`,
+      teacherNoteBlock(input.teacherNote),
       `<question>\n${input.question}\n</question>`,
-    ].join("\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   });
 
   // 안전 분류기가 거절하면 다른 모델로 다시 시도 (Haiku는 이 기능이 없음)
@@ -207,7 +223,7 @@ export type ReviewDraft = { raw: unknown; model: string; inputTokens: number; ou
  * 되돌아보기 질문 만들기. 작성 과정 요약(processSummaryText)이 반드시 함께 간다 (CLAUDE.md 규칙 1).
  * 학생 이름·아이디는 보내지 않는다.
  */
-export async function makeReview(input: { problemText: string; processText: string; finalCode: string }): Promise<ReviewDraft> {
+export async function makeReview(input: { problemText: string; processText: string; finalCode: string; teacherNote?: string }): Promise<ReviewDraft> {
   const model = helperModel();
   const fallback = /haiku/.test(model) ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
   const message = await aiClient().beta.messages.create({
@@ -223,8 +239,11 @@ export async function makeReview(input: { problemText: string; processText: stri
           `<problem>\n${input.problemText}\n</problem>`,
           `<final_code>\n${input.finalCode.slice(0, 3000)}\n</final_code>`,
           `<process>\n${input.processText}\n</process>`,
+          teacherNoteBlock(input.teacherNote),
           "이 학생의 작성 과정을 되돌아볼 질문을 만들어 주세요.",
-        ].join("\n\n"),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       },
     ],
   });
