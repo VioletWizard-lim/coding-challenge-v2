@@ -4,18 +4,17 @@
  * 정한 것 (2026-11):
  * - 학년도 = 3월 1일 ~ 다음 해 2월 말 (한국 시간). 지난 학년도의 학습 활동 기록은 다음 학년도 3월 1일부터 지울 수 있다
  * - 제출(submissions)·채점(submission_scores)은 평가 기록이라 지우지 않는다 (v1과 함께 쓰는 표이기도 함)
+ * - 연습 문제(practice_problems)·학생이 만든 문제(student_problems)도 학생의 결과물이라 지우지 않는다
  * - 지우기 전에 이름 없는 통계(반·월별 숫자)를 남겨 보고서·연구에 쓴다
  */
 import { countFixedErrors, kstDate } from "./journey";
 import { gradeClassFor } from "./problems";
 import { analyzeLog } from "./replay";
 
-/** 학년도 정리 때 지우는 표 (제출·채점·계정·문제·설정은 남김). date: 학년도를 가르는 날짜 칸 */
+/** 학년도 정리 때 지우는 표 (제출·채점·연습 문제·학생이 만든 문제·계정·문제·설정은 남김). date: 학년도를 가르는 날짜 칸 */
 export const CLEANUP_TABLES = [
   { table: "ai_chats", date: "created_at", label: "AI 도우미 대화" },
   { table: "ai_reviews", date: "created_at", label: "AI 되돌아보기" },
-  { table: "practice_problems", date: "created_at", label: "연습 문제와 푼 기록" },
-  { table: "student_problems", date: "created_at", label: "학생이 만든 문제 (친구가 푼 기록 포함)" },
   { table: "reflections", date: "class_date", label: "오늘의 성찰" },
   { table: "timeline_notes", date: "created_at", label: "타임라인 메모·피드백" },
   { table: "replay_views", date: "watched_at", label: "재생을 끝까지 본 기록" },

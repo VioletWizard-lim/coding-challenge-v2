@@ -52,3 +52,14 @@ describe("이름 없는 통계", () => {
     expect(csv).not.toMatch(/s1|zz/);
   });
 });
+
+describe("지우는 표", () => {
+  it("제출·채점·연습 문제·학생이 만든 문제는 지우지 않는다", async () => {
+    const { CLEANUP_TABLES } = await import("./yearEnd");
+    const tables = CLEANUP_TABLES.map((t) => t.table as string);
+    for (const keep of ["submissions", "submission_scores", "practice_problems", "student_problems", "student_problem_attempts", "users", "problems"]) {
+      expect(tables).not.toContain(keep);
+    }
+    expect(tables).toEqual(["ai_chats", "ai_reviews", "reflections", "timeline_notes", "replay_views", "grading_drafts"]);
+  });
+});

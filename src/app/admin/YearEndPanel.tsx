@@ -8,8 +8,8 @@ const dateFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", ye
 
 /**
  * 🗓 학년도 말 정리 (관리자). 순서: ① 백업 내려받기 → ② 이름 없는 통계 남기기 → ③ 지우기(확인 문구).
- * 지우는 것: AI 대화·되돌아보기·연습·학생이 만든 문제·성찰·메모·재생 기록·AI 채점 초안.
- * 남기는 것: 제출(코드·설명·작성 기록·점수·피드백)과 채점 기록, 계정, 문제, 설정.
+ * 지우는 것: AI 대화·되돌아보기·성찰·메모·재생 기록·AI 채점 초안.
+ * 남기는 것: 제출(코드·설명·작성 기록·점수·피드백)과 채점 기록, 연습 문제, 학생이 만든 문제, 계정, 문제, 설정.
  */
 export default function YearEndPanel() {
   const current = schoolYearOf(new Date());
@@ -45,7 +45,7 @@ export default function YearEndPanel() {
         <h2 className="text-lg font-bold">🗓 학년도 말 정리</h2>
         <p className="mt-1 text-sm leading-6 text-muted">
           안내 페이지에 적은 대로 학습 활동 기록은 <b>그 학년도가 끝나는 다음 해 2월 말까지</b> 보관해요. 3월 1일부터 지난 학년도 기록을 지울 수
-          있어요. <b>제출(코드·설명·작성 기록·점수·피드백)과 채점 기록은 평가 기록이라 지우지 않아요.</b> 지우기 전에 백업과 이름 없는 통계를 꼭
+          있어요. <b>제출(코드·설명·작성 기록·점수·피드백)·채점 기록과 연습 문제·학생이 만든 문제는 학생의 결과물이라 지우지 않아요.</b> 지우기 전에 백업과 이름 없는 통계를 꼭
           남겨 주세요.
         </p>
       </div>
@@ -83,7 +83,7 @@ export default function YearEndPanel() {
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-xs text-muted">남는 것: 제출과 점수·피드백, 채점 기준, 학생·교사 계정, 문제, 설정</p>
+            <p className="mt-2 text-xs text-muted">남는 것: 제출과 점수·피드백, 연습 문제, 학생이 만든 문제, 채점 기준, 학생·교사 계정, 문제, 설정</p>
           </div>
 
           <ol className="flex flex-col gap-3">
@@ -150,7 +150,7 @@ export default function YearEndPanel() {
                         const r = await cleanYear(year, phrase);
                         if (!r.ok) return setMessage(r.message);
                         const n = r.deleted.reduce((s, d) => s + (d.deleted ?? 0), 0);
-                        setMessage(`${year}학년도 학습 활동 기록 ${n.toLocaleString()}건을 지웠어요. 제출과 점수는 그대로예요.`);
+                        setMessage(`${year}학년도 학습 활동 기록 ${n.toLocaleString()}건을 지웠어요. 제출·점수·연습 문제·학생이 만든 문제는 그대로예요.`);
                         setPhrase("");
                         setReload((k) => k + 1);
                       })

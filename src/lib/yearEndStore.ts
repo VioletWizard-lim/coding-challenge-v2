@@ -4,7 +4,7 @@ import { CLEANUP_TABLES, schoolYearRange, StatCollector, type CleanupTable, type
 
 /**
  * 학년도 말 정리 (관리자): 지울 기록 수 세기, 백업 내려받기, 이름 없는 통계 남기기, 지우기.
- * 제출(submissions)·채점(submission_scores)·계정·문제·설정은 건드리지 않는다.
+ * 제출(submissions)·채점(submission_scores)·연습 문제·학생이 만든 문제·계정·문제·설정은 건드리지 않는다.
  */
 
 const missing = (message: string) => /(does not exist|schema cache|not find)/i.test(message);
@@ -64,17 +64,6 @@ export function backupStream(year: number): ReadableStream<Uint8Array> {
               first = false;
             }
           });
-          // 학생이 만든 문제를 친구가 푼 기록 (문제를 지우면 함께 지워짐)
-          if (table === "student_problems") {
-            controller.enqueue(enc.encode(`],"student_problem_attempts":[`));
-            let firstAttempt = true;
-            await eachPage("student_problem_attempts", "created_at", year, "*", (rows) => {
-              for (const r of rows) {
-                controller.enqueue(enc.encode(`${firstAttempt ? "" : ","}${JSON.stringify(r)}`));
-                firstAttempt = false;
-              }
-            });
-          }
           controller.enqueue(enc.encode("]"));
         }
         controller.enqueue(enc.encode("}}"));
