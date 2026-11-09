@@ -210,3 +210,10 @@ export async function chatsForReplay(owner: ReplayOwner, log: unknown): Promise<
   const times = events.map((e) => e[0]);
   return listChatsForReplay(owner.userId, owner.subject, owner.problem, Math.min(...times), Math.max(...times));
 }
+
+/** 대화 하나 (교사 열람 화면에서 재생으로 이을 때) */
+export async function getChat(id: number): Promise<AiChat | null> {
+  const { data, error } = await db().from("ai_chats").select("*").eq("id", id).maybeSingle<ChatRow>();
+  check(error, "AI 대화 조회 실패");
+  return data ? fromRow(data) : null;
+}

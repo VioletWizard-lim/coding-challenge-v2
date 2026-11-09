@@ -25,12 +25,13 @@ import {
   setWrongReason,
   type GradingFilter,
 } from "@/lib/gradingStore";
-import type { AiChat } from "@/lib/aiChat";
-import { chatsForReplay, listChatsSince, setChatFlag } from "@/lib/aiChatStore";
+import { chatSource, hasAskAt, type AiChat } from "@/lib/aiChat";
+import { chatsForReplay, getChat, listChatsSince, setChatFlag } from "@/lib/aiChatStore";
+import type { HelpChat } from "@/lib/helpTrail";
 import type { AiReview } from "@/lib/aiReview";
 import { getReview, listReviewsSince, setReviewFlag } from "@/lib/aiReviewStore";
 import { normalizeSettings, practiceLimit, type PracticeForTeacher, type PracticeSettings } from "@/lib/practice";
-import { getPracticeSettings, listPracticeSince, PracticeNotReadyError, savePracticeSettings, setPracticeFlag } from "@/lib/practiceStore";
+import { getPractice, getPracticeSettings, listPracticeSince, PracticeNotReadyError, savePracticeSettings, setPracticeFlag } from "@/lib/practiceStore";
 import { compareNumber, isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
@@ -40,14 +41,14 @@ import { listWatched } from "@/lib/replayViewStore";
 import { MAX_AI_NOTE, normalizeAiSettings, unitOfProblem, type AiSettings } from "@/lib/aiSettings";
 import { AiSettingsNotReadyError, getAiSettings, saveAiSettings } from "@/lib/aiSettingsStore";
 import type { StudentProblemForTeacher } from "@/lib/studentProblem";
-import { listForTeacher, reviewStudentProblem, setStudentProblemFlag } from "@/lib/studentProblemStore";
+import { getAttempt, listForTeacher, reviewStudentProblem, setStudentProblemFlag } from "@/lib/studentProblemStore";
 import { createDeleteRequest, DeleteRequestsNotReadyError, listDeleteRequests, setRequestStatus, type DeleteRequest } from "@/lib/deleteRequestStore";
 import { computeAchievements, unitProblemsOf, type AchievementStatus } from "@/lib/achievements";
 import { buildJourney, type Journey } from "@/lib/journey";
 import { allowedSubjects, SUBJECTS } from "@/lib/problems";
 import type { Reflection } from "@/lib/reflection";
 import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore";
-import { getMyJourneyData, getReplayDataById, submissionExists } from "@/lib/submissions";
+import { getMyJourneyData, getReplayDataById, submissionExists, submissionIdsAfter, type ReplayData } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote } from "@/lib/timelineNotes";
 import { countNotes, deleteNote, insertNote, listMyNotes, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 import type { NoteResult, ReplayResult } from "../student/actions";
@@ -455,6 +456,40 @@ export async function loadAiChats(days: number): Promise<TeacherChatsResult> {
   } catch (err) {
     console.error("AI 대화 열람 오류:", err);
     return { ok: false, message: "AI 대화를 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** AI 대화의 순간 버튼을 누르면 열 재생: 수업 문제는 그 대화가 들어간 제출, 연습·학생이 만든 문제는 그 풀이 기록 */
+export type ChatReplay =
+  | { ok: true; kind: "submission"; submissionId: number }
+  | { ok: true; kind: "work"; data: ReplayData & { chats: HelpChat[] } }
+  | { ok: false; error: string };
+
+export async function findChatReplay(chatId: number): Promise<ChatReplay> {
+  if (!(await isTeacher())) return { ok: false, error: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const chat = await getChat(Number(chatId));
+    if (!chat) return { ok: false, error: "대화를 찾지 못했어요." };
+    const source = chatSource(chat.problem);
+    if (source.kind === "class") {
+      // 작성 중에 물어본 대화 → 그 뒤에 낸 제출 중 기록에 이 도움 요청이 들어 있는 것
+      const ids = chat.at === null ? [] : await submissionIdsAfter(chat.userId, chat.subject, chat.problem, chat.createdAt);
+      for (const id of ids) {
+        const found = await getReplayDataById(id);
+        if (found && hasAskAt(found.log, chat.at as number)) return { ok: true, kind: "submission", submissionId: id };
+      }
+      return { ok: false, error: "이 대화가 들어간 제출이 없어요(아직 제출하지 않았거나, 처음부터 다시 써서 낸 경우)." };
+    }
+    const work =
+      source.kind === "practice"
+        ? await getPractice(source.id, chat.userId).then((p) => (p && p.code !== null ? { init: p.initCode ?? "", code: p.code, log: p.log } : null))
+        : await getAttempt(source.id, chat.userId);
+    if (!work) return { ok: false, error: "풀이 기록을 찾지 못했어요." };
+    const chats = await chatsForReplay({ userId: chat.userId, subject: chat.subject, problem: chat.problem }, work.log);
+    return { ok: true, kind: "work", data: { ...work, chats } };
+  } catch (err) {
+    console.error("AI 대화 재생 찾기 오류:", err);
+    return { ok: false, error: "기록을 불러오지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
 
