@@ -22,6 +22,8 @@ import ReflectionBoard from "./ReflectionBoard";
 import StudentImport from "./StudentImport";
 import StudentJourney from "./StudentJourney";
 import StudentManager from "./StudentManager";
+import StudentProblemReview from "./StudentProblemReview";
+import { countPendingStudentProblems } from "@/lib/studentProblemStore";
 
 export default function TeacherPage() {
   return (
@@ -83,6 +85,11 @@ async function TeacherHome() {
                 <Suspense fallback={<p className="text-muted">문제 불러오는 중…</p>}>
                   <Problems />
                 </Suspense>
+                <div className="mt-5">
+                  <Suspense fallback={<p className="text-muted">학생이 만든 문제 불러오는 중…</p>}>
+                    <StudentProblems />
+                  </Suspense>
+                </div>
               </div>
             ),
           },
@@ -190,8 +197,8 @@ async function Problems() {
 async function Dashboard({ name, teacherId }: { name: string; teacherId: string }) {
   let data;
   try {
-    const [{ problems }, days] = await Promise.all([listAllProblems(), listReflectionDays()]);
-    data = await getTeacherHome(problems, days.days);
+    const [{ problems }, days, studentPending] = await Promise.all([listAllProblems(), listReflectionDays(), countPendingStudentProblems()]);
+    data = { ...(await getTeacherHome(problems, days.days)), studentPending };
   } catch (err) {
     console.error(err);
     return <p className="text-danger">오늘 수업 현황을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
@@ -231,6 +238,17 @@ async function Grading() {
     console.error(err);
   }
   return <GradingBoard subjects={Object.keys(SUBJECTS)} problems={problems} pending={pending} />;
+}
+
+async function StudentProblems() {
+  let students;
+  try {
+    students = await listStudents();
+  } catch (err) {
+    console.error(err);
+    return <p className="text-danger">학생 목록을 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>;
+  }
+  return <StudentProblemReview students={students} />;
 }
 
 async function AiChats() {

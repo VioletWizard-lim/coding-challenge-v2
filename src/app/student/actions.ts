@@ -20,12 +20,14 @@ import { AiReviewsNotReadyError, countTodayReviews, getReview, insertReview, sav
 import { listAllProblems } from "@/lib/problemStore";
 import { asProblem, practiceKey } from "@/lib/practice";
 import { getPractice } from "@/lib/practiceStore";
+import { classKeyOf, studentAsProblem, studentProblemKey } from "@/lib/studentProblem";
+import { solvableBy } from "@/lib/studentProblemStore";
 import { validEntries } from "@/lib/replay";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { saveAchievementsSeen } from "@/lib/achievementStore";
 import { getUserProfile } from "@/lib/auth";
 import { isValidLog } from "@/lib/editLog";
-import { allowedSubjects } from "@/lib/problems";
+import { allowedSubjects, gradeClassFor } from "@/lib/problems";
 import { findOpenProblem } from "@/lib/problemStore";
 import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
 import { saveTodayReflection } from "@/lib/reflectionStore";
@@ -210,6 +212,8 @@ export type AskInput = {
   at: number;
   /** 연습 문제에서 물을 때 (problem은 "P12" 같은 연습 문제 키) */
   practiceId?: number;
+  /** 학생이 만든 문제에서 물을 때 (problem은 "S7" 같은 키) */
+  studentProblemId?: number;
 };
 
 export type AskResult =
@@ -247,6 +251,16 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
       }
       problemText = problemForAi(asProblem(practice));
       solution = practice.solution;
+    } else if (input.studentProblemId !== undefined) {
+      const classKeys = Object.fromEntries(
+        allowedSubjects(profile.subjects).map((s) => [s, classKeyOf(gradeClassFor(profile, s))]),
+      );
+      const own = await solvableBy(Number(input.studentProblemId), session.id, classKeys);
+      if (!own || own.subject !== input.subject || studentProblemKey(own.id) !== input.problem) {
+        return { ok: false, error: "문제를 찾지 못했어요." };
+      }
+      problemText = problemForAi(studentAsProblem(own));
+      solution = own.solution;
     } else {
       const problem = await findOpenProblem(input.subject, input.problem);
       if (!problem) return { ok: false, error: "아직 공개되지 않았거나 없는 문제예요." };
