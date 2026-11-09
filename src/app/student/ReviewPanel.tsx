@@ -6,6 +6,21 @@ import { canFollowUp, MAX_REVIEW_ANSWER, type AiReview } from "@/lib/aiReview";
 import { flagAiReview } from "../teacher/actions";
 import { askReviewFollowUp, flagMyReview, saveMyReviewAnswers, startMyReview } from "./actions";
 
+type Result = { ok: true; review: AiReview } | { ok: false; error: string };
+
+/**
+ * 되돌아보기가 쓰는 서버 기능. 기본은 제출에 저장하는 학생 기능,
+ * 체험 페이지(/try)는 저장하지 않는 체험용을 넘긴다 (flag가 없으면 알리기 버튼을 숨김).
+ */
+export type ReviewBackend = {
+  start: () => Promise<Result>;
+  save: (answers: string[], follows: string[]) => Promise<Result>;
+  followUp: (index: number) => Promise<Result>;
+  flag?: (reviewId: number) => Promise<{ ok: boolean; error?: string }>;
+  /** 저장했을 때 안내 (기본: "선생님도 볼 수 있어요") */
+  savedText?: string;
+};
+
 /**
  * AI 되돌아보기 (재생기 아래). 학생: 질문을 받고 답을 적는다. 교사: 질문과 학생 답을 읽고 🚩 표시한다.
  * 질문마다 AI가 짚은 순간 버튼이 있어 누르면 재생기가 그 시점으로 간다.
@@ -17,7 +32,9 @@ export default function ReviewPanel({
   ready,
   initial,
   seek,
+  backend: custom,
 }: {
+  backend?: ReviewBackend;
   submissionId: number;
   role: "student" | "teacher";
   /** false면 011 실행 전 */
@@ -33,6 +50,12 @@ export default function ReviewPanel({
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [pending, startTransition] = useTransition();
   const [flagged, setFlagged] = useState(initial?.flaggedBy ?? null);
+  const backend: ReviewBackend = custom ?? {
+    start: () => startMyReview(submissionId),
+    save: (a, f) => saveMyReviewAnswers(submissionId, a, f),
+    followUp: (i) => askReviewFollowUp(submissionId, i),
+    flag: flagMyReview, // 교사 화면의 표시는 아래 flag()에서 flagAiReview로
+  };
 
   if (role === "teacher" && !review) return null;
   if (!ready) {
@@ -42,7 +65,7 @@ export default function ReviewPanel({
   function start() {
     setMessage(null);
     startTransition(async () => {
-      const r = await startMyReview(submissionId);
+      const r = await backend.start();
       if (!r.ok) return setMessage({ text: r.error, ok: false });
       setReview(r.review);
       setAnswers(r.review.questions.map((q) => q.answer));
@@ -54,7 +77,7 @@ export default function ReviewPanel({
     setMessage(null);
     setAsking(i);
     startTransition(async () => {
-      const r = await askReviewFollowUp(submissionId, i);
+      const r = await backend.followUp(i);
       setAsking(null);
       if (!r.ok) return setMessage({ text: r.error, ok: false });
       setReview(r.review);
@@ -66,18 +89,18 @@ export default function ReviewPanel({
   function save() {
     setMessage(null);
     startTransition(async () => {
-      const r = await saveMyReviewAnswers(submissionId, answers, follows);
+      const r = await backend.save(answers, follows);
       if (!r.ok) return setMessage({ text: r.error, ok: false });
       setReview(r.review);
-      setMessage({ text: "✅ 내 답을 저장했어요. 선생님도 볼 수 있어요.", ok: true });
+      setMessage({ text: backend.savedText ?? "✅ 내 답을 저장했어요. 선생님도 볼 수 있어요.", ok: true });
     });
   }
 
   function flag() {
     if (!review) return;
     if (role === "student") {
-      if (!confirm("이 질문이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
-      flagMyReview(review.id).then((r) => (r.ok ? setFlagged("student") : setMessage({ text: r.error ?? "알리지 못했어요.", ok: false })));
+      if (!backend.flag || !confirm("이 질문이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
+      backend.flag(review.id).then((r) => (r.ok ? setFlagged("student") : setMessage({ text: r.error ?? "알리지 못했어요.", ok: false })));
     } else {
       const next = !flagged;
       flagAiReview(review.id, next).then((r) =>
@@ -127,7 +150,7 @@ export default function ReviewPanel({
         <button
           type="button"
           onClick={flag}
-          disabled={role === "student" && !!flagged}
+          disabled={!backend.flag || (role === "student" && !!flagged)}
           className="ml-auto text-xs text-muted hover:text-danger disabled:hidden"
         >
           {role === "student" ? "🚩 이상한 질문 알리기" : flagged ? "표시 풀기" : "🚩 부적절한 내용으로 표시"}

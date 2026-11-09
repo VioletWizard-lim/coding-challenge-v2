@@ -9,6 +9,22 @@ import type { Recording } from "@/lib/editLog";
 import type { Moment } from "@/lib/process-summary";
 import { askAiHelper, flagMyAiChat, loadMyAiChats } from "./actions";
 
+/**
+ * 도우미가 쓰는 서버 기능. 기본은 학생 기능(저장·하루 한도·🚩 알리기),
+ * 체험 페이지(/try)는 저장하지 않는 체험용을 넘긴다 (flag가 없으면 알리기 버튼을 숨김).
+ */
+export type HelperBackend = {
+  load: () => Promise<{ ok: true; chats: AiChat[]; remaining: number; limit: number } | { ok: false; error: string }>;
+  ask: (input: { question: string; init: string; log: unknown; at: number }) => Promise<
+    { ok: true; chat: AiChat; remaining: number } | { ok: false; error: string; remaining?: number; notReady?: boolean }
+  >;
+  flag?: (id: number) => Promise<{ ok: boolean; error?: string }>;
+  /** 안내 문구 바꾸기 (체험: "대화는 저장하지 않아요") */
+  note?: React.ReactNode;
+  /** 남은 횟수 앞 글자 (기본 "오늘 남은 질문") */
+  remainingLabel?: string;
+};
+
 /** 자주 묻는 질문 (눌러서 바로 쓰기) */
 const STARTERS = ["오류가 왜 나는지 모르겠어요", "어디서부터 고쳐야 할까요?", "다음에 무엇을 해야 할지 모르겠어요"];
 
@@ -33,7 +49,9 @@ export default function AiHelper({
   onClose,
   practiceId,
   studentProblemId,
+  backend: custom,
 }: {
+  backend?: HelperBackend;
   subject: string;
   problem: string;
   /** 연습 문제에서 열었을 때 (problem은 "P12" 같은 연습 문제 키) */
@@ -53,10 +71,15 @@ export default function AiHelper({
   const [replay, setReplay] = useState<{ rec: Recording; at: number; label: string } | null>(null);
   const [flagged, setFlagged] = useState<Set<number>>(new Set());
   const listEnd = useRef<HTMLDivElement>(null);
+  const backend: HelperBackend = custom ?? {
+    load: () => loadMyAiChats(subject, problem),
+    ask: (x) => askAiHelper({ subject, problem, ...x, practiceId, studentProblemId }),
+    flag: flagMyAiChat,
+  };
 
   useEffect(() => {
     let alive = true;
-    loadMyAiChats(subject, problem).then((r) => {
+    backend.load().then((r) => {
       if (!alive) return;
       if (!r.ok) return setNotice(r.error);
       setNotice(null);
@@ -68,6 +91,7 @@ export default function AiHelper({
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 문제가 바뀔 때만 다시 불러온다
   }, [subject, problem]);
 
   useEffect(() => {
@@ -83,7 +107,7 @@ export default function AiHelper({
     const at = recorder.current?.addMark("q") ?? Date.now();
     setError(null);
     startTransition(async () => {
-      const r = await askAiHelper({ subject, problem, question: q, init: rec.init, log: rec.log, at, practiceId, studentProblemId });
+      const r = await backend.ask({ question: q, init: rec.init, log: rec.log, at });
       if (r.remaining !== undefined) setRemaining(r.remaining);
       if (!r.ok) {
         if (r.notReady) setNotice(r.error);
@@ -102,8 +126,8 @@ export default function AiHelper({
   }
 
   function flag(id: number) {
-    if (!confirm("이 답이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
-    flagMyAiChat(id).then((r) => {
+    if (!backend.flag || !confirm("이 답이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
+    backend.flag(id).then((r) => {
       if (r.ok) setFlagged((prev) => new Set(prev).add(id));
       else setError(r.error ?? "알리지 못했어요.");
     });
@@ -120,7 +144,7 @@ export default function AiHelper({
         <h2 className="font-bold">🤖 AI 도우미</h2>
         {remaining !== null && limit !== null && (
           <span className="rounded-full bg-page px-2 py-0.5 text-xs text-muted" title="하루에 물어볼 수 있는 횟수">
-            오늘 남은 질문 {remaining}/{limit}
+            {backend.remainingLabel ?? "오늘 남은 질문"} {remaining}/{limit}
           </span>
         )}
         <button type="button" onClick={onClose} className="ml-auto text-sm text-muted hover:text-ink" aria-label="AI 도우미 닫기">
@@ -128,6 +152,8 @@ export default function AiHelper({
         </button>
       </div>
       <p className="text-xs leading-5 text-muted">
+        {backend.note ?? (
+          <>
         AI는 <b>내가 코드를 써 온 과정</b>(실행에 성공한 순간, 반복된 오류, 오래 멈춘 곳)을 보고 힌트를 줘요. 정답 코드는
         알려 주지 않아요. 파란 버튼을 누르면 그 순간의 재생을 볼 수 있어요. 대화는 선생님도 볼 수 있어요. 이름·학번은 AI에
         보내지 않아요 (
@@ -135,6 +161,8 @@ export default function AiHelper({
           AI 이용 안내
         </a>
         ).
+          </>
+        )}
       </p>
 
       {notice ? (
@@ -151,7 +179,7 @@ export default function AiHelper({
                 <div className="flex flex-col gap-1 rounded-xl rounded-bl-sm border border-line bg-page px-3 py-2 text-sm">
                   <span className="text-xs font-bold text-blue-700">🤖 AI가 만든 답변입니다</span>
                   <Answer chat={c} onMoment={openMoment} />
-                  <div className="flex justify-end">
+                  <div className={backend.flag ? "flex justify-end" : "hidden"}>
                     {flagged.has(c.id) ? (
                       <span className="text-xs text-muted">🚩 선생님께 알렸어요</span>
                     ) : (

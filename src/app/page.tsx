@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { getSession, homeFor } from "@/lib/session";
@@ -23,6 +24,12 @@ export default function Home() {
         <LoginForm />
       </div>
       <p className="mt-4 text-center text-xs text-muted">계정은 선생님이 만들어 줘요. 비밀번호를 잊었으면 선생님께 말씀하세요.</p>
+      <Link
+        href="/try"
+        className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-800 hover:bg-violet-100"
+      >
+        🧪 로그인 없이 체험해 보기 →
+      </Link>
       <Suspense>
         <RedirectIfLoggedIn />
       </Suspense>
