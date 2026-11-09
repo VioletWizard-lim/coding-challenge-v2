@@ -123,7 +123,12 @@ export default function AiHelper({
       </div>
       <p className="text-xs leading-5 text-muted">
         AI는 <b>내가 코드를 써 온 과정</b>(실행에 성공한 순간, 반복된 오류, 오래 멈춘 곳)을 보고 힌트를 줘요. 정답 코드는
-        알려 주지 않아요. 파란 버튼을 누르면 그 순간의 재생을 볼 수 있어요. 대화는 선생님도 볼 수 있어요.
+        알려 주지 않아요. 파란 버튼을 누르면 그 순간의 재생을 볼 수 있어요. 대화는 선생님도 볼 수 있어요. 이름·학번은 AI에
+        보내지 않아요 (
+        <a href="/privacy" target="_blank" className="underline hover:text-brand">
+          AI 이용 안내
+        </a>
+        ).
       </p>
 
       {notice ? (
