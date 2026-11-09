@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  helpOwnTime,
   computeAchievements,
   earnedKeys,
   firstFixTime,
@@ -171,5 +172,28 @@ describe("연습 업적 (칭찬만)", () => {
     const list = computeAchievements([], [], {});
     expect(get(list, "first_practice").steps[0].earned).toBeNull();
     expect(get(list, "practice_steady").current).toBe(0);
+  });
+});
+
+describe("도움 활용·나를 보는 눈", () => {
+  const typed = (t: number) => [t, "i", 0, 0, 0, 0, "x"];
+  const pasted = (t: number) => [t, "p", 0, 0, 0, 0, "print(x)"];
+
+  it("AI에 물은 뒤 붙여넣기 없이 성공하면 그 순간", () => {
+    expect(helpOwnTime([[1, "r:NameError"], [2, "q"], typed(3), [4, "r:ok"]])).toBe(4);
+  });
+
+  it("물은 뒤 붙여넣고 성공하면 아님, 다음 질문 뒤 스스로 성공하면 그때", () => {
+    expect(helpOwnTime([[2, "q"], pasted(3), [4, "r:ok"]])).toBeNull();
+    expect(helpOwnTime([[2, "q"], pasted(3), [4, "r:ok"], [5, "q"], typed(6), [7, "r:ok"]])).toBe(7);
+    expect(helpOwnTime([typed(1), [2, "r:ok"]])).toBeNull();
+  });
+
+  it("끝까지 본 재생 중 가장 먼저 본 것", () => {
+    const list = computeAchievements([], [], {}, [], [], [
+      { submissionId: 9, watchedAt: "2026-11-05T00:00:00Z" },
+      { submissionId: 8, watchedAt: "2026-11-03T00:00:00Z" },
+    ]);
+    expect(list.find((a) => a.code === "self_watch")!.steps[0].earned?.earnedAt).toBe("2026-11-03T00:00:00Z");
   });
 });
