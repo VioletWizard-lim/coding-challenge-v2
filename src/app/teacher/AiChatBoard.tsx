@@ -8,6 +8,7 @@ import type { AiChat } from "@/lib/aiChat";
 import type { AiReview } from "@/lib/aiReview";
 import { levelLabel, type PracticeForTeacher } from "@/lib/practice";
 import type { Moment } from "@/lib/process-summary";
+import { filterKind, groupByStudent, kindCounts, snippet, type KindFilter } from "@/lib/aiChatView";
 import ReplaySection from "../student/ReplaySection";
 
 type Common = Pick<AiChat, "id" | "userId" | "subject" | "problem" | "createdAt" | "flaggedBy">;
@@ -50,7 +51,19 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   const [days, setDays] = useState(7);
   const [picked, setPicked] = useState("");
   const [studentId, setStudentId] = useState("");
-  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  /** 1. 종류: 전체 / 도우미 / 되돌아보기 / 연습 문제 / 🚩 */
+  const [kind, setKind] = useState<KindFilter>("all");
+  /** 3. 학생·문제별로 묶어 보기 / 시간순 */
+  const [view, setView] = useState<"group" | "time">("group");
+  /** 2. 펼친 줄 */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const [data, setData] = useState<{ ready: boolean; chats: AiChat[]; reviews: AiReview[]; practice: PracticeForTeacher[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -76,12 +89,20 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   const all: Item[] = [
     ...(data?.chats ?? []).map((c) => ({ type: "chat" as const, key: `c${c.id}`, ...pick(c), chat: c })),
     ...(data?.reviews ?? []).map((r) => ({ type: "review" as const, key: `r${r.id}`, ...pick(r), review: r })),
-    ...(data?.practice ?? []).map((p) => ({ type: "practice" as const, key: `p${p.id}`, ...pick({ ...p, problem: "" }), practice: p })),
+    ...(data?.practice ?? []).map((p) => ({ type: "practice" as const, key: `p${p.id}`, ...pick({ ...p, problem: `P${p.id}` }), practice: p })),
   ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const chats = all.filter(
-    (c) => (!picked || ids.has(c.userId)) && (!studentId || c.userId === studentId) && (!flaggedOnly || c.flaggedBy),
-  );
-  const flaggedCount = all.filter((c) => c.flaggedBy).length;
+  const scoped = all.filter((c) => (!picked || ids.has(c.userId)) && (!studentId || c.userId === studentId));
+  const counts = kindCounts(scoped);
+  const chats = filterKind(scoped, kind);
+  const groups = useMemo(() => (view === "group" ? groupByStudent(chats) : []), [view, chats]);
+  // 연습 문제 키("P12") → 제목 (도우미 대화 묶음 제목에 씀)
+  const practiceTitles = useMemo(() => new Map((data?.practice ?? []).map((p) => [`P${p.id}`, p.title])), [data]);
+  const topicLabel = (subject: string, problem: string) =>
+    practiceTitles.has(problem) ? `🧪 연습 · ${practiceTitles.get(problem)}` : problemLabel(subject, problem);
+  const who = (userId: string) => {
+    const st = byId.get(userId);
+    return st?.name && st.name !== userId ? `${userId} ${st.name}` : userId;
+  };
 
   function toggleFlag(item: Item) {
     const next = !item.flaggedBy;
@@ -100,6 +121,69 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
       );
     });
   }
+
+  /** 펼쳤을 때 보이는 내용: 대화 전체, 순간 버튼 → 재생, 🚩 표시 */
+  const body = (c: Item) => (
+    <div className="flex flex-col gap-2 pt-1">
+        {c.type === "practice" ? (
+          <PracticeItem p={c.practice} />
+        ) : c.type === "chat" ? (
+          <>
+            <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
+              <b>질문</b> {c.chat.question}
+            </p>
+            <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
+              <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c.chat} onMoment={openMoment(c.key)} />
+            </p>
+            {opened?.key === c.key && <ChatReplayPanel chatId={c.chat.id} at={opened.at} label={opened.label} onClose={() => setOpened(null)} />}
+          </>
+        ) : (
+          <div className="flex flex-col gap-1.5 text-sm">
+            {c.review.intro && (
+              <p className="rounded-lg bg-page px-3 py-2 leading-6">
+                <b className="text-blue-700">🤖 AI</b> <AiAnswer chat={{ answer: c.review.intro, moments: [] }} />
+              </p>
+            )}
+            {c.review.questions.map((q, i) => (
+              <div key={i} className="grid gap-1 rounded-lg border border-line px-3 py-2">
+                <p className="leading-6">
+                  <b className="text-violet-700">질문 {i + 1}</b>
+                  {q.moment && (
+                    <MomentButton moment={q.moment} onClick={openMoment(c.key)} />
+                  )}{" "}
+                  <AiAnswer chat={{ answer: q.question, moments: [] }} />
+                </p>
+                <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
+                  <b>학생 답</b> {q.answer || <span className="text-muted">(아직 안 씀)</span>}
+                </p>
+                {q.followUp && (
+                  <div className="ml-3 grid gap-1 border-l-2 border-violet-200 pl-3">
+                    <p className="leading-6">
+                      <b className="text-violet-700">🤖 이어서</b>{" "}
+                      <AiAnswer chat={{ answer: q.followUp.reply, moments: q.followUp.moments }} onMoment={openMoment(c.key)} />{" "}
+                      <AiAnswer chat={{ answer: q.followUp.question, moments: q.followUp.moments }} onMoment={openMoment(c.key)} />
+                    </p>
+                    <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
+                      <b>학생 답</b> {q.followUp.answer || <span className="text-muted">(아직 안 씀)</span>}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+            {opened?.key === c.key && (
+              <ReplayFrame label={opened.label} onClose={() => setOpened(null)}>
+                <ReplaySection key={opened.at} submissionId={c.review.submissionId} loader={loadStudentReplay} startAt={opened.at} noteRole="teacher" autoStart />
+              </ReplayFrame>
+            )}
+          </div>
+        )}
+      <div className="flex justify-end">
+        <button type="button" onClick={() => toggleFlag(c)} className="rounded-lg border border-line px-2 py-1 text-xs hover:bg-page">
+          {c.flaggedBy ? "표시 풀기" : "🚩 부적절한 내용으로 표시"}
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5">
@@ -139,10 +223,6 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
             </option>
           ))}
         </select>
-        <label className="flex items-center gap-1.5 text-sm">
-          <input type="checkbox" checked={flaggedOnly} onChange={(e) => setFlaggedOnly(e.target.checked)} />
-          🚩 표시된 대화만 ({flaggedCount})
-        </label>
         <button
           type="button"
           onClick={() => setReload((n) => n + 1)}
@@ -164,100 +244,108 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
         </p>
       )}
       {data?.ready && (
-        <p className="text-sm text-muted">{pending ? "불러오는 중…" : `${chats.length}개 (도우미 대화·되돌아보기·연습 문제)`}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="tablist" aria-label="대화 종류" className="flex flex-wrap gap-1.5">
+            {(
+              [
+                ["all", "전체"],
+                ["chat", "🤖 도우미"],
+                ["review", "🔁 되돌아보기"],
+                ["practice", "🧪 연습 문제"],
+                ["flagged", "🚩 표시된 것"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={kind === id}
+                onClick={() => setKind(id)}
+                className={`rounded-full border px-3 py-1 text-sm ${
+                  kind === id ? "border-brand bg-brand-soft font-bold text-brand" : "border-line text-muted hover:text-ink"
+                } ${id === "flagged" && counts.flagged ? "text-rose-700" : ""}`}
+              >
+                {label} {counts[id]}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-1 rounded-lg border border-line p-0.5 text-sm" role="group" aria-label="보기 방식">
+            {(
+              [
+                ["group", "👥 학생·문제별"],
+                ["time", "🕒 시간순"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={view === id}
+                onClick={() => setView(id)}
+                className={`rounded-md px-2.5 py-1 ${view === id ? "bg-brand text-white" : "text-muted hover:text-ink"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setExpanded(expanded.size ? new Set() : new Set(chats.map((c) => c.key)))}
+            className="rounded-lg border border-line px-2.5 py-1 text-sm text-muted hover:bg-page"
+          >
+            {expanded.size ? "모두 접기" : "모두 펼치기"}
+          </button>
+        </div>
       )}
-      <ul className={`flex flex-col gap-3 ${pending ? "opacity-50" : ""}`}>
-        {chats.map((c) => {
-          const s = byId.get(c.userId);
-          return (
-            <li
-              key={c.key}
-              className={`flex flex-col gap-2 rounded-lg border px-4 py-3 ${c.flaggedBy ? "border-rose-300 bg-rose-50/40" : "border-line"}`}
-            >
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                <span className="font-bold">
-                  {c.userId}
-                  {s?.name && s.name !== c.userId && ` ${s.name}`}
+      {pending && <p className="text-sm text-muted">불러오는 중…</p>}
+
+      {view === "time" ? (
+        <ul className={`flex flex-col divide-y divide-line rounded-lg border border-line ${pending ? "opacity-50" : ""} ${chats.length ? "" : "hidden"}`}>
+          {chats.map((c) => (
+            <Row key={c.key} item={c} showWho={who(c.userId)} topic={topicLabel(c.subject, c.problem)} open={expanded.has(c.key)} onToggle={() => toggle(c.key)}>
+              {body(c)}
+            </Row>
+          ))}
+        </ul>
+      ) : (
+        <div className={`flex flex-col gap-3 ${pending ? "opacity-50" : ""}`}>
+          {groups.map((g) => (
+            <section key={g.userId} className="rounded-lg border border-line">
+              <h3 className="flex flex-wrap items-baseline gap-2 border-b border-line bg-page px-4 py-2">
+                <span className="font-bold">{who(g.userId)}</span>
+                <span className="text-sm text-muted">
+                  {g.count}개 · 최근 {timeFormat.format(new Date(g.latest))}
                 </span>
-                <span className="text-muted">
-                  {c.subject} {c.type === "practice" ? `연습 · ${c.practice.title}` : problemLabel(c.subject, c.problem)}
-                </span>
-                <span className="text-muted tabular-nums">{timeFormat.format(new Date(c.createdAt))}</span>
-                {c.type === "review" && (
-                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-700">🔁 되돌아보기</span>
-                )}
-                {c.type === "practice" && (
-                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">🧪 연습 문제</span>
-                )}
-                {c.flaggedBy && (
-                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">
-                    🚩 {c.flaggedBy === "student" ? "학생이 알림" : "교사 표시"}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => toggleFlag(c)}
-                  className="ml-auto rounded-lg border border-line px-2 py-1 text-xs hover:bg-page"
-                >
-                  {c.flaggedBy ? "표시 풀기" : "🚩 부적절한 내용으로 표시"}
-                </button>
-              </div>
-              {c.type === "practice" ? (
-                <PracticeItem p={c.practice} />
-              ) : c.type === "chat" ? (
-                <>
-                  <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
-                    <b>질문</b> {c.chat.question}
+                {g.flagged > 0 && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">🚩 {g.flagged}</span>}
+              </h3>
+              {g.topics.map((t) => (
+                <div key={t.key} className="border-b border-line last:border-b-0">
+                  <p className="px-4 pt-2 text-sm font-bold text-ink">
+                    {t.subject} {topicLabel(t.subject, t.problem)}
+                    <span className="ml-2 font-normal text-muted">
+                      {[
+                        ["chat", "🤖 질문"],
+                        ["review", "🔁 되돌아보기"],
+                        ["practice", "🧪 문제"],
+                      ]
+                        .map(([type, label]) => [label, t.items.filter((x) => x.type === type).length] as const)
+                        .filter(([, n]) => n)
+                        .map(([label, n]) => `${label} ${n}`)
+                        .join(" · ")}
+                    </span>
                   </p>
-                  <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
-                    <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c.chat} onMoment={openMoment(c.key)} />
-                  </p>
-                  {opened?.key === c.key && <ChatReplayPanel chatId={c.chat.id} at={opened.at} label={opened.label} onClose={() => setOpened(null)} />}
-                </>
-              ) : (
-                <div className="flex flex-col gap-1.5 text-sm">
-                  {c.review.intro && (
-                    <p className="rounded-lg bg-page px-3 py-2 leading-6">
-                      <b className="text-blue-700">🤖 AI</b> <AiAnswer chat={{ answer: c.review.intro, moments: [] }} />
-                    </p>
-                  )}
-                  {c.review.questions.map((q, i) => (
-                    <div key={i} className="grid gap-1 rounded-lg border border-line px-3 py-2">
-                      <p className="leading-6">
-                        <b className="text-violet-700">질문 {i + 1}</b>
-                        {q.moment && (
-                          <MomentButton moment={q.moment} onClick={openMoment(c.key)} />
-                        )}{" "}
-                        <AiAnswer chat={{ answer: q.question, moments: [] }} />
-                      </p>
-                      <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
-                        <b>학생 답</b> {q.answer || <span className="text-muted">(아직 안 씀)</span>}
-                      </p>
-                      {q.followUp && (
-                        <div className="ml-3 grid gap-1 border-l-2 border-violet-200 pl-3">
-                          <p className="leading-6">
-                            <b className="text-violet-700">🤖 이어서</b>{" "}
-                            <AiAnswer chat={{ answer: q.followUp.reply, moments: q.followUp.moments }} onMoment={openMoment(c.key)} />{" "}
-                            <AiAnswer chat={{ answer: q.followUp.question, moments: q.followUp.moments }} onMoment={openMoment(c.key)} />
-                          </p>
-                          <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
-                            <b>학생 답</b> {q.followUp.answer || <span className="text-muted">(아직 안 씀)</span>}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {opened?.key === c.key && (
-                    <ReplayFrame label={opened.label} onClose={() => setOpened(null)}>
-                      <ReplaySection key={opened.at} submissionId={c.review.submissionId} loader={loadStudentReplay} startAt={opened.at} noteRole="teacher" autoStart />
-                    </ReplayFrame>
-                  )}
+                  <ul className="flex flex-col pb-1">
+                    {t.items.map((c) => (
+                      <Row key={c.key} item={c} open={expanded.has(c.key)} onToggle={() => toggle(c.key)}>
+                        {body(c)}
+                      </Row>
+                    ))}
+                  </ul>
                 </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+              ))}
+            </section>
+          ))}
+        </div>
+      )}
       {data?.ready && !pending && chats.length === 0 && <p className="text-sm text-muted">이 조건의 AI 대화가 없어요.</p>}
     </section>
   );
@@ -356,5 +444,54 @@ function ChatReplayPanel({ chatId, at, label, onClose }: { chatId: number; at: n
         <Replayer key={at} init={r.data.init} code={r.data.code} log={r.data.log} chats={r.data.chats} startAt={at} />
       )}
     </ReplayFrame>
+  );
+}
+
+/** 2. 한 줄 목록: 종류·미리 보기·시각·🚩, 누르면 펼쳐서 전체 대화 */
+function Row({
+  item: c,
+  showWho,
+  topic,
+  open,
+  onToggle,
+  children,
+}: {
+  item: Item;
+  /** 시간순 보기에서만: 누구의, 어느 문제 */
+  showWho?: string;
+  topic?: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const icon = c.type === "chat" ? "🤖" : c.type === "review" ? "🔁" : "🧪";
+  const preview =
+    c.type === "chat"
+      ? `“${snippet(c.chat.question)}”`
+      : c.type === "review"
+        ? `되돌아보기 · 질문 ${c.review.questions.length}개, 학생 답 ${c.review.questions.filter((q) => q.answer.trim()).length}개${
+            c.review.questions.some((q) => q.followUp) ? " · 이어 묻기" : ""
+          }`
+        : `연습 문제 받음 · ${c.practice.title}${c.practice.solvedAt ? " · ✅ 통과" : ""}`;
+  return (
+    <li className={c.flaggedBy ? "bg-rose-50/50" : ""}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 px-4 py-1.5 text-left text-sm hover:bg-page"
+      >
+        <span className="w-4 shrink-0 text-muted">{open ? "▾" : "▸"}</span>
+        <span aria-hidden>{icon}</span>
+        {showWho && <span className="font-bold">{showWho}</span>}
+        {topic && <span className="text-muted">{c.subject} {topic}</span>}
+        <span className="min-w-0 flex-1 truncate">{preview}</span>
+        {c.flaggedBy && (
+          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">🚩 {c.flaggedBy === "student" ? "학생이 알림" : "교사 표시"}</span>
+        )}
+        <span className="shrink-0 text-xs text-muted tabular-nums">{timeFormat.format(new Date(c.createdAt))}</span>
+      </button>
+      {open && <div className="px-4 pb-3 pl-10">{children}</div>}
+    </li>
   );
 }
