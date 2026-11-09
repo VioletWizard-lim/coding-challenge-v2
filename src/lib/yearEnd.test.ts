@@ -53,13 +53,24 @@ describe("이름 없는 통계", () => {
   });
 });
 
-describe("지우는 표", () => {
-  it("제출·채점·연습 문제·학생이 만든 문제는 지우지 않는다", async () => {
-    const { CLEANUP_TABLES } = await import("./yearEnd");
-    const tables = CLEANUP_TABLES.map((t) => t.table as string);
-    for (const keep of ["submissions", "submission_scores", "practice_problems", "student_problems", "student_problem_attempts", "users", "problems"]) {
-      expect(tables).not.toContain(keep);
-    }
-    expect(tables).toEqual(["ai_chats", "ai_reviews", "reflections", "timeline_notes", "replay_views", "grading_drafts"]);
+describe("지우는 표·되살리기", () => {
+  it("학생 기록은 모두 들어 있고, 교사 계정·문제·설정·통계는 없다", async () => {
+    const { YEAR_TABLES } = await import("./yearEnd");
+    const tables = YEAR_TABLES.map((t) => t.table);
+    for (const t of ["users", "submissions", "submission_scores", "practice_problems", "student_problems", "ai_chats", "reflections", "timeline_notes"]) expect(tables).toContain(t);
+    for (const t of ["problems", "grading_rubrics", "practice_settings", "ai_settings", "year_stats", "app_status"]) expect(tables).not.toContain(t);
+    // 가리키는 표가 먼저 되살아나야 한다
+    for (const spec of YEAR_TABLES) for (const target of Object.values(spec.refs ?? {})) expect(tables.indexOf(target)).toBeLessThan(tables.indexOf(spec.table));
+  });
+
+  it("되살릴 때 새 번호로 바꾸고, 가리키는 기록이 없으면 넣지 않음, AI 대화의 P12·S7도", async () => {
+    const { remapRow, yearTable } = await import("./yearEnd");
+    const maps = { submissions: new Map([["10", 110]]), practice_problems: new Map([["12", 512]]), student_problems: new Map([["7", 307]]) };
+    expect(remapRow(yearTable("timeline_notes")!, { id: 1, submission_id: 10, note: "x" }, maps)).toEqual({ submission_id: 110, note: "x" });
+    expect(remapRow(yearTable("timeline_notes")!, { id: 1, submission_id: 99 }, maps)).toBeNull();
+    expect(remapRow(yearTable("ai_chats")!, { id: 3, problem: "P12" }, maps)).toEqual({ problem: "P512" });
+    expect(remapRow(yearTable("ai_chats")!, { id: 3, problem: "S7" }, maps)).toEqual({ problem: "S307" });
+    expect(remapRow(yearTable("ai_chats")!, { id: 3, problem: "2-3" }, maps)).toEqual({ problem: "2-3" });
+    expect(remapRow(yearTable("users")!, { id: "s1", name: "a" }, maps)).toEqual({ id: "s1", name: "a" });
   });
 });

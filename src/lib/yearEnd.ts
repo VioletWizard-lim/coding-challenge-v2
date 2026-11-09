@@ -1,27 +1,75 @@
 /**
- * 학년도 말 정리: 학년도 기간, 지울 표, 이름 없는 통계 계산. 순수 함수만 (DB는 yearEndStore.ts). 단위 테스트: yearEnd.test.ts
+ * 학년도 말 정리: 학년도 기간, 지우는 표, 이름 없는 통계 계산. 순수 함수만 (DB는 yearEndStore.ts). 단위 테스트: yearEnd.test.ts
  *
  * 정한 것 (2026-11):
- * - 학년도 = 3월 1일 ~ 다음 해 2월 말 (한국 시간). 지난 학년도의 학습 활동 기록은 다음 학년도 3월 1일부터 지울 수 있다
- * - 제출(submissions)·채점(submission_scores)은 평가 기록이라 지우지 않는다 (v1과 함께 쓰는 표이기도 함)
- * - 연습 문제(practice_problems)·학생이 만든 문제(student_problems)도 학생의 결과물이라 지우지 않는다
- * - 지우기 전에 이름 없는 통계(반·월별 숫자)를 남겨 보고서·연구에 쓴다
+ * - 학년도 = 3월 1일 ~ 다음 해 2월 말 (한국 시간). 지난 학년도 기록은 다음 학년도 3월 1일부터 지울 수 있다
+ * - 학년도가 끝나면 **학생 기록을 모두 지운다**: 제출·점수·피드백, 학생 계정, AI 대화·되돌아보기, 성찰, 메모, 연습 문제, 학생이 만든 문제
+ * - 남는 것: 교사·관리자 계정, 수업 문제, 채점 기준, 설정, 이름 없는 통계(year_stats)
+ * - 지우기 전에 전체를 CSV 묶음(ZIP)으로 받고, 그 파일로 되돌리거나(다시 넣기) 지난 기록을 다시 볼 수 있다
+ * - 제출·계정은 v1과 함께 쓰는 표이므로, v1을 읽기 전용으로 돌린 뒤(3월 전환 뒤)에 지운다
  */
 import { countFixedErrors, kstDate } from "./journey";
 import { gradeClassFor } from "./problems";
 import { analyzeLog } from "./replay";
 
-/** 학년도 정리 때 지우는 표 (제출·채점·연습 문제·학생이 만든 문제·계정·문제·설정은 남김). date: 학년도를 가르는 날짜 칸 */
-export const CLEANUP_TABLES = [
-  { table: "ai_chats", date: "created_at", label: "AI 도우미 대화" },
-  { table: "ai_reviews", date: "created_at", label: "AI 되돌아보기" },
-  { table: "reflections", date: "class_date", label: "오늘의 성찰" },
-  { table: "timeline_notes", date: "created_at", label: "타임라인 메모·피드백" },
-  { table: "replay_views", date: "watched_at", label: "재생을 끝까지 본 기록" },
-  { table: "grading_drafts", date: "created_at", label: "AI 채점 초안" },
-] as const;
+/**
+ * 학년도 정리에 들어가는 표. 순서 = 되살리는 순서 (지울 때는 거꾸로).
+ * by: 그 학년도 기록을 고르는 법 / id: 자동 번호 칸(되살릴 때 새 번호를 받고 다른 표의 참조를 바꿈)
+ * key: 되살릴 때 이미 있는지 보는 칸들 (두 번 올려도 겹치지 않게) / refs: 다른 표의 번호를 가리키는 칸
+ */
+export type YearTable = {
+  table: string;
+  label: string;
+  by: { date: string } | { submission: true } | { problem: true } | { users: true };
+  id?: boolean;
+  key: string[];
+  refs?: Record<string, string>;
+};
 
-export type CleanupTable = (typeof CLEANUP_TABLES)[number]["table"];
+export const YEAR_TABLES: YearTable[] = [
+  { table: "users", label: "학생 계정", by: { users: true }, key: ["id"] },
+  { table: "submissions", label: "제출 (코드·작성 기록·점수·피드백)", by: { date: "submitted_at" }, id: true, key: ["name", "submitted_at", "problem"] },
+  { table: "submission_scores", label: "영역별 점수 (채점 기준 사본)", by: { submission: true }, key: ["submission_id"], refs: { submission_id: "submissions" } },
+  { table: "grading_drafts", label: "AI 채점 초안", by: { submission: true }, id: true, key: ["submission_id", "created_at"], refs: { submission_id: "submissions" } },
+  { table: "ai_reviews", label: "AI 되돌아보기", by: { submission: true }, id: true, key: ["submission_id"], refs: { submission_id: "submissions" } },
+  { table: "timeline_notes", label: "타임라인 메모·피드백", by: { submission: true }, id: true, key: ["submission_id", "user_id", "created_at"], refs: { submission_id: "submissions" } },
+  { table: "replay_views", label: "재생을 끝까지 본 기록", by: { submission: true }, key: ["user_id", "submission_id"], refs: { submission_id: "submissions" } },
+  { table: "practice_problems", label: "연습 문제와 푼 기록", by: { date: "created_at" }, id: true, key: ["user_id", "created_at"] },
+  { table: "student_problems", label: "학생이 만든 문제", by: { date: "created_at" }, id: true, key: ["author_id", "created_at"] },
+  { table: "student_problem_attempts", label: "학생이 만든 문제를 푼 기록", by: { problem: true }, id: true, key: ["problem_id", "user_id"], refs: { problem_id: "student_problems" } },
+  { table: "ai_chats", label: "AI 도우미 대화", by: { date: "created_at" }, id: true, key: ["user_id", "created_at"] },
+  { table: "reflections", label: "오늘의 성찰", by: { date: "class_date" }, id: true, key: ["user_id", "subject", "class_date"] },
+];
+
+export const yearTable = (name: string) => YEAR_TABLES.find((t) => t.table === name);
+
+/** 백업에 넣지 않는 칸 (예전 사이트의 평문 비밀번호) */
+export const OMIT_COLUMNS: Record<string, string[]> = { users: ["password"] };
+
+/**
+ * 되살릴 때: 자동 번호를 새 번호로 바꾼다. maps: 표 → (예전 번호 → 새 번호)
+ * AI 대화의 problem "P12"(연습 문제)·"S7"(학생이 만든 문제)도 새 번호로 바꾼다
+ */
+export function remapRow(spec: YearTable, row: Record<string, unknown>, maps: Record<string, Map<string, number>>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = { ...row };
+  if (spec.id) delete out.id;
+  for (const [col, target] of Object.entries(spec.refs ?? {})) {
+    const next = maps[target]?.get(String(row[col]));
+    if (next === undefined) return null; // 가리키는 기록이 백업에 없으면 넣지 않는다
+    out[col] = next;
+  }
+  if (spec.table === "ai_chats" && typeof row.problem === "string") {
+    const m = /^([PS])(\d+)$/.exec(row.problem);
+    if (m) {
+      const next = maps[m[1] === "P" ? "practice_problems" : "student_problems"]?.get(m[2]);
+      if (next !== undefined) out.problem = `${m[1]}${next}`;
+    }
+  }
+  return out;
+}
+
+/** 되살릴 때 "같은 기록"인지 보는 열쇠 */
+export const keyOf = (spec: YearTable, row: Record<string, unknown>) => spec.key.map((k) => String(row[k] ?? "")).join("\u0001");
 
 /** 학년도 기간 (한국 시간): 그해 3월 1일 0시 ~ 다음 해 3월 1일 0시 전 */
 export function schoolYearRange(year: number): { from: string; to: string; fromDate: string; toDate: string } {
@@ -43,7 +91,13 @@ export function schoolYearOf(when: string | Date): number {
 export const canClean = (year: number, now = new Date()) => now >= new Date(schoolYearRange(year).to);
 
 /** 삭제 확인 문구 (관리자가 그대로 입력해야 지워짐) */
-export const confirmPhrase = (year: number) => `${year}학년도 삭제`;
+export const confirmPhrase = (year: number, cls = "") => `${year}학년도${cls ? ` ${classLabel(cls)}` : ""} 삭제`;
+
+/** 반 고르기 값 → 보이는 이름 ("class:2-3" → "2-3반", "prog:2-5" → "프로그래밍 2-5반") */
+export const classLabel = (cls: string) => {
+  const [kind, value] = cls.split(":");
+  return value ? `${kind === "prog" ? "프로그래밍 " : ""}${value}반` : "";
+};
 
 /* ───────── 이름 없는 통계 ───────── */
 
