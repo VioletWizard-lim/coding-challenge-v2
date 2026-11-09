@@ -1,6 +1,7 @@
 import "server-only";
 import { db, fetchAll, type RangeQuery } from "./db";
 import type { PracticeTest } from "./practice";
+import { schoolYearOf, schoolYearRange } from "./yearEnd";
 import type { ProblemStatus, Share, StudentProblem, StudentProblemForTeacher, StudentProblemInput } from "./studentProblem";
 
 type Row = {
@@ -104,6 +105,13 @@ function check(error: { message: string } | null, what: string) {
   throw new Error(`${what}: ${error.message}`);
 }
 
+/**
+ * "같은 반 친구" 문제는 이번 학년도에 만든 것만: 학년이 바뀌면 같은 "2-3반"이어도 다른 학생들이므로.
+ * 학생이 만든 문제는 학년도 말 정리에서 지우지 않고 남는다 (만든 학생은 지난 문제도 계속 봄).
+ */
+const thisYearStart = () => schoolYearRange(schoolYearOf(new Date())).from;
+const inThisYear = (createdAt: string) => new Date(createdAt) >= new Date(thisYearStart());
+
 const LIST_COLUMNS =
   "id, author_id, subject, class_key, title, description, conditions, starter_code, tests, share, status, review_note, flagged_by, created_at, updated_at";
 
@@ -148,10 +156,11 @@ export async function listForStudent(
             .eq("class_key", key)
             .eq("status", "approved")
             .neq("author_id", userId)
+            .gte("created_at", thisYearStart())
             .order("id", { ascending: false }) as unknown as RangeQuery<Row>,
         200,
       );
-      shared.push(...rows.filter((r) => r.author_id !== userId && r.status === "approved"));
+      shared.push(...rows.filter((r) => r.author_id !== userId && r.status === "approved" && inThisYear(r.created_at)));
     }
     const attempts = await attemptsOf(userId, [...mineRows, ...shared].map((r) => Number(r.id)));
     return {
@@ -179,7 +188,7 @@ export async function solvableBy(id: number, userId: string, classKeys: Record<s
   const p = await getStudentProblem(id);
   if (!p) return null;
   if (p.authorId === userId) return { ...p, mine: true };
-  return p.status === "approved" && p.classKey !== "" && classKeys[p.subject] === p.classKey ? p : null;
+  return p.status === "approved" && p.classKey !== "" && classKeys[p.subject] === p.classKey && inThisYear(p.createdAt) ? p : null;
 }
 
 export async function countMine(userId: string): Promise<number> {
