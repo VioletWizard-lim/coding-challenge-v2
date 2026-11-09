@@ -164,19 +164,35 @@ function fixChecker(studentCode: string) {
  * - 학생 코드의 한 줄을 "고친 버전"이 들어 있음 (거의 같지만 다른 줄 = 고칠 곳을 그대로 알려 줌)
  * studentCode에는 학생이 쓴 코드(지금 코드, 마지막 성공 코드)를 넣는다. 그 안에 있는 코드를 가리키는 것은 괜찮다.
  */
-export function leaksAnswer(answer: string, studentCode: string): string | null {
+export function leaksAnswer(answer: string, studentCode: string, solution = ""): string | null {
   const { blockLines, pieces } = codePieces(answer);
   if (blockLines.length > MAX_EXAMPLE_LINES) return "완성 코드";
   const isFix = fixChecker(studentCode);
-  return pieces.some(isFix) ? "고친 줄" : null;
+  if (pieces.some(isFix)) return "고친 줄";
+  const isSolution = solutionChecker(solution, studentCode);
+  return pieces.some(isSolution) ? "답안 줄" : null;
+}
+
+/**
+ * 연습 문제처럼 참고 답안이 있을 때: 답 속 코드가 참고 답안의 한 줄과 (거의) 같은지.
+ * 학생이 이미 쓴 줄과 짧은 줄(예: `n = int(input())`보다 짧은 것)은 괜찮다.
+ */
+function solutionChecker(solution: string, studentCode: string) {
+  const own = studentCode.split("\n").map(squash);
+  const lines = solution
+    .split("\n")
+    .map(squash)
+    .filter((l) => l.length >= 10 && !own.some((o) => o.includes(l)));
+  return (piece: string) => piece.length >= 8 && lines.some((l) => l.includes(piece) ? piece.length >= l.length * 0.7 : similarity(piece, l) >= 0.8);
 }
 
 /** 다시 물어도 걸리면: 코드 블록과 고친 줄을 지운다 (마지막 안전장치) */
-export function stripAnswerCode(answer: string, studentCode: string): string {
+export function stripAnswerCode(answer: string, studentCode: string, solution = ""): string {
   const isFix = fixChecker(studentCode);
+  const isSolution = solutionChecker(solution, studentCode);
   return answer
     .replace(FENCE, "(코드는 직접 써 보세요)")
-    .replace(/`([^`\n]+)`/g, (all, code: string) => (isFix(squash(code)) ? "(이 부분은 직접 고쳐 보세요)" : all))
+    .replace(/`([^`\n]+)`/g, (all, code: string) => (isFix(squash(code)) || isSolution(squash(code)) ? "(이 부분은 직접 고쳐 보세요)" : all))
     .trim();
 }
 

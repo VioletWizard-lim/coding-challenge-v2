@@ -31,9 +31,12 @@ export default function AiHelper({
   problem,
   recorder,
   onClose,
+  practiceId,
 }: {
   subject: string;
   problem: string;
+  /** 연습 문제에서 열었을 때 (problem은 "P12" 같은 연습 문제 키) */
+  practiceId?: number;
   recorder: React.RefObject<RecorderHandle | null>;
   onClose: () => void;
 }) {
@@ -77,7 +80,7 @@ export default function AiHelper({
     const at = recorder.current?.addMark("q") ?? Date.now();
     setError(null);
     startTransition(async () => {
-      const r = await askAiHelper({ subject, problem, question: q, init: rec.init, log: rec.log, at });
+      const r = await askAiHelper({ subject, problem, question: q, init: rec.init, log: rec.log, at, practiceId });
       if (r.remaining !== undefined) setRemaining(r.remaining);
       if (!r.ok) {
         if (r.notReady) setNotice(r.error);

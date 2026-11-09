@@ -129,3 +129,22 @@ describe("모델별 사용량", () => {
     expect(list[0].dollars).toBeCloseTo(0.08); // (10000×4 + 2000×20) / 1백만
   });
 });
+
+describe("연습 문제: 참고 답안으로도 정답 알려 주기 검사", () => {
+  const solution = "money = int(input())\nspent = int(input())\nprint('남은 돈:', str(money - spent) + '원')";
+  const own = "money = input()\nspent = input()";
+
+  it("참고 답안의 줄을 그대로(또는 거의) 알려 주면 걸린다", () => {
+    expect(leaksAnswer("마지막 줄은 `print('남은 돈:', str(money - spent) + '원')`처럼 써요.", own, solution)).toBe("답안 줄");
+    expect(leaksAnswer("`print('남은 돈:',str(money-spent)+'원')`", own, solution)).toBe("답안 줄");
+  });
+
+  it("짧은 문법 조각이나 학생이 이미 쓴 줄은 괜찮다", () => {
+    expect(leaksAnswer("`int()`로 바꿔 보세요.", own, solution)).toBeNull();
+    expect(leaksAnswer("`money = input()`에서 받은 값은 글자예요.", own, solution)).toBeNull();
+  });
+
+  it("지울 때도 참고 답안 줄을 지운다", () => {
+    expect(stripAnswerCode("`print('남은 돈:', str(money - spent) + '원')` 이렇게요", own, solution)).toBe("(이 부분은 직접 고쳐 보세요) 이렇게요");
+  });
+});

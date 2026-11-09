@@ -114,6 +114,8 @@ export default function SideTabs({
     focusedSubmission,
     focusedAt,
     problemLabel(subject, number) {
+      // 연습 문제의 AI 대화 ("P12" = 연습 문제 12번)
+      if (/^P\d+$/.test(number)) return `🧪 연습 문제 #${number.slice(1)}`;
       const title = titles[`${subject}_${number}`];
       return !title || title === number ? number : `${number}. ${title}`;
     },

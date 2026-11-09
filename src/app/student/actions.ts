@@ -18,6 +18,8 @@ import type { HelpChat } from "@/lib/helpTrail";
 import { normalizeAnswers, toReview, MIN_QUESTIONS, type AiReview } from "@/lib/aiReview";
 import { AiReviewsNotReadyError, countTodayReviews, getReview, insertReview, saveReviewQuestions, setReviewFlag } from "@/lib/aiReviewStore";
 import { listAllProblems } from "@/lib/problemStore";
+import { asProblem, practiceKey } from "@/lib/practice";
+import { getPractice } from "@/lib/practiceStore";
 import { validEntries } from "@/lib/replay";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { saveAchievementsSeen } from "@/lib/achievementStore";
@@ -206,6 +208,8 @@ export type AskInput = {
   log: unknown;
   /** 기록 안의 질문 시각 (edit_log에 [at, "q"]로 남김) */
   at: number;
+  /** 연습 문제에서 물을 때 (problem은 "P12" 같은 연습 문제 키) */
+  practiceId?: number;
 };
 
 export type AskResult =
@@ -233,8 +237,21 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
     const profile = await getUserProfile(session.id);
     if (!profile) return { ok: false, error: "다시 로그인한 뒤 물어보세요." };
     if (!allowedSubjects(profile.subjects).includes(input.subject)) return { ok: false, error: "과목이 맞지 않아요." };
-    const problem = await findOpenProblem(input.subject, input.problem);
-    if (!problem) return { ok: false, error: "아직 공개되지 않았거나 없는 문제예요." };
+    // 수업 문제는 공개된 것만, 연습 문제는 내 것만. 연습 문제는 참고 답안으로도 정답 알려 주기를 검사한다
+    let problemText: string;
+    let solution = "";
+    if (input.practiceId !== undefined) {
+      const practice = await getPractice(Number(input.practiceId), session.id);
+      if (!practice || practice.subject !== input.subject || practiceKey(practice.id) !== input.problem) {
+        return { ok: false, error: "연습 문제를 찾지 못했어요." };
+      }
+      problemText = problemForAi(asProblem(practice));
+      solution = practice.solution;
+    } else {
+      const problem = await findOpenProblem(input.subject, input.problem);
+      if (!problem) return { ok: false, error: "아직 공개되지 않았거나 없는 문제예요." };
+      problemText = problemForAi(problem);
+    }
 
     const limit = dailyLimit();
     const used = (await Promise.all([countTodayChats(session.id), countTodayReviews(session.id)])).reduce((a, b) => a + b, 0);
@@ -248,14 +265,15 @@ export async function askAiHelper(input: AskInput): Promise<AskResult> {
     const ownCode = `${summary.currentCode}\n${summary.lastSuccess?.code ?? ""}`;
     const history = await listChatsForProblem(session.id, input.subject, input.problem, HISTORY_TURNS);
     const reply = await askHelper({
-      problemText: problemForAi(problem),
+      problemText,
       processText: processSummaryText(summary),
       history: history.map((c) => ({ question: c.question, answer: c.answer })),
       question,
-      leaks: (text) => leaksAnswer(text, ownCode),
+      leaks: (text) => leaksAnswer(text, ownCode, solution),
     });
     // 다시 받은 답에도 남아 있으면 코드 부분을 지워서 보여 준다 (마지막 안전장치)
-    const checked = reply.retried && leaksAnswer(reply.text, ownCode) ? stripAnswerCode(reply.text, ownCode) : reply.text;
+    const checked =
+      reply.retried && leaksAnswer(reply.text, ownCode, solution) ? stripAnswerCode(reply.text, ownCode, solution) : reply.text;
     const answer = dropUnknownRefs(checked, summary.moments);
     const chat = await insertChat({
       userId: session.id,

@@ -4,6 +4,9 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
 import Replayer from "@/components/Replayer";
+import type { HelpChat } from "@/lib/helpTrail";
+import AiHelper from "./AiHelper";
+import { loadMyAiChats } from "./actions";
 import { storageKeyFor, type Recording } from "@/lib/editLog";
 import {
   asProblem,
@@ -344,8 +347,20 @@ function PracticeSolver({
   const [checking, setChecking] = useState(false);
   const [outcomes, setOutcomes] = useState<TestOutcome[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [replay, setReplay] = useState<Recording | null>(null);
+  const [replay, setReplay] = useState<(Recording & { chats: HelpChat[] }) | null>(null);
   const [flagged, setFlagged] = useState(problem.flaggedBy !== null);
+  const [aiOpen, setAiOpen] = useState(false);
+
+  /** 다시 보기: 그동안 AI 도우미와 나눈 대화도 타임라인의 "AI 도움 요청"에 이어 보여 준다 */
+  async function openReplay() {
+    const rec = recorder.current?.getRecording();
+    if (!rec) return;
+    const r = await loadMyAiChats(problem.subject, practiceKey(problem.id));
+    const chats = r.ok
+      ? r.chats.flatMap((c) => (c.at === null ? [] : [{ at: c.at, question: c.question, answer: c.answer, moments: c.moments }]))
+      : [];
+    setReplay({ ...rec, chats });
+  }
   const storageKey = storageKeyFor(userId, problem.subject, practiceKey(problem.id));
   // 다른 컴퓨터에서 풀던 문제면, 서버에 저장된 마지막 확인 때의 코드·기록으로 이어 쓴다
   const [editorReady, setEditorReady] = useState(false);
@@ -407,7 +422,11 @@ function PracticeSolver({
       <button type="button" onClick={onBack} className="self-start text-sm font-bold text-brand hover:underline">
         ← 연습 문제 목록
       </button>
-      <section className="grid gap-5 lg:grid-cols-[minmax(300px,2fr)_3fr]">
+      <section
+        className={`grid gap-5 lg:grid-cols-[minmax(300px,2fr)_3fr] ${
+          aiOpen ? "xl:grid-cols-[minmax(260px,1.5fr)_2.5fr_minmax(300px,1.6fr)]" : ""
+        }`}
+      >
         <aside className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5 lg:sticky lg:top-20 lg:self-start">
           <p className="text-xs font-bold text-blue-700">
             🤖 AI가 만든 문제입니다 <span className="font-normal text-muted">· 난이도 {levelLabel(problem.level)}</span>
@@ -438,6 +457,16 @@ function PracticeSolver({
         </aside>
 
         <div className="flex min-w-0 flex-col gap-4">
+          {editorReady && !aiOpen && (
+            <button
+              type="button"
+              onClick={() => setAiOpen(true)}
+              title="내가 코드를 써 온 과정을 보고 AI가 힌트를 줘요"
+              className="self-end rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+            >
+              🤖 AI 도우미에게 물어보기
+            </button>
+          )}
           {editorReady ? (
             <RecordingEditor ref={recorder} storageKey={storageKey} initialCode={problem.starterCode} />
           ) : (
@@ -454,7 +483,7 @@ function PracticeSolver({
             </button>
             <button
               type="button"
-              onClick={() => setReplay(recorder.current?.getRecording() ?? null)}
+              onClick={openReplay}
               className="rounded-lg border border-line bg-white px-3 py-2 text-sm hover:bg-page"
             >
               ▶ 내 연습 과정 다시 보기
@@ -502,6 +531,19 @@ function PracticeSolver({
             </section>
           )}
         </div>
+
+        {/* 맨 오른쪽: 과정 기반 AI 도우미 (수업 문제와 같은 창, 하루 질문 수도 함께 셈) */}
+        {aiOpen && editorReady && (
+          <div className="min-w-0 lg:col-span-2 xl:col-span-1">
+            <AiHelper
+              subject={problem.subject}
+              problem={practiceKey(problem.id)}
+              practiceId={problem.id}
+              recorder={recorder}
+              onClose={() => setAiOpen(false)}
+            />
+          </div>
+        )}
       </section>
 
       {replay && (
@@ -517,7 +559,7 @@ function PracticeSolver({
                 ✕ 닫기
               </button>
             </div>
-            <Replayer init={replay.init} code={replay.code} log={replay.log} />
+            <Replayer init={replay.init} code={replay.code} log={replay.log} chats={replay.chats} />
           </div>
         </div>
       )}
