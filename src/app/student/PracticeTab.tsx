@@ -1,26 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import ProblemView from "@/components/ProblemView";
-import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
-import Replayer from "@/components/Replayer";
-import type { HelpChat } from "@/lib/helpTrail";
-import AiHelper from "./AiHelper";
-import { loadMyAiChats } from "./actions";
-import { storageKeyFor, type Recording } from "@/lib/editLog";
-import {
-  asProblem,
-  errorName,
-  harnessCode,
-  judge,
-  LEVELS,
-  levelLabel,
-  parseRunResult,
-  practiceKey,
-  type PracticeProblem,
-  type TestOutcome,
-} from "@/lib/practice";
-import { loadPython } from "@/lib/pyodide";
+import { useEffect, useState, useTransition } from "react";
+import { asProblem, LEVELS, levelLabel, practiceKey, type PracticeProblem } from "@/lib/practice";
+import MyProblems from "./MyProblems";
+import ProblemSolver from "./ProblemSolver";
 import {
   createPractice,
   flagMyPractice,
@@ -42,6 +25,7 @@ const MAX_PICK = 3;
 const SUBJECT_KEY = "practice:subject";
 /** "만들기"를 누른 시각 (만드는 중에 화면을 떠나도 돌아와서 이어 받게) */
 const CREATING_KEY = "practice:creating";
+const PART_KEY = "practice:part";
 
 const readSession = <T,>(key: string): T | null => {
   try {
@@ -82,6 +66,12 @@ export default function PracticeTab({ userId }: { userId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [creating, startCreate] = useTransition();
   const [openId, setOpenId] = useState<number | null>(null);
+  /** 위쪽 칸: AI가 만든 문제 / 직접 만든 문제 (이 창에서 기억) */
+  const [part, setPart] = useState<"ai" | "mine">(() => (readSession<string>(PART_KEY) === "mine" ? "mine" : "ai"));
+  const choosePart = (next: "ai" | "mine") => {
+    setPart(next);
+    writeSession(PART_KEY, next);
+  };
   /** 만드는 중에 화면을 떠났다 돌아온 경우: 서버에서 다 만들어질 때까지 목록을 다시 불러온다 */
   const [waiting, setWaiting] = useState(false);
 
@@ -179,13 +169,38 @@ export default function PracticeTab({ userId }: { userId: string }) {
 
   return (
     <div className="flex flex-col gap-5">
+      <div>
+        <h2 className="text-2xl font-black">🧪 연습 모드</h2>
+        <p className="text-sm text-muted">수업 제출과는 따로 저장되고, 점수는 없어요. 연습하는 과정도 기록돼서 다시 볼 수 있어요.</p>
+      </div>
+      <div role="tablist" aria-label="연습 종류" className="flex gap-2 border-b border-line">
+        {(
+          [
+            ["ai", "🤖 내 기록으로 AI가 만든 문제"],
+            ["mine", "✏️ 직접 만든 문제"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={part === id}
+            onClick={() => choosePart(id)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm font-bold ${part === id ? "border-brand text-brand" : "border-transparent text-muted hover:text-ink"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {part === "mine" ? (
+        <MyProblems userId={userId} subjects={home.settings.map((s) => s.subject)} />
+      ) : (
+        <>
       <div className="flex flex-wrap items-end gap-3">
-        <div className="mr-auto">
-          <h2 className="text-2xl font-black">🧪 연습 모드</h2>
-          <p className="text-sm text-muted">
-            내 작성 기록에서 막혔던 곳을 골라 AI가 나에게 맞는 연습 문제를 만들어 줘요. 수업 제출과는 따로 저장되고, 점수는 없어요.
-          </p>
-        </div>
+        <p className="mr-auto text-sm text-muted">
+          내 작성 기록에서 막혔던 곳을 골라 AI가 나에게 맞는 연습 문제를 만들어 줘요.
+        </p>
         {home.settings.length > 1 && (
           <label className="flex flex-col gap-1 text-sm text-muted">
             과목
@@ -327,11 +342,13 @@ export default function PracticeTab({ userId }: { userId: string }) {
           <p className="text-sm text-muted">아직 만든 연습 문제가 없어요.</p>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }
 
-/** 연습 문제 풀기: 기록 편집기 + 테스트 확인 + 내 과정 다시 보기 */
+/** 연습 문제 풀기 (AI가 만든 문제) */
 function PracticeSolver({
   userId,
   problem,
@@ -343,226 +360,37 @@ function PracticeSolver({
   onBack: () => void;
   onSaved: (patch: Partial<PracticeProblem>) => void;
 }) {
-  const recorder = useRef<RecorderHandle>(null);
-  const [checking, setChecking] = useState(false);
-  const [outcomes, setOutcomes] = useState<TestOutcome[] | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-  const [replay, setReplay] = useState<(Recording & { chats: HelpChat[] }) | null>(null);
-  const [flagged, setFlagged] = useState(problem.flaggedBy !== null);
-  const [aiOpen, setAiOpen] = useState(false);
-
-  /** 다시 보기: 그동안 AI 도우미와 나눈 대화도 타임라인의 "AI 도움 요청"에 이어 보여 준다 */
-  async function openReplay() {
-    const rec = recorder.current?.getRecording();
-    if (!rec) return;
-    const r = await loadMyAiChats(problem.subject, practiceKey(problem.id));
-    const chats = r.ok
-      ? r.chats.flatMap((c) => (c.at === null ? [] : [{ at: c.at, question: c.question, answer: c.answer, moments: c.moments }]))
-      : [];
-    setReplay({ ...rec, chats });
-  }
-  const storageKey = storageKeyFor(userId, problem.subject, practiceKey(problem.id));
-  // 다른 컴퓨터에서 풀던 문제면, 서버에 저장된 마지막 확인 때의 코드·기록으로 이어 쓴다
-  const [editorReady, setEditorReady] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    let saved = false;
-    try {
-      saved = localStorage.getItem(storageKey) !== null;
-    } catch {}
-    if (saved || problem.checks === 0) {
-      setEditorReady(true); // eslint-disable-line react-hooks/set-state-in-effect -- 브라우저 저장소를 처음 한 번 확인
-      return;
-    }
-    loadMyPractice(problem.id).then((r) => {
-      if (!alive) return;
-      if (r.ok && r.problem.code !== null && Array.isArray(r.problem.log)) {
-        try {
-          localStorage.setItem(storageKey, JSON.stringify({ init: r.problem.initCode ?? "", log: r.problem.log, code: r.problem.code }));
-        } catch {}
-      }
-      setEditorReady(true);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [storageKey, problem.id, problem.checks]);
-
-  async function runChecks() {
-    const rec = recorder.current?.getRecording();
-    if (!rec) return;
-    if (!rec.code.trim()) return setNote("코드를 먼저 써 주세요.");
-    setChecking(true);
-    setNote(null);
-    try {
-      const py = await loadPython();
-      const results = problem.tests.map((t) => parseRunResult(py.runPython(harnessCode(rec.code, t.inputs))));
-      const judged = judge(problem.tests, results);
-      setOutcomes(judged);
-      // 확인도 실행이다: 작성 기록에 실행 결과로 남긴다 (재생 타임라인·과정 요약에 보임)
-      const firstError = judged.find((o) => o.error)?.error;
-      recorder.current?.addMark(firstError ? `r:${errorName(firstError)}` : "r:ok");
-      const after = recorder.current?.getRecording() ?? rec;
-      const passed = judged.filter((o) => o.pass).length;
-      const r = await savePracticeCheck(problem.id, { code: after.code, init: after.init, log: after.log, passed });
-      if (!r.ok) setNote(r.error);
-      else onSaved({ passed, solvedAt: r.solvedAt, checks: r.checks });
-    } catch (err) {
-      setNote(String((err as Error)?.message ?? err));
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  const passed = outcomes?.filter((o) => o.pass).length ?? 0;
-  const allPass = outcomes !== null && passed === outcomes.length;
-
   return (
-    <div className="flex flex-col gap-4">
-      <button type="button" onClick={onBack} className="self-start text-sm font-bold text-brand hover:underline">
-        ← 연습 문제 목록
-      </button>
-      <section
-        className={`grid gap-5 lg:grid-cols-[minmax(300px,2fr)_3fr] ${
-          aiOpen ? "xl:grid-cols-[minmax(260px,1.5fr)_2.5fr_minmax(300px,1.6fr)]" : ""
-        }`}
-      >
-        <aside className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5 lg:sticky lg:top-20 lg:self-start">
-          <p className="text-xs font-bold text-blue-700">
-            🤖 AI가 만든 문제입니다 <span className="font-normal text-muted">· 난이도 {levelLabel(problem.level)}</span>
-          </p>
-          {problem.source === "stuck" && (
-            <p className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-900">🧩 내가 막혔던 곳: {problem.basis}</p>
-          )}
-          <ProblemView problem={asProblem(problem)} />
-          <p className="text-xs leading-5 text-muted">
-            예시의 입력을 차례로 넣어 출력이 같은지 확인해요. input()의 안내 글과 줄 끝 띄어쓰기는 보지 않아요.
-          </p>
-          <div className="flex justify-end">
-            {flagged ? (
-              <span className="text-xs text-muted">🚩 선생님께 알렸어요</span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!confirm("문제가 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
-                  flagMyPractice(problem.id).then((r) => (r.ok ? setFlagged(true) : setNote(r.error ?? "알리지 못했어요.")));
-                }}
-                className="text-xs text-muted hover:text-danger"
-              >
-                🚩 이상한 문제 알리기
-              </button>
-            )}
-          </div>
-        </aside>
-
-        <div className="flex min-w-0 flex-col gap-4">
-          {editorReady && !aiOpen && (
-            <button
-              type="button"
-              onClick={() => setAiOpen(true)}
-              title="내가 코드를 써 온 과정을 보고 AI가 힌트를 줘요"
-              className="self-end rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
-            >
-              🤖 AI 도우미에게 물어보기
-            </button>
-          )}
-          {editorReady ? (
-            <RecordingEditor ref={recorder} storageKey={storageKey} initialCode={problem.starterCode} />
-          ) : (
-            <p className="text-muted">이어 쓸 코드를 불러오는 중…</p>
-          )}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={runChecks}
-              disabled={checking}
-              className="rounded-xl bg-gradient-to-br from-brand to-violet-600 px-6 py-2.5 font-bold text-white disabled:opacity-60"
-            >
-              {checking ? "확인하는 중…" : "✅ 확인하기"}
-            </button>
-            <button
-              type="button"
-              onClick={openReplay}
-              className="rounded-lg border border-line bg-white px-3 py-2 text-sm hover:bg-page"
-            >
-              ▶ 내 연습 과정 다시 보기
-            </button>
-            {problem.solvedAt && !outcomes && <span className="text-sm text-green-700">✅ 이미 통과한 문제예요 (다시 풀어 봐도 돼요)</span>}
-          </div>
-          {note && (
-            <p role="alert" className="text-sm text-danger">
-              {note}
-            </p>
-          )}
-          {outcomes && (
-            <section className="flex flex-col gap-2" aria-label="확인 결과">
-              <p className={`font-bold ${allPass ? "text-green-700" : "text-amber-800"}`}>
-                {allPass ? `🎉 모두 통과! (${passed}/${outcomes.length})` : `${passed}/${outcomes.length} 통과 — 다른 부분을 찾아보세요`}
-              </p>
-              {outcomes.map((o, i) => (
-                <div
-                  key={i}
-                  className={`grid gap-1 rounded-lg border px-3 py-2 text-sm ${o.pass ? "border-green-200 bg-green-50/50" : "border-amber-300 bg-amber-50/50"}`}
-                >
-                  <p className="font-bold">
-                    {o.pass ? "✅" : "✖"} 예시 {i + 1}
-                    {problem.tests[i].inputs.length > 0 && (
-                      <span className="font-normal text-muted"> · 입력 {problem.tests[i].inputs.join(" / ")}</span>
-                    )}
-                  </p>
-                  {!o.pass && (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <div>
-                        <p className="text-xs text-muted">기대 출력</p>
-                        <pre className="whitespace-pre-wrap rounded bg-white px-2 py-1 font-mono text-xs">{problem.tests[i].output}</pre>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted">내 출력</p>
-                        <pre className="whitespace-pre-wrap rounded bg-white px-2 py-1 font-mono text-xs">
-                          {o.output || <span className="text-muted">(출력 없음)</span>}
-                          {o.error && <span className="block text-danger">{o.error}</span>}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </section>
-          )}
-        </div>
-
-        {/* 맨 오른쪽: 과정 기반 AI 도우미 (수업 문제와 같은 창, 하루 질문 수도 함께 셈) */}
-        {aiOpen && editorReady && (
-          <div className="min-w-0 lg:col-span-2 xl:col-span-1">
-            <AiHelper
-              subject={problem.subject}
-              problem={practiceKey(problem.id)}
-              practiceId={problem.id}
-              recorder={recorder}
-              onClose={() => setAiOpen(false)}
-            />
-          </div>
-        )}
-      </section>
-
-      {replay && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4"
-          role="presentation"
-          onClick={(e) => e.target === e.currentTarget && setReplay(null)}
-        >
-          <div role="dialog" aria-label="내 연습 과정" className="mt-10 flex w-full max-w-4xl flex-col gap-3 rounded-xl bg-white p-5 shadow-xl">
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold">▶ 내 연습 과정 — {problem.title}</h3>
-              <button type="button" onClick={() => setReplay(null)} className="ml-auto text-sm text-muted hover:text-ink">
-                ✕ 닫기
-              </button>
-            </div>
-            <Replayer init={replay.init} code={replay.code} log={replay.log} chats={replay.chats} />
-          </div>
-        </div>
-      )}
-    </div>
+    <ProblemSolver
+      userId={userId}
+      subject={problem.subject}
+      problemKey={practiceKey(problem.id)}
+      view={asProblem(problem)}
+      tests={problem.tests}
+      starterCode={problem.starterCode}
+      badge={
+        <>
+          🤖 AI가 만든 문제입니다 <span className="font-normal text-muted">· 난이도 {levelLabel(problem.level)}</span>
+        </>
+      }
+      extra={
+        problem.source === "stuck" && (
+          <p className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-900">🧩 내가 막혔던 곳: {problem.basis}</p>
+        )
+      }
+      solvedAt={problem.solvedAt}
+      checks={problem.checks}
+      flagged={problem.flaggedBy !== null}
+      ai={{ practiceId: problem.id }}
+      backLabel="연습 문제 목록"
+      onBack={onBack}
+      save={(work) => savePracticeCheck(problem.id, work)}
+      loadSaved={async () => {
+        const r = await loadMyPractice(problem.id);
+        return r.ok && r.problem.code !== null ? { code: r.problem.code, init: r.problem.initCode ?? "", log: r.problem.log } : null;
+      }}
+      flag={() => flagMyPractice(problem.id)}
+      onSaved={onSaved}
+    />
   );
 }

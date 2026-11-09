@@ -142,6 +142,28 @@ export async function listMyPractice(userId: string): Promise<PracticeProblem[]>
   return rows.map((r) => forStudent(fromRow({ ...r, solution: "", code: null, init_code: null, edit_log: null })));
 }
 
+/** 업적용: 모두 통과한 내 연습 문제 (작성 기록 포함). 표가 없으면(015 실행 전) 빈 목록 */
+export async function listSolvedPractice(userId: string): Promise<{ id: number; source: "concept" | "stuck"; solvedAt: string; log: unknown }[]> {
+  try {
+    const rows = await fetchAll<Pick<Row, "id" | "source" | "solved_at" | "edit_log">>(
+      () =>
+        db()
+          .from("practice_problems")
+          .select("id, source, solved_at, edit_log")
+          .eq("user_id", userId)
+          .not("solved_at", "is", null)
+          .order("id") as unknown as RangeQuery<Pick<Row, "id" | "source" | "solved_at" | "edit_log">>,
+      200,
+    );
+    return rows.flatMap((r) =>
+      r.solved_at ? [{ id: Number(r.id), source: r.source === "stuck" ? ("stuck" as const) : ("concept" as const), solvedAt: r.solved_at, log: r.edit_log }] : [],
+    );
+  } catch (err) {
+    if (tableMissing(String((err as Error)?.message ?? err))) return [];
+    throw err;
+  }
+}
+
 /** 연습 문제 하나 (onlyUserId를 주면 그 학생 것만). 참고 답안 포함이므로 학생에게 보낼 때는 forStudent로 */
 export async function getPractice(id: number, onlyUserId?: string): Promise<PracticeForTeacher | null> {
   let query = db().from("practice_problems").select("*").eq("id", id);

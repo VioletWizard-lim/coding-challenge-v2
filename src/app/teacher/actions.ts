@@ -35,6 +35,9 @@ import { compareNumber, isOpen, openStatus, parseExamples, validateProblem, type
 import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
 import { getUserProfile } from "@/lib/auth";
+import { listSolvedPractice } from "@/lib/practiceStore";
+import type { StudentProblemForTeacher } from "@/lib/studentProblem";
+import { listForTeacher, reviewStudentProblem, setStudentProblemFlag } from "@/lib/studentProblemStore";
 import { computeAchievements, unitProblemsOf, type AchievementStatus } from "@/lib/achievements";
 import { buildJourney, type Journey } from "@/lib/journey";
 import { allowedSubjects, SUBJECTS } from "@/lib/problems";
@@ -352,17 +355,19 @@ export async function loadStudentJourney(studentId: string): Promise<StudentJour
   try {
     const profile = await getUserProfile(String(studentId ?? ""));
     if (!profile || profile.role !== "student") return { ok: false, message: "학생을 찾지 못했어요." };
-    const [{ summaries, records, today }, mine, open, notes] = await Promise.all([
+    const [{ summaries, records, today }, mine, open, notes, practice] = await Promise.all([
       getMyJourneyData(profile),
       listMyReflections(profile.id),
       listOpenProblems(allowedSubjects(profile.subjects)),
       listMyNotes(profile.id),
+      listSolvedPractice(profile.id),
     ]);
     const achievements = computeAchievements(
       records,
       mine.reflections.map((r) => ({ date: r.classDate, savedAt: r.updatedAt })),
       unitProblemsOf(open),
       notes.notes,
+      practice,
     );
     return { ok: true, journey: buildJourney(summaries, today), reflections: mine.reflections, achievements };
   } catch (err) {
@@ -466,6 +471,47 @@ export async function flagAiReview(id: number, flag: boolean): Promise<{ ok: boo
     return (await setReviewFlag(Number(id), flag ? "teacher" : null)) ? { ok: true } : { ok: false, message: "찾지 못했어요." };
   } catch (err) {
     console.error("되돌아보기 표시 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/* ───────────── 학생이 만든 문제 (승인) ───────────── */
+
+export type TeacherStudentProblems = { ok: true; ready: boolean; problems: StudentProblemForTeacher[] } | { ok: false; message: string };
+
+/** 모든 학생이 만든 문제 (답·답을 쓴 과정 포함) */
+export async function loadStudentProblemsForTeacher(): Promise<TeacherStudentProblems> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return { ok: true, ...(await listForTeacher()) };
+  } catch (err) {
+    console.error("학생 문제 조회 오류:", err);
+    return { ok: false, message: "학생이 만든 문제를 불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 승인(같은 반 친구에게 공개) 또는 다시 고쳐 달라기 (학생에게 보일 말) */
+export async function reviewStudentProblemAction(id: number, approve: boolean, note: string): Promise<{ ok: boolean; message?: string }> {
+  const session = await getSession();
+  if (!session || session.role !== "teacher") return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  const text = String(note ?? "").trim();
+  if (!approve && !text) return { ok: false, message: "무엇을 고치면 좋을지 학생에게 한마디 남겨 주세요." };
+  if (text.length > 500) return { ok: false, message: "500자까지 쓸 수 있어요." };
+  try {
+    return (await reviewStudentProblem(Number(id), session.id, !!approve, text)) ? { ok: true } : { ok: false, message: "문제를 찾지 못했어요." };
+  } catch (err) {
+    console.error("학생 문제 승인 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** 학생 문제 부적절 표시하기·풀기 */
+export async function flagStudentProblemAction(id: number, flag: boolean): Promise<{ ok: boolean; message?: string }> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    return (await setStudentProblemFlag(Number(id), flag ? "teacher" : null)) ? { ok: true } : { ok: false, message: "찾지 못했어요." };
+  } catch (err) {
+    console.error("학생 문제 표시 오류:", err);
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

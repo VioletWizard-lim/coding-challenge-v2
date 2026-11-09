@@ -24,7 +24,8 @@ export default function TeacherDashboard({
   aiUsage,
 }: {
   name: string;
-  data: TeacherHomeData;
+  /** studentPending: 승인 기다리는 학생이 만든 문제 수 */
+  data: TeacherHomeData & { studentPending?: number };
   status?: ReactNode;
   /** AI 도우미 사용량 카드 (서버에서 따로 불러옴) */
   aiUsage?: ReactNode;
@@ -57,6 +58,11 @@ export default function TeacherDashboard({
             className="shrink-0 whitespace-nowrap rounded-lg border border-line bg-white px-3 py-2 text-sm font-bold hover:border-brand hover:text-brand"
           >
             {label} →
+            {tab === "problems" && !!data.studentPending && (
+              <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900" title="학생이 만든 문제 중 승인 기다리는 것">
+                승인 {data.studentPending}
+              </span>
+            )}
           </button>
         ))}
         </div>

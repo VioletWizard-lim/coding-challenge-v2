@@ -1,3 +1,4 @@
+import { listSolvedPractice } from "@/lib/practiceStore";
 import { computeAchievements, unitProblemsOf } from "@/lib/achievements";
 import { buildJourney } from "@/lib/journey";
 import type { Problem } from "@/lib/problemBank";
@@ -20,10 +21,11 @@ export default async function HomeTab({
 }) {
   let data: HomeData;
   try {
-    const [{ summaries, records, today }, mine, notes] = await Promise.all([
+    const [{ summaries, records, today }, mine, notes, practice] = await Promise.all([
       getMyJourneyData(owner),
       listMyReflections(userId),
       listMyNotes(userId),
+      listSolvedPractice(userId),
     ]);
     const submitted = new Set(summaries.map((s) => `${s.subject}_${s.problem}`));
     const todaySubs = summaries.filter((s) => s.date === today);
@@ -33,6 +35,7 @@ export default async function HomeTab({
       mine.reflections.map((r) => ({ date: r.classDate, savedAt: r.updatedAt })),
       unitProblemsOf(problems),
       notes.notes,
+      practice,
     );
     const earned = achievements
       .flatMap((a) =>

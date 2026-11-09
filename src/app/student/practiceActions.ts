@@ -1,5 +1,6 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { AiNotConfiguredError, AiRefusedError, makePractice } from "@/lib/ai";
 import { getUserProfile } from "@/lib/auth";
 import { isValidLog } from "@/lib/editLog";
@@ -227,6 +228,8 @@ export async function savePracticeCheck(
     const total = problem.tests.length;
     const passed = Math.max(0, Math.min(total, Math.floor(Number(work.passed) || 0)));
     const saved = await savePracticeWork(problem.id, session.id, { code, init, log: work.log, passed, total });
+    // 처음 통과했으면 업적(연습)을 다시 계산하게 화면을 새로 불러온다 (새 업적 알림)
+    if (saved && !problem.solvedAt && saved.solvedAt) refresh();
     return saved ? { ok: true, ...saved } : { ok: false, error: "연습 문제를 찾지 못했어요." };
   } catch (err) {
     console.error("연습 기록 저장 오류:", err);

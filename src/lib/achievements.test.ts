@@ -148,3 +148,28 @@ describe("한 번에 성공: 답이 맞았는지는 선생님 채점으로", () 
   it("첫 실행이 오류면 못 받음", () =>
     expect(earned({ log: [[1000, "r:NameError"], [2000, "r:ok"]], functionFull: true })).toBeNull());
 });
+
+describe("연습 업적 (칭찬만)", () => {
+  const get = (list: ReturnType<typeof computeAchievements>, code: string) => list.find((a) => a.code === code)!;
+  const p = (id: number, source: "concept" | "stuck", asked: boolean) => ({
+    id,
+    source,
+    solvedAt: `2026-11-0${id}T01:00:00Z`,
+    log: asked ? [[1, "q"], [2, "r:ok"]] : [[2, "r:ok"]],
+  });
+
+  it("처음 통과, 막힌 곳에서 만든 문제, AI 없이, 꾸준히", () => {
+    const list = computeAchievements([], [], {}, [], [p(1, "concept", true), p(2, "stuck", true), p(3, "concept", false)]);
+    expect(get(list, "first_practice").steps[0].earned?.earnedAt).toBe("2026-11-01T01:00:00Z");
+    expect(get(list, "beyond_stuck").steps[0].earned?.earnedAt).toBe("2026-11-02T01:00:00Z");
+    expect(get(list, "solo_practice").steps[0].earned?.earnedAt).toBe("2026-11-03T01:00:00Z");
+    expect(get(list, "practice_steady").steps.map((s) => !!s.earned)).toEqual([true, false]);
+    expect(get(list, "practice_steady").current).toBe(3);
+  });
+
+  it("연습이 없으면 아무것도 없음", () => {
+    const list = computeAchievements([], [], {});
+    expect(get(list, "first_practice").steps[0].earned).toBeNull();
+    expect(get(list, "practice_steady").current).toBe(0);
+  });
+});
