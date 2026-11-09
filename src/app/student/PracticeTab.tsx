@@ -57,6 +57,8 @@ const statusOf = (p: PracticeProblem) =>
  * 🧪 연습 모드. 내 작성 기록에서 찾은 "막혔던 곳"(반복된 오류, 오래 멈춘 문제) 또는 개념을 골라 AI에게 연습 문제를 받고,
  * 같은 기록 편집기에서 풀며 테스트로 확인한다. 연습 과정도 기록되어 다시 볼 수 있다. 수업 제출과는 따로 저장된다.
  */
+type Part = "ai" | "list" | "mine";
+
 export default function PracticeTab({ userId }: { userId: string }) {
   const [home, setHome] = useState<Home | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,9 +68,12 @@ export default function PracticeTab({ userId }: { userId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [creating, startCreate] = useTransition();
   const [openId, setOpenId] = useState<number | null>(null);
-  /** 위쪽 칸: AI가 만든 문제 / 직접 만든 문제 (이 창에서 기억) */
-  const [part, setPart] = useState<"ai" | "mine">(() => (readSession<string>(PART_KEY) === "mine" ? "mine" : "ai"));
-  const choosePart = (next: "ai" | "mine") => {
+  /** 위쪽 칸: AI에게 만들기 / 직접 만든 문제 / 내 연습 문제 목록 (이 창에서 기억) */
+  const [part, setPart] = useState<Part>(() => {
+    const saved = readSession<string>(PART_KEY);
+    return saved === "mine" || saved === "list" ? saved : "ai";
+  });
+  const choosePart = (next: Part) => {
     setPart(next);
     writeSession(PART_KEY, next);
   };
@@ -177,6 +182,7 @@ export default function PracticeTab({ userId }: { userId: string }) {
         {(
           [
             ["ai", "🤖 내 기록으로 AI가 만든 문제"],
+            ["list", `📝 내 연습 문제 (${home.problems.length})`],
             ["mine", "✏️ 직접 만든 문제"],
           ] as const
         ).map(([id, label]) => (
@@ -195,6 +201,43 @@ export default function PracticeTab({ userId }: { userId: string }) {
 
       {part === "mine" ? (
         <MyProblems userId={userId} subjects={home.settings.map((s) => s.subject)} />
+      ) : part === "list" ? (
+      <section className="flex flex-col gap-3">
+        <p className="text-sm text-muted">
+          AI가 내 기록으로 만들어 준 연습 문제예요{home.settings.length > 1 && " (모든 과목)"}. 눌러서 이어 풀거나 다시 풀어 볼 수 있어요.
+        </p>
+        {mine.length ? (
+          <ul className="flex flex-col gap-2">
+            {mine.map((p) => {
+              const st = statusOf(p);
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(p.id)}
+                    className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-white px-4 py-3 text-left hover:border-brand"
+                  >
+                    <span className="font-bold">{p.title}</span>
+                    <span className="text-sm text-muted">
+                      {home.settings.length > 1 && `${p.subject} · `}
+                      {p.source === "stuck" ? `🧩 ${p.basis}` : `📚 ${p.concept}`} · {levelLabel(p.level)}
+                    </span>
+                    <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${st.tone}`}>{st.text}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted">
+            아직 만든 연습 문제가 없어요.{" "}
+            <button type="button" onClick={() => choosePart("ai")} className="font-bold text-brand underline">
+              🤖 내 기록으로 AI가 만든 문제
+            </button>
+            에서 만들어 보세요.
+          </p>
+        )}
+      </section>
       ) : (
         <>
       <div className="flex flex-wrap items-end gap-3">
@@ -314,34 +357,15 @@ export default function PracticeTab({ userId }: { userId: string }) {
         </>
       )}
 
-      <section className="flex flex-col gap-3">
-        <h3 className="font-bold">📝 내 연습 문제 ({mine.length}){home.settings.length > 1 && <span className="font-normal text-sm text-muted"> · 모든 과목</span>}</h3>
-        {mine.length ? (
-          <ul className="flex flex-col gap-2">
-            {mine.map((p) => {
-              const st = statusOf(p);
-              return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(p.id)}
-                    className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-white px-4 py-3 text-left hover:border-brand"
-                  >
-                    <span className="font-bold">{p.title}</span>
-                    <span className="text-sm text-muted">
-                      {home.settings.length > 1 && `${p.subject} · `}
-                      {p.source === "stuck" ? `🧩 ${p.basis}` : `📚 ${p.concept}`} · {levelLabel(p.level)}
-                    </span>
-                    <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-bold ${st.tone}`}>{st.text}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">아직 만든 연습 문제가 없어요.</p>
-        )}
-      </section>
+      {mine.length > 0 && (
+        <p className="text-sm text-muted">
+          만든 문제는{" "}
+          <button type="button" onClick={() => choosePart("list")} className="font-bold text-brand underline">
+            📝 내 연습 문제 ({mine.length})
+          </button>{" "}
+          탭에 모여요.
+        </p>
+      )}
         </>
       )}
     </div>
