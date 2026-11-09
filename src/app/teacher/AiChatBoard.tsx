@@ -233,6 +233,18 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
                       <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
                         <b>학생 답</b> {q.answer || <span className="text-muted">(아직 안 씀)</span>}
                       </p>
+                      {q.followUp && (
+                        <div className="ml-3 grid gap-1 border-l-2 border-violet-200 pl-3">
+                          <p className="leading-6">
+                            <b className="text-violet-700">🤖 이어서</b>{" "}
+                            <AiAnswer chat={{ answer: q.followUp.reply, moments: q.followUp.moments }} onMoment={openMoment(c.key)} />{" "}
+                            <AiAnswer chat={{ answer: q.followUp.question, moments: q.followUp.moments }} onMoment={openMoment(c.key)} />
+                          </p>
+                          <p className="whitespace-pre-wrap rounded bg-brand-soft px-2 py-1">
+                            <b>학생 답</b> {q.followUp.answer || <span className="text-muted">(아직 안 씀)</span>}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ))}
                   {opened?.key === c.key && (

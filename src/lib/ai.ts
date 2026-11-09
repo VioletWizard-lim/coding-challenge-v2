@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { REVIEW_SCHEMA } from "./aiReview";
+import { FOLLOWUP_SCHEMA, REVIEW_SCHEMA } from "./aiReview";
 import { DRAFT_SCHEMA } from "./gradingDraft";
 import { PRACTICE_SCHEMA } from "./practice";
 import { toProblems, WORKSHEET_SCHEMA, type ExtractedProblem } from "./worksheet";
@@ -248,6 +248,69 @@ export async function makeReview(input: { problemText: string; processText: stri
     ],
   });
   if (message.stop_reason === "refusal") throw new AiRefusedError("AI가 되돌아보기를 만들지 않았어요.");
+  const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  return {
+    raw: JSON.parse(text),
+    model: message.model ?? model,
+    inputTokens: message.usage?.input_tokens ?? 0,
+    outputTokens: message.usage?.output_tokens ?? 0,
+  };
+}
+
+/* ───────────── AI 되돌아보기: 학생 답을 보고 한 번 이어 묻기 ───────────── */
+
+const FOLLOWUP_SYSTEM = `당신은 한국 고등학교 정보 수업에서 학생이 자기 코드 작성 과정을 되돌아보도록 돕는 도우미입니다. 사용자는 고등학생(미성년자)입니다.
+
+## 상황
+앞서 학생의 "작성 과정 요약"(순간마다 [[M번호]])을 보고 되돌아보기 질문을 했고, 학생이 답했습니다. 질문, 그 질문이 가리킨 순간, 학생의 답, 작성 과정 요약이 주어집니다.
+
+## 할 일 (질문 하나에 이번 한 번만 이어 묻습니다)
+- reply: 학생 답에서 구체적인 부분을 짚어 한두 문장으로 반응합니다. 답이 과정 요약과 이어지면 그 순간을 [[M번호]]로 가리킵니다(예: "[[M4]]에서 오류 메시지를 다시 읽은 게 고친 열쇠였네요."). 점수·등급·맞다/틀렸다 판정은 하지 않습니다.
+- question: 성찰을 한 걸음 더 나아가게 하는 짧은 질문 하나. 예: 그 방법을 다음 문제에 어떻게 쓸지, 같은 오류를 미리 알아차리려면 무엇을 볼지, 그때 다른 방법도 생각했는지. 과정 요약에 근거해 묻고, 필요하면 다른 순간을 [[M번호]]로 가리킵니다.
+- 학생 답이 짧거나 "모르겠어요"면 탓하지 말고, 그 순간을 다시 보게 하는 쉬운 질문을 합니다.
+- 학생 답이 수업과 관계없거나 부적절하면 짧게 수업 이야기로 돌려 묻습니다.
+- 정답·완성 코드나 고친 코드를 주지 않습니다. 오류 원인을 대신 설명하지 말고 학생이 스스로 말하게 합니다.
+- 요약에 없는 번호는 만들지 않습니다. 짧고 쉬운 한국어(해요체)로 씁니다.
+
+${SAFETY}`;
+
+/**
+ * 되돌아보기 이어 묻기. 작성 과정 요약(processSummaryText)이 반드시 함께 간다 (CLAUDE.md 규칙 1).
+ * 학생 이름·아이디는 보내지 않는다.
+ */
+export async function makeReviewFollowUp(input: {
+  problemText: string;
+  processText: string;
+  question: string;
+  momentLabel: string | null;
+  answer: string;
+  teacherNote?: string;
+}): Promise<ReviewDraft> {
+  const model = helperModel();
+  const fallback = /haiku/.test(model) ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
+  const message = await aiClient().beta.messages.create({
+    model,
+    max_tokens: 1500,
+    ...fallback,
+    output_config: { effort: "low", format: { type: "json_schema", schema: FOLLOWUP_SCHEMA } },
+    system: FOLLOWUP_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: [
+          `<problem>\n${input.problemText}\n</problem>`,
+          `<process>\n${input.processText}\n</process>`,
+          `<question${input.momentLabel ? ` moment="${input.momentLabel.replace(/"/g, "'")}"` : ""}>\n${input.question}\n</question>`,
+          `<student_answer>\n${input.answer}\n</student_answer>`,
+          teacherNoteBlock(input.teacherNote),
+          "학생 답에 반응하고 한 번 이어서 물어 주세요.",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ],
+  });
+  if (message.stop_reason === "refusal") throw new AiRefusedError("AI가 이어 묻지 않았어요.");
   const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   return {
     raw: JSON.parse(text),

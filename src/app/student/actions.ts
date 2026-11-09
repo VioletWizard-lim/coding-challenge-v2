@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { AiNotConfiguredError, AiRefusedError, askHelper, makeReview } from "@/lib/ai";
+import { AiNotConfiguredError, AiRefusedError, askHelper, makeReview, makeReviewFollowUp } from "@/lib/ai";
 import {
   dailyLimit,
   dropUnknownRefs,
@@ -15,7 +15,7 @@ import {
 } from "@/lib/aiChat";
 import { AiChatsNotReadyError, chatsForReplay, countTodayChats, insertChat, listChatsForProblem, setChatFlag } from "@/lib/aiChatStore";
 import type { HelpChat } from "@/lib/helpTrail";
-import { normalizeAnswers, toReview, MIN_QUESTIONS, type AiReview } from "@/lib/aiReview";
+import { canFollowUp, normalizeAnswers, toFollowUp, toReview, MIN_QUESTIONS, type AiReview } from "@/lib/aiReview";
 import { AiReviewsNotReadyError, countTodayReviews, getReview, insertReview, saveReviewQuestions, setReviewFlag } from "@/lib/aiReviewStore";
 import { listAllProblems } from "@/lib/problemStore";
 import { asProblem, practiceKey } from "@/lib/practice";
@@ -458,24 +458,87 @@ export async function startMyReview(submissionId: number): Promise<ReviewResult>
   }
 }
 
-/** 되돌아보기 질문에 내 답을 저장한다 */
-export async function saveMyReviewAnswers(submissionId: number, answers: string[]): Promise<ReviewResult> {
+/** 되돌아보기 질문에 내 답을 저장한다 (followAnswers: 이어 묻기에 대한 두 번째 답, 질문 순서대로, 이어 묻기가 없으면 "") */
+export async function saveMyReviewAnswers(submissionId: number, answers: string[], followAnswers?: string[]): Promise<ReviewResult> {
   const session = await getSession();
   if (!session || session.role !== "student") return { ok: false, error: "다시 로그인한 뒤 저장하세요." };
   try {
     const { review } = await getReview(Number(submissionId));
     if (!review || review.userId !== session.id) return { ok: false, error: "되돌아보기를 찾지 못했어요." };
     const list = normalizeAnswers(answers, review.questions.length);
-    if (!list) return { ok: false, error: "답은 한 칸에 1000자까지 쓸 수 있어요." };
+    const follows = followAnswers === undefined ? review.questions.map((q) => q.followUp?.answer ?? "") : normalizeAnswers(followAnswers, review.questions.length);
+    if (!list || !follows) return { ok: false, error: "답은 한 칸에 1000자까지 쓸 수 있어요." };
     const saved = await saveReviewQuestions(
       review.id,
       session.id,
-      review.questions.map((q, i) => ({ ...q, answer: list[i] })),
+      review.questions.map((q, i) => ({ ...q, answer: list[i], followUp: q.followUp ? { ...q.followUp, answer: follows[i] } : null })),
     );
     return saved ? { ok: true, review: saved } : { ok: false, error: "되돌아보기를 찾지 못했어요." };
   } catch (err) {
     console.error("되돌아보기 답 저장 오류:", err);
     return { ok: false, error: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/**
+ * 되돌아보기 이어 묻기: 저장한 내 답을 AI에게 보여 주면, 작성 과정 요약을 근거로 짧게 반응하고 한 번 더 묻는다.
+ * 질문 하나에 한 번만. AI 하루 한도에 함께 센다.
+ */
+export async function askReviewFollowUp(submissionId: number, index: number): Promise<ReviewResult> {
+  const session = await getSession();
+  if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
+  try {
+    const profile = await getUserProfile(session.id);
+    const found = profile ? await getReplayData(Number(submissionId), profile) : null;
+    if (!found) return { ok: false, error: "제출을 찾지 못했어요." };
+    const { review } = await getReview(Number(submissionId));
+    const q = review?.questions[Number(index)];
+    if (!review || review.userId !== session.id || !q) return { ok: false, error: "되돌아보기를 찾지 못했어요." };
+    if (q.followUp) return { ok: true, review };
+    if (!canFollowUp(q)) return { ok: false, error: "먼저 내 답을 적고 저장해 주세요." };
+    const ai = await aiSettingsFor(found.owner.subject);
+    const blocked = reviewBlocked(ai);
+    if (blocked) return { ok: false, error: blocked };
+
+    const limit = dailyLimit();
+    const used = (await Promise.all([countTodayChats(session.id), countTodayReviews(session.id)])).reduce((a, b) => a + b, 0);
+    if (used >= limit) return { ok: false, error: `오늘 AI 사용 ${limit}번을 모두 썼어요. 내일 다시 해 볼 수 있어요.` };
+
+    const { problems } = await listAllProblems();
+    const problem = problems.find((p) => p.subject === found.owner.subject && p.number === found.owner.problem);
+    // 처음 질문과 같은 과정 기록 요약 (같은 기록이면 순간 번호도 같다, CLAUDE.md 규칙 1)
+    const summary = summarizeProcess(found.init, found.log);
+    const draft = await makeReviewFollowUp({
+      problemText: problem ? problemForAi(problem) : `${found.owner.problem}번 문제`,
+      processText: processSummaryText(summary),
+      question: q.question,
+      momentLabel: q.moment ? `${q.moment.id} ${q.moment.label}` : null,
+      answer: q.answer,
+      teacherNote: ai.note,
+    });
+    const followUp = toFollowUp(draft.raw, summary.moments, found.code, {
+      createdAt: new Date().toISOString(),
+      model: draft.model,
+      inputTokens: draft.inputTokens,
+      outputTokens: draft.outputTokens,
+    });
+    if (!followUp) return { ok: false, error: "AI가 이어 묻지 못했어요. 잠시 후 다시 눌러 주세요." };
+    // 그 사이 다른 창에서 이미 받았으면 그것을 둔다
+    const fresh = (await getReview(Number(submissionId))).review;
+    if (!fresh) return { ok: false, error: "되돌아보기를 찾지 못했어요." };
+    if (fresh.questions[Number(index)]?.followUp) return { ok: true, review: fresh };
+    const saved = await saveReviewQuestions(
+      fresh.id,
+      session.id,
+      fresh.questions.map((x, i) => (i === Number(index) ? { ...x, followUp } : x)),
+    );
+    return saved ? { ok: true, review: saved } : { ok: false, error: "되돌아보기를 찾지 못했어요." };
+  } catch (err) {
+    if (err instanceof AiReviewsNotReadyError) return { ok: false, notReady: true, error: "선생님이 AI 되돌아보기를 준비하고 있어요." };
+    if (err instanceof AiNotConfiguredError) return { ok: false, error: "선생님이 AI 기능을 준비하고 있어요." };
+    if (err instanceof AiRefusedError) return { ok: false, error: "AI가 이 답으로는 이어 묻지 않았어요." };
+    console.error("되돌아보기 이어 묻기 오류:", err);
+    return { ok: false, error: "AI가 이어 묻지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }
 
