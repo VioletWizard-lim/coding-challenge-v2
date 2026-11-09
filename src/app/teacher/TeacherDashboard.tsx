@@ -34,11 +34,13 @@ export default function TeacherDashboard({
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="mr-auto">
+      <div className="flex flex-col gap-3">
+        <div>
           <h2 className="text-2xl font-black">{name}님, 안녕하세요! 👋</h2>
           <p className="text-muted">{dayFormat.format(new Date(`${data.today}T00:00:00Z`))} · 오늘 수업을 한눈에 봐요.</p>
         </div>
+        {/* 바로 가기: 한 줄로 (좁은 화면에서는 옆으로 밀어서 봄) */}
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {[
           ["📝 채점", "grading"],
           ["📚 문제 관리", "problems"],
@@ -50,11 +52,12 @@ export default function TeacherDashboard({
             key={tab}
             type="button"
             onClick={() => showTab(tab)}
-            className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-bold hover:border-brand hover:text-brand"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-line bg-white px-3 py-2 text-sm font-bold hover:border-brand hover:text-brand"
           >
             {label} →
           </button>
         ))}
+        </div>
       </div>
 
       {status}
