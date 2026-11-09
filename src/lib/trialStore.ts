@@ -61,3 +61,24 @@ export async function trialUsageSince(sinceIso: string): Promise<(Usage & { crea
     return (Array.isArray(v.usages) ? v.usages : []).map((u) => ({ ...u, createdAt: `${day}T12:00:00+09:00` }));
   });
 }
+
+/* ───────── 체험 페이지 보이기/숨기기 (관리자) ───────── */
+
+const VISIBLE_KEY = "try_page";
+
+/**
+ * 체험 페이지를 열어 두었는지. 관리자가 🛠 관리자 페이지에서 켜고 끈다(기본: 숨김 — 심사 기간에만 열기).
+ * 숨기면 첫 화면의 체험 버튼이 사라지고, /try는 "지금은 열려 있지 않아요"(관리자는 미리 보기), 체험 AI도 막힌다.
+ */
+export async function isTrialVisible(): Promise<boolean> {
+  const { data, error } = await db().from("app_status").select("value").eq("key", VISIBLE_KEY).maybeSingle();
+  if (error) return false;
+  return (data?.value as { visible?: unknown } | null)?.visible === true;
+}
+
+export async function setTrialVisible(visible: boolean, by: string): Promise<void> {
+  const { error } = await db()
+    .from("app_status")
+    .upsert({ key: VISIBLE_KEY, value: { visible, by, at: new Date().toISOString() }, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  if (error) throw new Error(`체험 페이지 설정 저장 실패: ${error.message}`);
+}

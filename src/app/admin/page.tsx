@@ -7,6 +7,7 @@ import HealthCard from "../teacher/HealthCard";
 import TeacherAccounts from "./TeacherAccounts";
 import YearEndPanel from "./YearEndPanel";
 import DeleteRequests from "./DeleteRequests";
+import TrialPageCard from "./TrialPageCard";
 
 /** 🛠 관리자 페이지: 관리자(role=admin) 계정만. 교사 계정 관리, 서비스 상태 */
 export default function AdminPage() {
@@ -38,6 +39,7 @@ async function AdminHome() {
         <Suspense fallback={null}>
           <AiUsageCard />
         </Suspense>
+        <TrialPageCard />
         <DeleteRequests />
         <YearEndPanel />
       </div>

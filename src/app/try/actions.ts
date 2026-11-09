@@ -6,9 +6,9 @@ import { MAX_REVIEW_ANSWER, MIN_QUESTIONS, toFollowUp, toReview, type AiReview, 
 import { isValidLog } from "@/lib/editLog";
 import { processSummaryText, summarizeProcess } from "@/lib/process-summary";
 import { validEntries } from "@/lib/replay";
-import { grantTrial, hasTrial } from "@/lib/session";
+import { getSession, grantTrial, hasTrial } from "@/lib/session";
 import { findTrialProblem, trialCodeMatches, trialLimit, TRIAL_SUBJECT } from "@/lib/trial";
-import { recordTrialUsage, takeTrialTurn, trialRemaining } from "@/lib/trialStore";
+import { isTrialVisible, recordTrialUsage, takeTrialTurn, trialRemaining } from "@/lib/trialStore";
 
 /*
  * 🧪 체험 페이지(/try) 서버 기능. 로그인 없이 쓰므로:
@@ -21,10 +21,27 @@ import { recordTrialUsage, takeTrialTurn, trialRemaining } from "@/lib/trialStor
 const MAX_LOG_EVENTS = 50_000;
 const MAX_CODE = 20_000;
 
-export type TrialStatus = { enabled: boolean; unlocked: boolean; remaining: number; limit: number };
+export type TrialStatus = {
+  /** 관리자가 체험 페이지를 열어 두었는지 */
+  open: boolean;
+  /** 숨겨져 있지만 관리자라서 미리 보는 중 */
+  preview: boolean;
+  enabled: boolean;
+  unlocked: boolean;
+  remaining: number;
+  limit: number;
+};
 
-/** 체험 AI를 쓸 수 있는지 (코드를 정했는지, 이 브라우저가 코드를 넣었는지, 오늘 남은 횟수) */
+/** 체험 페이지를 볼 수 있는지: 관리자가 열어 두었거나, 관리자 계정으로 미리 보기 */
+async function access(): Promise<{ open: boolean; preview: boolean }> {
+  const [visible, session] = await Promise.all([isTrialVisible().catch(() => false), getSession()]);
+  return { open: visible, preview: !visible && session?.role === "admin" };
+}
+
+/** 체험 AI를 쓸 수 있는지 (페이지가 열렸는지, 코드를 정했는지, 이 브라우저가 코드를 넣었는지, 오늘 남은 횟수) */
 export async function trialStatus(): Promise<TrialStatus> {
+  const { open, preview } = await access();
+  if (!open && !preview) return { open, preview, enabled: false, unlocked: false, remaining: 0, limit: trialLimit() };
   const enabled = !!process.env.TRY_ACCESS_CODE?.trim() && !!process.env.ANTHROPIC_API_KEY;
   const unlocked = enabled && (await hasTrial());
   let remaining = 0;
@@ -35,11 +52,13 @@ export async function trialStatus(): Promise<TrialStatus> {
       console.error("체험 사용량 조회 오류:", err);
     }
   }
-  return { enabled, unlocked, remaining, limit: trialLimit() };
+  return { open, preview, enabled, unlocked, remaining, limit: trialLimit() };
 }
 
 /** 체험 코드 넣기 */
 export async function unlockTrial(code: string): Promise<{ ok: true; status: TrialStatus } | { ok: false; error: string }> {
+  const a = await access();
+  if (!a.open && !a.preview) return { ok: false, error: "지금은 체험 페이지가 열려 있지 않아요." };
   if (!process.env.TRY_ACCESS_CODE?.trim()) return { ok: false, error: "지금은 체험 AI가 꺼져 있어요. 예시 기록으로 둘러봐 주세요." };
   if (!trialCodeMatches(code)) return { ok: false, error: "체험 코드가 맞지 않아요. 안내문의 코드를 확인해 주세요." };
   await grantTrial();
@@ -50,6 +69,8 @@ type Rec = { problemId: string; init: string; log: unknown; code?: string };
 
 /** 공통 확인: 코드를 넣었는지, 체험 문제인지, 기록 모양이 맞는지 */
 async function check(input: Rec): Promise<{ ok: true; problemText: string } | { ok: false; error: string }> {
+  const a = await access();
+  if (!a.open && !a.preview) return { ok: false, error: "지금은 체험 페이지가 열려 있지 않아요." };
   if (!(await hasTrial())) return { ok: false, error: "체험 코드를 먼저 넣어 주세요." };
   const problem = findTrialProblem(String(input.problemId));
   if (!problem) return { ok: false, error: "체험 문제를 찾지 못했어요." };
