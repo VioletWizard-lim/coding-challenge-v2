@@ -45,6 +45,7 @@ export default function TeacherDashboard({
         {[
           // 왼쪽 메뉴와 같은 순서
           ["📚 문제 관리", "problems"],
+          ["✏️ 학생이 만든 문제", "student-problems"],
           ["📝 채점", "grading"],
           ["📊 반별 현황", "stats"],
           ["🧭 학생별 학습 여정", "journey"],
@@ -58,7 +59,7 @@ export default function TeacherDashboard({
             className="shrink-0 whitespace-nowrap rounded-lg border border-line bg-white px-3 py-2 text-sm font-bold hover:border-brand hover:text-brand"
           >
             {label} →
-            {tab === "problems" && !!data.studentPending && (
+            {tab === "student-problems" && !!data.studentPending && (
               <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900" title="학생이 만든 문제 중 승인 기다리는 것">
                 승인 {data.studentPending}
               </span>
