@@ -1,5 +1,6 @@
 "use client";
 
+import AiHelperButton from "@/components/AiHelperButton";
 import { useEffect, useRef, useState } from "react";
 import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
@@ -66,7 +67,8 @@ export default function TryClient() {
   const [reviews, setReviews] = useState<Record<string, AiReview | null>>({});
   const [outcomes, setOutcomes] = useState<TestOutcome[] | null>(null);
   const [checking, setChecking] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  // 체험에서는 핵심 기능인 AI 도우미 창을 처음부터 열어 둔다 (닫으면 큰 버튼으로 다시 열기)
+  const [aiOpen, setAiOpen] = useState(true);
   const [note, setNote] = useState<string | null>(null);
 
   const problem = TRIAL_PROBLEMS.find((p) => p.id === problemId)!;
@@ -317,15 +319,7 @@ export default function TryClient() {
               <ProblemView problem={problem.view} />
             </aside>
             <div className="flex min-w-0 flex-col gap-4">
-              {!aiOpen && (
-                <button
-                  type="button"
-                  onClick={() => setAiOpen(true)}
-                  className="self-end rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
-                >
-                  🤖 AI 도우미에게 물어보기
-                </button>
-              )}
+              {!aiOpen && <AiHelperButton onOpen={() => setAiOpen(true)} />}
               <RecordingEditor key={`${problemId}:${resetKey}`} ref={recorder} storageKey={trialStorageKey(problemId)} />
               <div className="flex flex-wrap items-center gap-3">
                 <button

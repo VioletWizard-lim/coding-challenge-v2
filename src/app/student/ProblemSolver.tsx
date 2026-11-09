@@ -1,5 +1,6 @@
 "use client";
 
+import AiHelperButton from "@/components/AiHelperButton";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
@@ -167,16 +168,7 @@ export default function ProblemSolver({
         </aside>
 
         <div className="flex min-w-0 flex-col gap-4">
-          {editorReady && !aiOpen && (
-            <button
-              type="button"
-              onClick={() => setAiOpen(true)}
-              title="내가 코드를 써 온 과정을 보고 AI가 힌트를 줘요"
-              className="self-end rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
-            >
-              🤖 AI 도우미에게 물어보기
-            </button>
-          )}
+          {editorReady && !aiOpen && <AiHelperButton onOpen={() => setAiOpen(true)} />}
           {editorReady ? (
             <RecordingEditor ref={recorder} storageKey={storageKey} initialCode={starterCode} />
           ) : (
