@@ -4,6 +4,7 @@ import { draftUsageSince } from "@/lib/gradingDraftStore";
 import { aiUsageSummary } from "@/lib/aiChatStore";
 import { practiceUsageSince } from "@/lib/practiceStore";
 import { listTeachers } from "@/lib/teacher";
+import { trialUsageSince } from "@/lib/trialStore";
 
 const dollars = (d: number) => (d < 0.01 ? "0.01달러 미만" : `${d.toFixed(2)}달러`);
 
@@ -23,12 +24,13 @@ export default async function AiUsageCard({ teacherId }: { teacherId?: string })
   let data;
   let names = new Map<string, string>();
   try {
-    const [chats, reviews, practice, allDrafts, teachers] = await Promise.all([
+    const [chats, reviews, practice, allDrafts, teachers, trial] = await Promise.all([
       aiUsageSummary(),
       reviewUsageSince(kstMonthStart()),
       practiceUsageSince(kstMonthStart()),
       draftUsageSince(kstMonthStart()),
       teacherId ? Promise.resolve([]) : listTeachers(),
+      trialUsageSince(kstMonthStart()).catch(() => []),
     ]);
     names = new Map(teachers.map((t) => [t.id, t.name]));
     const drafts = teacherId ? allDrafts.filter((d) => d.teacherId === teacherId) : allDrafts;
@@ -40,6 +42,7 @@ export default async function AiUsageCard({ teacherId }: { teacherId?: string })
       today: [...chats.today, ...student.filter((r) => new Date(r.createdAt) >= dayStart)],
       month: [...chats.month, ...student],
       drafts,
+      trial,
     };
   } catch (err) {
     console.error(err);
@@ -66,6 +69,11 @@ export default async function AiUsageCard({ teacherId }: { teacherId?: string })
               <span className="text-muted">{money(data.drafts)}</span>
             </p>
           )}
+          {data.trial.length > 0 && (
+            <p className="text-sm">
+              🧪 체험 페이지(심사용) 이번 달 <b>{data.trial.length}</b>번<span className="text-muted">{money(data.trial)}</span>
+            </p>
+          )}
           {!teacherId && data.drafts.length > 0 && (
             <ul className="-mt-2 ml-4 list-disc text-xs text-muted">
               {[...new Set(data.drafts.map((d) => d.teacherId ?? ""))].map((id) => {
@@ -78,13 +86,13 @@ export default async function AiUsageCard({ teacherId }: { teacherId?: string })
               })}
             </ul>
           )}
-          {data.month.length + data.drafts.length > 0 && (
+          {data.month.length + data.drafts.length + data.trial.length > 0 && (
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">
                 이번 달 모델별 자세히{teacherId ? " (학생 전체 + 내 채점 초안)" : " (콘솔 Usage와 맞춰 보기)"}
               </summary>
               <ul className="mt-1 flex flex-col gap-0.5">
-                {usageByModel([...data.month, ...data.drafts]).map((m) => (
+                {usageByModel([...data.month, ...data.drafts, ...data.trial]).map((m) => (
                   <li key={m.model}>
                     <span className="font-mono">{m.model}</span> · {m.count}번 · 입력 {m.inputTokens.toLocaleString()} / 출력{" "}
                     {m.outputTokens.toLocaleString()} 토큰{m.known ? ` · 약 ${dollars(m.dollars)}` : ""}

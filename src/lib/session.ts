@@ -64,3 +64,24 @@ export async function requireRole(role: Role): Promise<Session> {
 }
 
 export const homeFor = (role: Role) => (role === "admin" ? "/admin" : role === "teacher" ? "/teacher" : "/student");
+
+/* ───────── 체험 페이지(/try): 체험 코드를 넣은 브라우저만 진짜 AI를 쓴다 ───────── */
+
+const TRIAL_COOKIE = "cc_try";
+
+/** 체험 코드가 맞았을 때: 서명된 쿠키 (8시간, 로그인과는 따로) */
+export async function grantTrial() {
+  const token = await new SignJWT({ try: true }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("8h").sign(secretKey());
+  (await cookies()).set(TRIAL_COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" });
+}
+
+export async function hasTrial(): Promise<boolean> {
+  const token = (await cookies()).get(TRIAL_COOKIE)?.value;
+  if (!token) return false;
+  try {
+    const { payload } = await jwtVerify(token, secretKey(), { algorithms: ["HS256"] });
+    return payload.try === true;
+  } catch {
+    return false;
+  }
+}

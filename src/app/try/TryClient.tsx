@@ -1,0 +1,454 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import ProblemView from "@/components/ProblemView";
+import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
+import Replayer from "@/components/Replayer";
+import { Outcomes, runTests } from "@/components/TestOutcomes";
+import type { AiChat } from "@/lib/aiChat";
+import type { AiReview } from "@/lib/aiReview";
+import type { Recording } from "@/lib/editLog";
+import type { HelpChat } from "@/lib/helpTrail";
+import { errorName, judge, type TestOutcome } from "@/lib/practice";
+import {
+  SAMPLE_CHAT,
+  SAMPLE_PROBLEM_ID,
+  SAMPLE_RECORDING,
+  sampleChats,
+  sampleMoments,
+  sampleReview,
+  TRIAL_PROBLEMS,
+  TRIAL_SUBJECT,
+  trialStorageKey,
+} from "@/lib/trial";
+import AiHelper, { type HelperBackend } from "../student/AiHelper";
+import ReviewPanel, { type ReviewBackend } from "../student/ReviewPanel";
+import { trialAsk, trialFollowUp, trialReview, trialStatus, unlockTrial, type TrialStatus } from "./actions";
+
+type Step = "write" | "replay" | "reflect";
+const STEPS: [Step, string, string][] = [
+  ["write", "① 코드 쓰기", "편집기가 입력·붙여넣기·실행을 기록해요. 막히면 AI 도우미에게 물어봐요."],
+  ["replay", "② 재생하며 되돌아보기", "내가 쓴 과정을 다시 보고, AI가 그 과정의 순간을 짚어 질문해요."],
+  ["reflect", "③ 오늘의 성찰", "수업을 마치며 오늘을 글로 정리해요."],
+];
+
+const toHelp = (c: AiChat): HelpChat => ({ at: c.at ?? 0, question: c.question, answer: c.answer, moments: c.moments });
+
+/**
+ * 🧪 체험 페이지 본문. 실제 학생 화면의 부품(기록 편집기, 재생기, AI 도우미, AI 되돌아보기)을 그대로 쓰고,
+ * 서버에는 저장하지 않는다(작성 기록은 이 브라우저에만). 진짜 AI는 체험 코드를 넣은 뒤에.
+ */
+export default function TryClient() {
+  const [status, setStatus] = useState<TrialStatus | null>(null);
+  const [step, setStep] = useState<Step>("write");
+  const [problemId, setProblemId] = useState(TRIAL_PROBLEMS[0].id);
+  const [resetKey, setResetKey] = useState(0);
+  const recorder = useRef<RecorderHandle>(null);
+  const [rec, setRec] = useState<Recording | null>(null);
+  const [chats, setChats] = useState<Record<string, AiChat[]>>({});
+  const [reviews, setReviews] = useState<Record<string, AiReview | null>>({});
+  const [outcomes, setOutcomes] = useState<TestOutcome[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const problem = TRIAL_PROBLEMS.find((p) => p.id === problemId)!;
+  const unlocked = !!status?.unlocked;
+
+  useEffect(() => {
+    trialStatus().then(setStatus);
+  }, []);
+
+  function go(next: Step) {
+    // 재생·되돌아보기는 지금까지의 기록으로
+    const r = recorder.current?.getRecording();
+    if (r) setRec(r);
+    setStep(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function pickProblem(id: string) {
+    setProblemId(id);
+    setOutcomes(null);
+    setNote(null);
+    setRec(null);
+  }
+
+  function startOver() {
+    if (!confirm("이 문제의 체험 기록을 지우고 처음부터 쓸까요?")) return;
+    try {
+      localStorage.removeItem(trialStorageKey(problemId));
+    } catch {}
+    setChats((c) => ({ ...c, [problemId]: [] }));
+    setReviews((r) => ({ ...r, [problemId]: null }));
+    setOutcomes(null);
+    setRec(null);
+    setResetKey((k) => k + 1);
+  }
+
+  async function runChecks() {
+    const r = recorder.current?.getRecording();
+    if (!r) return;
+    if (!r.code.trim()) return setNote("코드를 먼저 써 주세요.");
+    setChecking(true);
+    setNote(null);
+    try {
+      const judged = judge(problem.tests, await runTests(r.code, problem.tests));
+      setOutcomes(judged);
+      const firstError = judged.find((o) => o.error)?.error;
+      // 확인도 실행이다: 작성 기록에 실행 결과로 남긴다 (재생 타임라인·과정 요약에 보임)
+      recorder.current?.addMark(firstError ? `r:${errorName(firstError)}` : "r:ok");
+    } catch (err) {
+      setNote(String((err as Error)?.message ?? err));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  const remainingNote = (remaining: number) => setStatus((s) => (s ? { ...s, remaining } : s));
+
+  const helper: HelperBackend = {
+    load: async () =>
+      unlocked
+        ? { ok: true, chats: chats[problemId] ?? [], remaining: status?.remaining ?? 0, limit: status?.limit ?? 0 }
+        : { ok: false, error: "위의 칸에 체험 코드를 넣으면 진짜 AI 도우미를 써 볼 수 있어요." },
+    ask: async (x) => {
+      const r = await trialAsk({ problemId, ...x, history: (chats[problemId] ?? []).map((c) => ({ question: c.question, answer: c.answer })) });
+      if (r.ok) {
+        setChats((all) => ({ ...all, [problemId]: [...(all[problemId] ?? []), r.chat] }));
+        remainingNote(r.remaining);
+      }
+      return r;
+    },
+    note: (
+      <>
+        AI는 <b>내가 코드를 써 온 과정</b>(실행에 성공한 순간, 반복된 오류, 오래 멈춘 곳)을 보고 힌트를 줘요. 정답 코드는 알려 주지 않아요. 파란
+        버튼을 누르면 그 순간의 재생을 볼 수 있어요. 체험에서는 대화를 저장하지 않아요.
+      </>
+    ),
+    remainingLabel: "오늘 남은 체험 AI",
+  };
+
+  const review = reviews[problemId] ?? null;
+  const setReview = (r: AiReview) => setReviews((all) => ({ ...all, [problemId]: r }));
+  const reviewBackend: ReviewBackend = {
+    start: async () => {
+      if (!rec) return { ok: false, error: "먼저 코드를 써 주세요." };
+      const r = await trialReview({ problemId, init: rec.init, log: rec.log, code: rec.code });
+      if (!r.ok) return r;
+      setReview(r.review);
+      remainingNote(r.remaining);
+      return { ok: true, review: r.review };
+    },
+    save: async (answers, follows) => {
+      const cur = reviews[problemId];
+      if (!cur) return { ok: false, error: "되돌아보기를 먼저 받아 주세요." };
+      const next = {
+        ...cur,
+        questions: cur.questions.map((q, i) => ({ ...q, answer: answers[i] ?? "", followUp: q.followUp ? { ...q.followUp, answer: follows[i] ?? "" } : null })),
+      };
+      setReview(next);
+      return { ok: true, review: next };
+    },
+    followUp: async (i) => {
+      const cur = reviews[problemId];
+      const q = cur?.questions[i];
+      if (!cur || !q || !rec) return { ok: false, error: "되돌아보기를 먼저 받아 주세요." };
+      const r = await trialFollowUp({
+        problemId,
+        init: rec.init,
+        log: rec.log,
+        code: rec.code,
+        question: q.question,
+        momentLabel: q.moment ? `${q.moment.id} ${q.moment.label}` : null,
+        answer: q.answer,
+      });
+      if (!r.ok) return r;
+      const next = { ...cur, questions: cur.questions.map((x, k) => (k === i ? { ...x, followUp: r.followUp } : x)) };
+      setReview(next);
+      remainingNote(r.remaining);
+      return { ok: true, review: next };
+    },
+    savedText: "✅ 적어 두었어요. (체험에서는 이 화면에만 있고, 실제 수업에서는 저장되어 선생님도 봐요)",
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-2 rounded-2xl border border-line bg-white p-5">
+        <h1 className="text-2xl font-black">🧪 로그인 없이 체험해 보기</h1>
+        <p className="leading-7 text-muted">
+          이 사이트는 <b className="text-ink">결과가 아니라 코드를 써 온 과정</b>을 기록하고, 그 과정을 다시 보며 AI와 함께 되돌아보는 수업 도구예요.
+          실제 학생 화면과 같은 편집기·재생기·AI를 쓰지만, 체험한 내용은 <b className="text-ink">서버에 저장하지 않아요</b>(이 브라우저에만 남아요).
+        </p>
+        <TrialGate status={status} onStatus={setStatus} />
+      </section>
+
+      <SampleRecord />
+
+      <nav className="flex flex-wrap gap-2" aria-label="체험 단계">
+        {STEPS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => go(id)}
+            aria-current={step === id ? "step" : undefined}
+            className={`rounded-full px-4 py-2 text-sm font-bold ${step === id ? "bg-brand text-white" : "border border-line bg-white text-muted hover:text-ink"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      <p className="-mt-3 text-sm text-muted">{STEPS.find(([id]) => id === step)![2]}</p>
+
+      {/* ① 코드 쓰기: 단계를 오가도 편집기가 사라지지 않게 숨기기만 한다 */}
+      <section className={step === "write" ? "flex flex-col gap-4" : "hidden"}>
+        <div className="flex flex-wrap gap-2">
+          {TRIAL_PROBLEMS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => pickProblem(p.id)}
+              className={`rounded-lg border px-3 py-1.5 text-sm ${p.id === problemId ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white"}`}
+            >
+              체험 {p.view.number}. {p.view.title}
+            </button>
+          ))}
+        </div>
+        <div className={`grid gap-5 lg:grid-cols-[minmax(280px,2fr)_3fr] ${aiOpen ? "xl:grid-cols-[minmax(240px,1.4fr)_2.4fr_minmax(300px,1.6fr)]" : ""}`}>
+          <aside className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5 lg:self-start">
+            <ProblemView problem={problem.view} />
+          </aside>
+          <div className="flex min-w-0 flex-col gap-4">
+            {!aiOpen && (
+              <button
+                type="button"
+                onClick={() => setAiOpen(true)}
+                className="self-end rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+              >
+                🤖 AI 도우미에게 물어보기
+              </button>
+            )}
+            <RecordingEditor key={`${problemId}:${resetKey}`} ref={recorder} storageKey={trialStorageKey(problemId)} />
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={runChecks}
+                disabled={checking}
+                className="rounded-xl bg-gradient-to-br from-brand to-violet-600 px-6 py-2.5 font-bold text-white disabled:opacity-60"
+              >
+                {checking ? "확인하는 중…" : "✅ 예시로 확인하기"}
+              </button>
+              <button type="button" onClick={() => go("replay")} className="rounded-lg border border-brand px-3 py-2 text-sm font-bold text-brand hover:bg-brand-soft">
+                다음: ② 재생하며 되돌아보기 →
+              </button>
+              <button type="button" onClick={startOver} className="ml-auto text-sm text-muted hover:text-danger">
+                처음부터 다시 쓰기
+              </button>
+            </div>
+            {note && (
+              <p role="alert" className="text-sm text-danger">
+                {note}
+              </p>
+            )}
+            {outcomes && <Outcomes tests={problem.tests} outcomes={outcomes} />}
+          </div>
+          {aiOpen && (
+            <div className="min-w-0 lg:col-span-2 xl:col-span-1">
+              <AiHelper
+                key={`${problemId}:${unlocked}:${resetKey}`}
+                subject={TRIAL_SUBJECT}
+                problem={problemId}
+                recorder={recorder}
+                backend={helper}
+                onClose={() => setAiOpen(false)}
+              />
+            </div>
+          )}
+        </div>
+      </section>
+
+      {step === "replay" && (
+        <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
+          <h2 className="text-lg font-bold">
+            ▶ 내 작성 과정 — 체험 {problem.view.number}. {problem.view.title}
+          </h2>
+          {rec && rec.log && (rec.log as unknown[]).length > 0 ? (
+            <Replayer
+              key={`${problemId}:${(rec.log as unknown[]).length}`}
+              init={rec.init}
+              code={rec.code}
+              log={rec.log}
+              chats={(chats[problemId] ?? []).map(toHelp)}
+              extra={(seek) => (
+                <ReviewPanel
+                  key={`${problemId}:${unlocked}:${review ? "r" : "-"}`}
+                  submissionId={0}
+                  role="student"
+                  ready
+                  initial={review}
+                  seek={seek}
+                  backend={reviewBackend}
+                />
+              )}
+            />
+          ) : (
+            <p className="text-muted">
+              아직 기록이 없어요.{" "}
+              <button type="button" onClick={() => go("write")} className="font-bold text-brand underline">
+                ① 코드 쓰기
+              </button>
+              에서 코드를 써 보세요. 예시 학생의 기록은 위 &lsquo;👀 예시 학생의 기록&rsquo;에서 볼 수 있어요.
+            </p>
+          )}
+          {!unlocked && rec && (
+            <p className="text-sm text-muted">AI 되돌아보기를 받으려면 맨 위 칸에 체험 코드를 넣어 주세요. 재생은 코드 없이도 볼 수 있어요.</p>
+          )}
+          <button type="button" onClick={() => go("reflect")} className="self-start rounded-lg border border-brand px-3 py-2 text-sm font-bold text-brand hover:bg-brand-soft">
+            다음: ③ 오늘의 성찰 →
+          </button>
+        </section>
+      )}
+
+      {step === "reflect" && <TrialReflection problemLabel={`체험 ${problem.view.number}. ${problem.view.title}`} />}
+    </div>
+  );
+}
+
+/** 체험 코드 칸 / 남은 횟수 */
+function TrialGate({ status, onStatus }: { status: TrialStatus | null; onStatus: (s: TrialStatus) => void }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  if (!status) return null;
+  if (!status.enabled) {
+    return (
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        지금은 체험용 AI가 꺼져 있어요. 코드 쓰기·재생은 그대로 해 볼 수 있고, AI 부분은 아래 &lsquo;예시 학생의 기록&rsquo;에서 볼 수 있어요.
+      </p>
+    );
+  }
+  if (status.unlocked) {
+    return (
+      <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
+        ✅ 체험 AI를 쓸 수 있어요 (AI 도우미·되돌아보기·이어 묻기). 오늘 사이트 전체에서 남은 횟수: {status.remaining}/{status.limit}
+      </p>
+    );
+  }
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setPending(true);
+        const r = await unlockTrial(code);
+        setPending(false);
+        if (!r.ok) return setError(r.error);
+        setError(null);
+        onStatus(r.status);
+      }}
+    >
+      <span className="text-blue-900">🔑 안내문의 <b>체험 코드</b>를 넣으면 진짜 AI(도우미·되돌아보기)를 써 볼 수 있어요.</span>
+      <input
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        aria-label="체험 코드"
+        placeholder="체험 코드"
+        className="w-36 rounded-lg border border-line bg-white px-3 py-1.5"
+      />
+      <button type="submit" disabled={pending || !code.trim()} className="rounded-lg bg-blue-600 px-3 py-1.5 font-bold text-white disabled:opacity-50">
+        {pending ? "확인 중…" : "넣기"}
+      </button>
+      {error && <span className="text-danger">{error}</span>}
+    </form>
+  );
+}
+
+/** 예시 학생의 기록: 실제로 남는 기록 그대로 재생 + AI 도움 + AI 되돌아보기(예시 답까지) */
+function SampleRecord() {
+  const [open, setOpen] = useState(false);
+  const chats = sampleChats();
+  const review = sampleReview();
+  const p = TRIAL_PROBLEMS.find((x) => x.id === SAMPLE_PROBLEM_ID)!;
+  return (
+    <section className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50/40 p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-lg font-bold">👀 예시 학생의 기록 먼저 보기</h2>
+        <span className="text-sm text-muted">
+          체험 {p.view.number}. {p.view.title} — TypeError가 두 번 나고, 멈췄다가, AI에게 묻고, 스스로 고친 과정
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="ml-auto rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700"
+        >
+          {open ? "접기" : "▶ 예시 기록 재생하기"}
+        </button>
+      </div>
+      {open && (
+        <>
+          <p className="text-sm leading-6 text-muted">
+            재생 막대 아래의 점(실행 성공·오류, ? 도움 요청)을 누르거나 ▶ 재생을 눌러 보세요. AI 답과 되돌아보기의 파란 순간 버튼(⏪)을 누르면 그
+            시점으로 이동해요. 예시의 AI 답(&ldquo;{SAMPLE_CHAT.question}&rdquo;)과 되돌아보기는 실제 AI 화면과 같은 모양으로 <b>미리 써 둔 예시</b>예요.
+            진짜 AI는 아래 ① 코드 쓰기에서 체험 코드를 넣고 써 볼 수 있어요.
+          </p>
+          <div className="rounded-xl border border-line bg-white p-4">
+            <Replayer
+              init={SAMPLE_RECORDING.init}
+              code={SAMPLE_RECORDING.code}
+              log={SAMPLE_RECORDING.log}
+              chats={chats}
+              startAt={sampleMoments().at(-1)?.at}
+              extra={(seek) => (
+                <ReviewPanel
+                  submissionId={0}
+                  role="teacher"
+                  ready
+                  initial={review}
+                  seek={seek}
+                  backend={{
+                    start: async () => ({ ok: true, review }),
+                    save: async () => ({ ok: true, review }),
+                    followUp: async () => ({ ok: true, review }),
+                  }}
+                />
+              )}
+            />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** 오늘의 성찰 (실제 수업과 같은 칸, 체험에서는 저장하지 않음) */
+function TrialReflection({ problemLabel }: { problemLabel: string }) {
+  const [done, setDone] = useState(false);
+  const field = "w-full rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5">
+      <h2 className="text-lg font-bold">💭 오늘의 성찰</h2>
+      <label className="flex flex-col gap-1.5">
+        <span className="font-bold">1. 오늘 가장 어려웠던 문제와 이유</span>
+        <span className="text-sm text-muted">{problemLabel}</span>
+        <textarea rows={2} className={field} placeholder="예: 나이에 1을 더하는 부분에서 TypeError가 계속 나서 헷갈렸어요." />
+      </label>
+      <label className="flex flex-col gap-1.5">
+        <span className="font-bold">2. AI에게 질문한 내용</span>
+        <textarea rows={2} className={field} placeholder="예: TypeError가 왜 나는지 물어봤어요. (질문하지 않았으면 비워 두세요)" />
+      </label>
+      <label className="flex flex-col gap-1.5">
+        <span className="font-bold">3. 오늘 배운 핵심 개념</span>
+        <textarea rows={2} className={field} placeholder="예: input()으로 받은 값은 문자열이라서, 계산하려면 int()로 바꿔야 한다." />
+      </label>
+      <button type="button" onClick={() => setDone(true)} className="self-start rounded-lg bg-brand px-4 py-2 font-bold text-white hover:bg-brand-dark">
+        성찰 남기기
+      </button>
+      {done && (
+        <p role="status" className="rounded-lg bg-green-50 px-3 py-2 text-sm leading-6 text-green-800">
+          ✅ 체험은 여기까지예요. 실제 수업에서는 성찰이 저장되어 학생의 <b>🧭 나의 학습 여정</b>(날짜별 기록, 스스로 고친 오류, 직접 작성 비율)과 선생님의{" "}
+          <b>💭 성찰 모아보기</b>에 쌓이고, 과정에 따라 <b>🏅 업적</b>(칭찬만)이 생겨요.
+        </p>
+      )}
+    </section>
+  );
+}
