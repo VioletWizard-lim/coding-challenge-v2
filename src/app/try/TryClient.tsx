@@ -35,6 +35,19 @@ const STEPS: [Step, string, string][] = [
   ["reflect", "⑤ 오늘의 성찰", "수업을 마치며 오늘을 글로 정리해요."],
 ];
 
+/** 이 브라우저에 남아 있는 체험 문제의 작성 기록 (④에서 다른 문제의 과정을 볼 때) */
+function savedRecording(problemId: string): Recording | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(trialStorageKey(problemId)) ?? "null");
+    if (saved && Array.isArray(saved.log) && typeof saved.code === "string") return { init: String(saved.init ?? ""), log: saved.log, code: saved.code };
+  } catch {}
+  return null;
+}
+
+/** 코드를 쓰거나 실행한 기록이 있는지 (창 이탈·복귀만 있으면 재생할 것이 없음) */
+const hasWork = (rec: Recording | null) =>
+  !!rec && Array.isArray(rec.log) && (rec.log as unknown[]).some((e) => Array.isArray(e) && (e.length >= 3 || String(e[1]).startsWith("r:")));
+
 const toHelp = (c: AiChat): HelpChat => ({ at: c.at ?? 0, question: c.question, answer: c.answer, moments: c.moments });
 
 /**
@@ -109,6 +122,25 @@ export default function TryClient() {
       setChecking(false);
     }
   }
+
+  /** 체험 문제 1·2·3 버튼 (③ 코드 쓰기, ④ 재생하며 되돌아보기에서 함께 씀) */
+  const problemButtons = (onPick: (id: string) => void) =>
+    TRIAL_PROBLEMS.map((p) => (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => onPick(p.id)}
+        aria-pressed={p.id === problemId}
+        className={`rounded-lg border px-3 py-1.5 text-sm ${p.id === problemId ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white"}`}
+      >
+        체험 {p.view.number}. {p.view.title}
+      </button>
+    ));
+  /** ④에서 다른 문제를 고르면: 그 문제를 고르고(③ 편집기도 그 문제로), 이 브라우저에 남은 그 문제의 기록으로 재생 */
+  const replayProblem = (id: string) => {
+    pickProblem(id);
+    setRec(savedRecording(id));
+  };
 
   const remainingNote = (remaining: number) => setStatus((s) => (s ? { ...s, remaining } : s));
 
@@ -276,16 +308,7 @@ export default function TryClient() {
         {/* ① 코드 쓰기: 단계를 오가도 편집기가 사라지지 않게 숨기기만 한다 */}
         <section className={step === "write" ? "flex flex-col gap-4" : "hidden"}>
           <div className="flex flex-wrap gap-2">
-            {TRIAL_PROBLEMS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => pickProblem(p.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm ${p.id === problemId ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white"}`}
-              >
-                체험 {p.view.number}. {p.view.title}
-              </button>
-            ))}
+            {problemButtons(pickProblem)}
           </div>
           <div
             className={`grid gap-5 lg:grid-cols-[minmax(280px,2fr)_3fr] ${aiOpen ? "xl:grid-cols-[minmax(240px,1.4fr)_2.4fr_minmax(300px,1.6fr)]" : ""}`}
@@ -341,10 +364,11 @@ export default function TryClient() {
 
         {step === "replay" && (
           <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5">
+            <div className="flex flex-wrap gap-2">{problemButtons(replayProblem)}</div>
             <h2 className="text-lg font-bold">
               ▶ 내 작성 과정 — 체험 {problem.view.number}. {problem.view.title}
             </h2>
-            {rec && rec.log && (rec.log as unknown[]).length > 0 ? (
+            {rec && hasWork(rec) ? (
               <Replayer
                 key={`${problemId}:${(rec.log as unknown[]).length}`}
                 init={rec.init}
@@ -365,7 +389,7 @@ export default function TryClient() {
               />
             ) : (
               <p className="text-muted">
-                아직 기록이 없어요.{" "}
+                이 문제는 아직 쓴 코드가 없어요.{" "}
                 <button type="button" onClick={() => go("write")} className="font-bold text-brand underline">
                   ③ 코드 쓰기
                 </button>
