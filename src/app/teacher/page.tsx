@@ -10,6 +10,7 @@ import { listStudents } from "@/lib/teacher";
 import AiChatBoard from "./AiChatBoard";
 import GradingBoard from "./GradingBoard";
 import ClassStats from "./ClassStats";
+import EffectStats from "./EffectStats";
 import { pendingBySubject } from "@/lib/gradingStore";
 import RubricSettings from "./RubricSettings";
 import PracticeSettingsPanel from "./PracticeSettings";
@@ -150,6 +151,15 @@ async function TeacherHome() {
                 <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
                   <AiChats />
                 </Suspense>
+              </div>
+            ),
+          },
+          {
+            id: "effect",
+            label: "📈 수업 효과",
+            content: (
+              <div className="mx-auto max-w-6xl">
+                <EffectStats />
               </div>
             ),
           },
