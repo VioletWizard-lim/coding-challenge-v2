@@ -111,7 +111,12 @@ export default function TryClient() {
     load: async () =>
       unlocked
         ? { ok: true, chats: chats[problemId] ?? [], remaining: status?.remaining ?? 0, limit: status?.limit ?? 0 }
-        : { ok: false, error: "위의 칸에 체험 코드를 넣으면 진짜 AI 도우미를 써 볼 수 있어요." },
+        : {
+            ok: false,
+            error: status?.enabled
+              ? "맨 위 칸에 체험 코드를 넣으면 진짜 AI 도우미를 써 볼 수 있어요."
+              : "지금은 체험 AI가 꺼져 있어요. AI 도우미가 어떻게 돕는지는 위 '👀 예시 학생의 기록'에서 볼 수 있어요.",
+          },
     ask: async (x) => {
       const r = await trialAsk({ problemId, ...x, history: (chats[problemId] ?? []).map((c) => ({ question: c.question, answer: c.answer })) });
       if (r.ok) {
@@ -315,7 +320,7 @@ export default function TryClient() {
               에서 코드를 써 보세요. 예시 학생의 기록은 위 &lsquo;👀 예시 학생의 기록&rsquo;에서 볼 수 있어요.
             </p>
           )}
-          {!unlocked && rec && (
+          {!unlocked && rec && status?.enabled && (
             <p className="text-sm text-muted">AI 되돌아보기를 받으려면 맨 위 칸에 체험 코드를 넣어 주세요. 재생은 코드 없이도 볼 수 있어요.</p>
           )}
           <button type="button" onClick={() => go("reflect")} className="self-start rounded-lg border border-brand px-3 py-2 text-sm font-bold text-brand hover:bg-brand-soft">
@@ -339,6 +344,13 @@ function TrialGate({ status, onStatus }: { status: TrialStatus | null; onStatus:
     return (
       <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
         지금은 체험용 AI가 꺼져 있어요. 코드 쓰기·재생은 그대로 해 볼 수 있고, AI 부분은 아래 &lsquo;예시 학생의 기록&rsquo;에서 볼 수 있어요.
+        {status.preview && (
+          <>
+            <br />
+            <b>관리자 안내</b>: 체험 코드는 선생님이 정하는 값이에요. Vercel → Settings → Environment Variables에 <code>TRY_ACCESS_CODE</code>(예:
+            line2027)를 넣고 다시 배포(Redeploy)하면 여기에 코드 칸이 생겨요. 그 코드를 심사위원 안내문에 적어 주세요.
+          </>
+        )}
       </p>
     );
   }
