@@ -1,5 +1,6 @@
 "use client";
 
+import AiHelperButton from "@/components/AiHelperButton";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useStudentNav } from "@/components/SideTabs";
 import ProblemView from "@/components/ProblemView";
@@ -231,16 +232,7 @@ export default function Workspace({
 
       {/* 오른쪽: 코드 작성 */}
       <div className="flex min-w-0 flex-col gap-4">
-        {current && !aiOpen && (
-          <button
-            type="button"
-            onClick={() => setAiOpen(true)}
-            title="내가 코드를 써 온 과정을 보고 AI가 힌트를 줘요"
-            className="self-end rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
-          >
-            🤖 AI 도우미에게 물어보기
-          </button>
-        )}
+        {current && !aiOpen && <AiHelperButton onOpen={() => setAiOpen(true)} />}
         {current && (
           <RecordingEditor
             key={`${subject}_${current.number}`}
