@@ -20,9 +20,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </Link> ·{" "}
           <Link href="/guide" className="hover:text-brand hover:underline">
             선생님용 사용 안내
-          </Link> ·{" "}
-          <Link href="/try" className="hover:text-brand hover:underline">
-            체험하기
           </Link>
         </footer>
       </body>

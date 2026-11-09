@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { getSession, homeFor } from "@/lib/session";
 import Logo from "@/components/Logo";
 import { SITE } from "@/lib/site";
+import { isTrialVisible } from "@/lib/trialStore";
 import LoginForm from "./LoginForm";
 
 /** 첫 화면(로그인). 화면 자체는 정적으로 만들어 바로 뜨고, 이미 로그인했으면 내 화면으로 보낸다. */
@@ -24,16 +25,26 @@ export default function Home() {
         <LoginForm />
       </div>
       <p className="mt-4 text-center text-xs text-muted">계정은 선생님이 만들어 줘요. 비밀번호를 잊었으면 선생님께 말씀하세요.</p>
-      <Link
-        href="/try"
-        className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-800 hover:bg-violet-100"
-      >
-        🧪 로그인 없이 체험해 보기 →
-      </Link>
+      <Suspense>
+        <TryLink />
+      </Suspense>
       <Suspense>
         <RedirectIfLoggedIn />
       </Suspense>
     </main>
+  );
+}
+
+/** 관리자가 체험 페이지를 열어 두었을 때만 보이는 버튼 (🛠 관리자 → 🧪 체험 페이지) */
+async function TryLink() {
+  if (!(await isTrialVisible().catch(() => false))) return null;
+  return (
+    <Link
+      href="/try"
+      className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-800 hover:bg-violet-100"
+    >
+      🧪 로그인 없이 체험해 보기 →
+    </Link>
   );
 }
 

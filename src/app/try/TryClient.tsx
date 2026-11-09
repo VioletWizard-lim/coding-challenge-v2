@@ -172,8 +172,23 @@ export default function TryClient() {
     savedText: "✅ 적어 두었어요. (체험에서는 이 화면에만 있고, 실제 수업에서는 저장되어 선생님도 봐요)",
   };
 
+  if (!status) return <p className="text-muted">불러오는 중…</p>;
+  if (!status.open && !status.preview) {
+    return (
+      <section className="flex flex-col gap-2 rounded-2xl border border-line bg-white p-6 text-center">
+        <h1 className="text-xl font-black">🧪 체험 페이지</h1>
+        <p className="text-muted">지금은 체험 페이지가 열려 있지 않아요. 계정이 있으면 첫 화면에서 로그인해 주세요.</p>
+      </section>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5">
+      {status.preview && (
+        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          👀 <b>관리자 미리 보기</b>: 지금 체험 페이지는 <b>숨김</b> 상태라 다른 사람에게는 보이지 않아요. 🛠 관리자 페이지에서 보이게 할 수 있어요.
+        </p>
+      )}
       <section className="flex flex-col gap-2 rounded-2xl border border-line bg-white p-5">
         <h1 className="text-2xl font-black">🧪 로그인 없이 체험해 보기</h1>
         <p className="leading-7 text-muted">

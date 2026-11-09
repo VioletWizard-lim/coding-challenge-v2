@@ -8,6 +8,8 @@ import { classOptions } from "@/lib/classes";
 import { getUserProfile } from "@/lib/auth";
 import { getDeleteRequest, listDeleteRequests, setRequestStatus, type DeleteRequest } from "@/lib/deleteRequestStore";
 import { canClean, confirmPhrase, yearTable } from "@/lib/yearEnd";
+import { isTrialVisible, setTrialVisible, trialRemaining } from "@/lib/trialStore";
+import { trialLimit } from "@/lib/trial";
 import { ALL_YEARS, computeYearStats, countYear, deleteYear, listYearStats, restoreRows, saveYearStats, YearStatsNotReadyError } from "@/lib/yearEndStore";
 
 /** 관리자만 쓸 수 있다 (모든 관리자 액션에서 다시 확인) */
@@ -231,5 +233,41 @@ export async function rejectDeleteRequest(requestId: number, note: string): Prom
   } catch (err) {
     console.error("삭제 요청 거절 오류:", err);
     return { ok: false, message: "저장하지 못했어요." };
+  }
+}
+
+/* ───────── 🧪 체험 페이지 보이기/숨기기 ───────── */
+
+export type TrialPageInfo =
+  | { ok: true; visible: boolean; codeSet: boolean; aiReady: boolean; remaining: number | null; limit: number }
+  | { ok: false; message: string };
+
+export async function loadTrialPage(): Promise<TrialPageInfo> {
+  if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  try {
+    const [visible, remaining] = await Promise.all([isTrialVisible(), trialRemaining().catch(() => null)]);
+    return {
+      ok: true,
+      visible,
+      codeSet: !!process.env.TRY_ACCESS_CODE?.trim(),
+      aiReady: !!process.env.ANTHROPIC_API_KEY,
+      remaining,
+      limit: trialLimit(),
+    };
+  } catch (err) {
+    console.error("체험 페이지 설정 조회 오류:", err);
+    return { ok: false, message: "불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+export async function saveTrialPage(visible: boolean): Promise<{ ok: true } | { ok: false; message: string }> {
+  const session = await getSession();
+  if (session?.role !== "admin") return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  try {
+    await setTrialVisible(!!visible, session.id);
+    return { ok: true };
+  } catch (err) {
+    console.error("체험 페이지 설정 저장 오류:", err);
+    return { ok: false, message: "저장하지 못했어요. Supabase에 002_app_status.sql이 실행되어 있는지 확인해 주세요." };
   }
 }
