@@ -110,7 +110,7 @@ export async function keepYearStats(year: number): Promise<{ ok: true; rowCount:
 
 /**
  * 지난 학년도의 학생 기록 지우기 (제출·점수·피드백, 학생 계정, AI 대화, 성찰, 메모, 연습, 학생이 만든 문제).
- * 학년도가 끝났고(다음 해 3월 1일부터), 확인 문구가 맞고, 그 학년도 통계를 남겨 둔 뒤에만.
+ * 확인 문구가 맞고, 그 학년도 통계를 남겨 둔 뒤에만. 보관 기간(학년도가 끝나기 전)에도 지울 수 있다 (화면에서 경고).
  * allStudents: 그 학년도 기록이 없는 학생 계정까지 모든 학생 계정 지우기 (새 학년 학생을 등록하기 전에만)
  */
 export async function cleanYear(
@@ -121,7 +121,6 @@ export async function cleanYear(
 ): Promise<{ ok: true; deleted: { table: string; deleted: number | null }[] } | { ok: false; message: string }> {
   if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
   if (!Number.isInteger(year)) return { ok: false, message: "학년도를 고르세요." };
-  if (!canClean(year)) return { ok: false, message: `${year}학년도는 아직 끝나지 않았어요. ${year + 1}년 3월 1일부터 지울 수 있어요.` };
   if (!validClass(cls)) return { ok: false, message: "반을 다시 골라 주세요." };
   if (String(phrase ?? "").trim() !== confirmPhrase(year, cls)) return { ok: false, message: `확인 문구를 "${confirmPhrase(year, cls)}"라고 정확히 적어 주세요.` };
   try {

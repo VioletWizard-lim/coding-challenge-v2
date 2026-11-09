@@ -143,7 +143,9 @@ export default function YearEndPanel() {
       {error && <p className="text-sm text-danger">{error}</p>}
       {!info && !error && <p className="text-sm text-muted">불러오는 중…</p>}
 
-      {info && shown !== `${year}|${cls}` && <p className="text-sm text-muted">불러오는 중…</p>}
+      {info && shown !== `${year}|${cls}` && (
+        <p className="text-sm text-muted">불러오는 중…</p>
+      )}
       {info && shown === `${year}|${cls}` && (
         <>
           <div className="rounded-lg bg-page px-4 py-3 text-sm">
@@ -244,12 +246,15 @@ export default function YearEndPanel() {
             </li>
             <li className="flex flex-col gap-2">
               <span className="font-bold">③ 지우기</span>
-              {!info.canClean ? (
-                <p className="text-sm text-muted">
-                  {year}학년도는 아직 보관 기간이에요. {year + 1}년 3월 1일부터
-                  지울 수 있어요.
+              {!info.canClean && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  ⚠️ {year}학년도는 아직 보관 기간이에요({year + 1}년 2월
+                  말까지). 지금 지우면 학생이 자기 기록·성찰을 더 볼 수 없어요.
+                  꼭 필요할 때만 지워 주세요(예: 전학·졸업한 학생 반, 잘못 만든
+                  반).
                 </p>
-              ) : !saved ? (
+              )}
+              {!saved ? (
                 <p className="text-sm text-muted">
                   ②에서 통계를 먼저 남겨 주세요.
                 </p>
@@ -328,6 +333,7 @@ function Restore({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
 
   async function open(file: File) {
     setError(null);
@@ -446,13 +452,29 @@ function Restore({ onDone }: { onDone: () => void }) {
         예전 사이트 비밀번호가 없으니, 로그인이 안 되면 비밀번호를 초기화해
         주세요.
       </p>
-      <input
-        type="file"
-        accept=".zip,application/zip"
-        aria-label="백업 ZIP 고르기"
-        onChange={(e) => e.target.files?.[0] && open(e.target.files[0])}
-        className="text-sm"
-      />
+      {/* 파일 고르기를 버튼 모양으로 (기본 모양은 누르는 곳인지 알기 어려움) */}
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="cursor-pointer rounded-lg border border-brand bg-white px-4 py-2 text-sm font-bold text-brand hover:bg-brand-soft focus-within:ring-2 focus-within:ring-brand/30">
+          📂 백업 ZIP 파일 고르기
+          <input
+            type="file"
+            accept=".zip,application/zip"
+            aria-label="백업 ZIP 고르기"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                setFileName(file.name);
+                open(file);
+              }
+              e.target.value = ""; // 같은 파일을 다시 골라도 열리게
+            }}
+            className="sr-only"
+          />
+        </label>
+        <span className="text-sm text-muted">
+          {fileName ?? "아직 고른 파일이 없어요"}
+        </span>
+      </div>
       {loaded && (
         <div className="rounded-lg bg-page px-4 py-3 text-sm">
           <p className="font-bold">
