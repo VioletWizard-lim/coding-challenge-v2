@@ -83,6 +83,7 @@ export default function Journey({
       {units.length > 0 && (
         <Card title="⏱ 단원별로 걸린 시간" note="문제 하나에 걸린 실제 작업 시간의 평균. 오래 걸린 단원은 다시 연습해 보면 좋아요">
           <Units units={units} />
+          {!loadReplay && <PracticeLink />}
         </Card>
       )}
       <Card
@@ -307,5 +308,19 @@ function DayItem({ s, loadReplay }: { s: SubmissionSummary; loadReplay?: ReplayL
       {!open && <Stats stats={s.stats} empty={!s.hasLog} />}
       {open && loadReplay && <ReplaySection submissionId={s.id} autoStart loader={loadReplay} noteRole="teacher" />}
     </li>
+  );
+}
+
+/** 학생 화면: 오래 걸린 단원 → 연습 모드 (내 작성 기록에서 찾은 막힌 곳으로 연습 문제 만들기) */
+function PracticeLink() {
+  const { showTab } = useStudentNav();
+  return (
+    <button
+      type="button"
+      onClick={() => showTab("practice")}
+      className="self-start rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-sm font-bold text-violet-800 hover:bg-violet-100"
+    >
+      🧪 막혔던 곳으로 연습 문제 만들러 가기 →
+    </button>
   );
 }
