@@ -45,6 +45,7 @@ export default function TeacherDashboard({
           // 왼쪽 메뉴와 같은 순서
           ["📚 문제 관리", "problems"],
           ["📝 채점", "grading"],
+          ["📊 반별 현황", "stats"],
           ["🧭 학생별 학습 여정", "journey"],
           ["💭 성찰 모아보기", "reflections"],
           ["🤖 AI 대화", "ai"],
