@@ -85,11 +85,17 @@ async function TeacherHome() {
                 <Suspense fallback={<p className="text-muted">문제 불러오는 중…</p>}>
                   <Problems />
                 </Suspense>
-                <div className="mt-5">
-                  <Suspense fallback={<p className="text-muted">학생이 만든 문제 불러오는 중…</p>}>
-                    <StudentProblems />
-                  </Suspense>
-                </div>
+              </div>
+            ),
+          },
+          {
+            id: "student-problems",
+            label: "✏️ 학생이 만든 문제",
+            content: (
+              <div className="mx-auto max-w-5xl">
+                <Suspense fallback={<p className="text-muted">학생이 만든 문제 불러오는 중…</p>}>
+                  <StudentProblems />
+                </Suspense>
               </div>
             ),
           },

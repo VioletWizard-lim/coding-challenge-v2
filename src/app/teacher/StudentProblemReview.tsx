@@ -14,7 +14,7 @@ const timeFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", mo
 type Filter = ProblemStatus | "flagged" | "all";
 
 /**
- * 📚 문제 관리 → ✏️ 학생이 만든 문제: "반 친구와 풀기"로 보낸 문제를 확인하고 승인하거나 고쳐 달라고 한다.
+ * ✏️ 학생이 만든 문제 탭: "반 친구와 풀기"로 보낸 문제를 확인하고 승인하거나 고쳐 달라고 한다.
  * 학생 답은 선생님 브라우저에서 예시로 다시 돌려 볼 수 있다(서버에서는 학생 코드를 실행하지 않음). 나만 푸는 문제도 볼 수 있다.
  */
 export default function StudentProblemReview({ students }: { students: StudentRow[] }) {
