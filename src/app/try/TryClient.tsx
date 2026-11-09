@@ -412,59 +412,86 @@ function TrialGate({ status, onStatus }: { status: TrialStatus | null; onStatus:
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   if (!status) return null;
+
+  // 심사위원·방문자가 보는 안내 (받으신 접속 안내문을 따라가는 말투)
+  const notice = (tone: string, body: React.ReactNode) => (
+    <div className={`flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm leading-6 ${tone}`}>
+      <p className="font-bold">📋 체험 안내</p>
+      {body}
+    </div>
+  );
+  // 관리자 미리 보기에서만 보이는 설정 안내 (심사위원에게는 안 보임)
+  const adminNote = status.preview && (
+    <div className="rounded-xl border border-dashed border-line bg-white px-4 py-3 text-xs leading-5 text-muted">
+      🛠 <b>관리자에게만 보여요</b> · 체험 코드는 선생님이 정하는 값이에요. Vercel → Settings → Environment Variables에 <code>TRY_ACCESS_CODE</code>를
+      넣고 다시 배포(Redeploy)하면 위에 코드 입력 칸이 생겨요. 그 코드를 심사위원 접속 안내문에 적어 주세요.
+    </div>
+  );
+
   if (!status.enabled) {
     return (
-      <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-        지금은 체험용 AI가 꺼져 있어요. 코드 쓰기·재생은 그대로 해 볼 수 있고, AI 부분은 ② 예시 학생의 기록에서 볼 수 있어요.
-        {status.preview && (
-          <>
-            <br />
-            <b>관리자 안내</b>: 체험 코드는 선생님이 정하는 값이에요. Vercel → Settings → Environment Variables에 <code>TRY_ACCESS_CODE</code>(예:
-            line2027)를 넣고 다시 배포(Redeploy)하면 여기에 코드 칸이 생겨요. 그 코드를 심사위원 안내문에 적어 주세요.
-          </>
+      <>
+        {notice(
+          "border-amber-200 bg-amber-50 text-amber-950",
+          <p>
+            현재 체험용 AI는 사용하지 않도록 설정되어 있습니다. <b>코드 쓰기와 과정 재생</b>은 그대로 체험하실 수 있으며, AI 도우미와 AI 되돌아보기는{" "}
+            <b>② 예시 학생의 기록</b>에서 실제 화면과 같은 모습으로 보실 수 있습니다.
+          </p>,
         )}
-      </p>
+        {adminNote}
+      </>
     );
   }
   if (status.unlocked) {
-    return (
-      <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
-        ✅ 체험 AI를 쓸 수 있어요 (AI 도우미·되돌아보기·이어 묻기). 오늘 사이트 전체에서 남은 횟수: {status.remaining}/{status.limit}
-      </p>
+    return notice(
+      "border-green-200 bg-green-50 text-green-950",
+      <p>
+        ✅ 체험 코드가 확인되었습니다. <b>③ 코드 쓰기</b>에서 AI 도우미에게 질문하시고, <b>④ 재생하며 되돌아보기</b>에서 AI 되돌아보기를 받아 보실 수
+        있습니다. (오늘 남은 체험 AI 사용 횟수: {status.remaining}/{status.limit})
+      </p>,
     );
   }
   return (
-    <form
-      className="flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setPending(true);
-        const r = await unlockTrial(code);
-        setPending(false);
-        if (!r.ok) return setError(r.error);
-        setError(null);
-        onStatus(r.status);
-      }}
-    >
-      <span className="text-blue-900">
-        🔑 안내문의 <b>체험 코드</b>를 넣으면 진짜 AI(도우미·되돌아보기)를 써 볼 수 있어요.
-      </span>
-      <input
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        aria-label="체험 코드"
-        placeholder="체험 코드"
-        className="w-36 rounded-lg border border-line bg-white px-3 py-1.5"
-      />
-      <button
-        type="submit"
-        disabled={pending || !code.trim()}
-        className="rounded-lg bg-blue-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
-      >
-        {pending ? "확인 중…" : "넣기"}
-      </button>
-      {error && <span className="text-danger">{error}</span>}
-    </form>
+    <>
+      {notice(
+        "border-blue-200 bg-blue-50 text-blue-950",
+        <>
+          <p>
+            보내 드린 <b>접속 안내문에 적힌 체험 코드</b>를 입력하시면, 학생들이 실제로 쓰는 <b>AI 도우미</b>와 <b>AI 되돌아보기</b>를 직접 써 보실 수
+            있습니다. 체험 코드 없이도 코드 쓰기·과정 재생과 예시 학생의 기록은 모두 보실 수 있습니다.
+          </p>
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setPending(true);
+              const r = await unlockTrial(code);
+              setPending(false);
+              if (!r.ok) return setError(r.error);
+              setError(null);
+              onStatus(r.status);
+            }}
+          >
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              aria-label="체험 코드"
+              placeholder="체험 코드 입력"
+              className="w-44 rounded-lg border border-line bg-white px-3 py-1.5"
+            />
+            <button
+              type="submit"
+              disabled={pending || !code.trim()}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
+            >
+              {pending ? "확인 중…" : "확인"}
+            </button>
+            {error && <span className="text-danger">{error}</span>}
+          </form>
+        </>,
+      )}
+      {adminNote}
+    </>
   );
 }
 
