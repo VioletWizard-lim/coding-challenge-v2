@@ -100,8 +100,8 @@ export default function TryClient() {
   const [reviews, setReviews] = useState<Record<string, AiReview | null>>({});
   const [outcomes, setOutcomes] = useState<TestOutcome[] | null>(null);
   const [checking, setChecking] = useState(false);
-  // 체험에서는 핵심 기능인 AI 도우미 창을 처음부터 열어 둔다 (닫으면 큰 버튼으로 다시 열기)
-  const [aiOpen, setAiOpen] = useState(true);
+  // AI 도우미 창은 편집기 위의 큰 버튼을 눌러야 열린다 (학생 화면과 같게)
+  const [aiOpen, setAiOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
   const [practices, setPractices] = useState<Practice[]>([]);
