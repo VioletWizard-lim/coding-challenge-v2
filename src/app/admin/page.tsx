@@ -8,6 +8,7 @@ import AiUsageCard from "../teacher/AiUsageCard";
 import HealthCard from "../teacher/HealthCard";
 import AdminShortcuts from "./AdminShortcuts";
 import DeleteRequests from "./DeleteRequests";
+import LoadTestCleanup from "./LoadTestCleanup";
 import TeacherAccounts from "./TeacherAccounts";
 import TrialPageCard from "./TrialPageCard";
 import YearEndPanel from "./YearEndPanel";
@@ -71,8 +72,9 @@ async function AdminHome() {
             id: "deletes",
             label: `🧑‍🎓 학생 삭제 요청${pendingDeletes ? ` (${pendingDeletes})` : ""}`,
             content: (
-              <div className="mx-auto max-w-4xl">
+              <div className="mx-auto flex max-w-4xl flex-col gap-5">
                 <DeleteRequests />
+                <LoadTestCleanup />
               </div>
             ),
           },
