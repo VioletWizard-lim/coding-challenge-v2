@@ -3,7 +3,8 @@
 import { randomInt } from "node:crypto";
 import { refresh } from "next/cache";
 import { getSession } from "@/lib/session";
-import { createTeacher, listStudents, resetTeacherPassword } from "@/lib/teacher";
+import { createTeacher, listLoadTestAccounts, listStudents, resetTeacherPassword } from "@/lib/teacher";
+import { LOAD_TEST_PHRASE, LOAD_TEST_PREFIX } from "@/lib/loadTest";
 import { classOptions } from "@/lib/classes";
 import { getUserProfile } from "@/lib/auth";
 import { getDeleteRequest, listDeleteRequests, setRequestStatus, type DeleteRequest } from "@/lib/deleteRequestStore";
@@ -283,5 +284,36 @@ export async function saveTrialAi(on: boolean): Promise<{ ok: true } | { ok: fal
   } catch (err) {
     console.error("체험 AI 설정 저장 오류:", err);
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/* ───────── 부하 테스트 계정 정리 ───────── */
+
+export async function loadLoadTestAccounts(): Promise<{ ok: true; accounts: { id: string; name: string }[] } | { ok: false; message: string }> {
+  if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  try {
+    return { ok: true, accounts: await listLoadTestAccounts() };
+  } catch (err) {
+    console.error("테스트 계정 조회 오류:", err);
+    return { ok: false, message: "불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/** loadtest로 시작하는 학생 계정과 그 계정의 모든 기록을 지운다 (백업 없음 — 테스트 기록) */
+export async function cleanLoadTestAccounts(phrase: string): Promise<{ ok: true; accounts: number; records: number } | { ok: false; message: string }> {
+  if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
+  if (String(phrase ?? "").trim() !== LOAD_TEST_PHRASE) return { ok: false, message: `확인 문구를 "${LOAD_TEST_PHRASE}"라고 정확히 적어 주세요.` };
+  try {
+    const accounts = (await listLoadTestAccounts()).filter((a) => a.id.startsWith(LOAD_TEST_PREFIX));
+    let records = 0;
+    for (const a of accounts) {
+      const deleted = await deleteYear(ALL_YEARS, true, "", a.id);
+      records += deleted.reduce((s, d) => s + (d.deleted ?? 0), 0);
+    }
+    refresh();
+    return { ok: true, accounts: accounts.length, records };
+  } catch (err) {
+    console.error("테스트 계정 정리 오류:", err);
+    return { ok: false, message: "지우는 중에 문제가 생겼어요. 다시 누르면 남은 계정을 지울 수 있어요." };
   }
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { LOAD_TEST_PREFIX } from "./loadTest";
 import bcrypt from "bcryptjs";
 import { db, fetchAll, type UserRow } from "./db";
 import type { ExistingAccount } from "./studentCsv";
@@ -133,4 +134,17 @@ export async function resetTeacherPassword(id: string, password: string): Promis
     .select("id");
   if (error) throw new Error(`비밀번호 저장 실패: ${error.message}`);
   return (data ?? []).length === 1;
+}
+
+
+/** 부하 테스트용 학생 계정 (아이디가 loadtest로 시작) */
+export async function listLoadTestAccounts(): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await db()
+    .from("users")
+    .select("id, name")
+    .eq("role", "student")
+    .like("id", `${LOAD_TEST_PREFIX}%`)
+    .order("id");
+  if (error) throw new Error(`테스트 계정 조회 실패: ${error.message}`);
+  return (data ?? []).filter((u) => String(u.id).startsWith(LOAD_TEST_PREFIX)) as { id: string; name: string }[];
 }
