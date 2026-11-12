@@ -4,7 +4,8 @@ import { cache } from "react";
 import { db } from "./db";
 import { EncryptJWT, jwtDecrypt, jwtVerify, SignJWT } from "jose";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { connection } from "next/server";
+import { redirect, unstable_rethrow } from "next/navigation";
 
 /** admin: 관리자 계정(교사 계정 관리 등). v1은 로그인할 때 역할을 고르므로 admin 계정은 v1에 들어갈 수 없다 */
 export type Role = "student" | "teacher" | "admin";
@@ -85,11 +86,15 @@ export async function getSession(): Promise<Session | null> {
     return null;
   }
   try {
+    // 실제 요청이 올 때만 DB를 읽는다 (화면을 미리 만들어 두는 단계에서는 여기서 멈추고, 아래 unstable_rethrow로 넘긴다)
+    await connection();
     const now = await accountNow(session.id);
     if (!now || now.role !== session.role) return null;
     // pv가 없는 쿠키: 이 기능 전에 로그인한 것 (만료되면 사라진다)
     if (typeof pv === "string" && pv !== now.stamp) return null;
   } catch (err) {
+    // 화면을 미리 만들어 두는 단계에서 Next.js가 일부러 멈추는 것은 그대로 넘긴다 (실제 요청 때 다시 확인한다)
+    unstable_rethrow(err);
     console.warn("세션 계정 확인 건너뜀:", (err as Error).message);
   }
   return session;
