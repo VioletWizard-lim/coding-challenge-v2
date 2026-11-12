@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { asProblem, LEVELS, levelLabel, practiceKey, type PracticeProblem } from "@/lib/practice";
 import MyProblems from "./MyProblems";
 import ProblemSolver from "./ProblemSolver";
@@ -59,7 +59,30 @@ const statusOf = (p: PracticeProblem) =>
  */
 type Part = "ai" | "list" | "mine";
 
+/**
+ * 연습 모드 탭. 이 탭을 처음 열 때 불러온다: "내가 막혔던 곳"은 최근 제출들의 작성 기록을 읽어야 해서 무겁다
+ * (탭은 모두 미리 그려 두고 숨겨 놓으므로, 그냥 두면 학생 화면을 열 때마다 읽게 된다).
+ */
 export default function PracticeTab({ userId }: { userId: string }) {
+  const [shown, setShown] = useState(false);
+  const holder = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = holder.current;
+    if (!el || shown) return;
+    // 숨겨진 탭 안에서는 화면에 보이지 않다가, 탭을 열면 보이게 된다
+    const seen = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setShown(true));
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [shown]);
+  if (shown) return <PracticePanel userId={userId} />;
+  return (
+    <div ref={holder} className="text-muted">
+      불러오는 중…
+    </div>
+  );
+}
+
+function PracticePanel({ userId }: { userId: string }) {
   const [home, setHome] = useState<Home | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [subject, setSubject] = useState("");

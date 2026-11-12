@@ -30,6 +30,7 @@ export const YEAR_TABLES: YearTable[] = [
   { table: "users", label: "학생 계정", by: { users: true }, key: ["id"] },
   { table: "submissions", label: "제출 (코드·작성 기록·점수·피드백)", by: { date: "submitted_at" }, id: true, key: ["name", "submitted_at", "problem"] },
   { table: "submission_scores", label: "영역별 점수 (채점 기준 사본)", by: { submission: true }, key: ["submission_id"], refs: { submission_id: "submissions" } },
+  { table: "submission_summaries", label: "작성 기록 요약 (화면을 빨리 띄우려고 계산해 둔 숫자)", by: { submission: true }, key: ["submission_id"], refs: { submission_id: "submissions" } },
   { table: "grading_drafts", label: "AI 채점 초안", by: { submission: true }, id: true, key: ["submission_id", "created_at"], refs: { submission_id: "submissions" } },
   { table: "ai_reviews", label: "AI 되돌아보기", by: { submission: true }, id: true, key: ["submission_id"], refs: { submission_id: "submissions" } },
   { table: "timeline_notes", label: "타임라인 메모·피드백", by: { submission: true }, id: true, key: ["submission_id", "user_id", "created_at"], refs: { submission_id: "submissions" } },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  achievementFacts,
   helpOwnTime,
   computeAchievements,
   earnedKeys,
@@ -13,7 +14,9 @@ import {
 
 const MIN = 60_000;
 let seq = 0;
-function sub(over: Partial<AchievementSubmission> = {}): AchievementSubmission {
+/** log·code를 주면 실제와 같이 facts(작성 기록에서 뽑은 값)를 계산해 넣는다 */
+type Over = Partial<AchievementSubmission> & { log?: unknown; code?: string };
+function sub({ log = [], code = "print(1)", ...over }: Over = {}): AchievementSubmission {
   seq++;
   return {
     id: seq,
@@ -21,8 +24,7 @@ function sub(over: Partial<AchievementSubmission> = {}): AchievementSubmission {
     problem: "1-1",
     submittedAt: `2026-10-${String(seq).padStart(2, "0")}T01:00:00Z`,
     date: `2026-10-${String(seq).padStart(2, "0")}`,
-    log: [],
-    code: "print(1)",
+    facts: achievementFacts(log, code),
     wrongReason: null,
     scoreTotal: null,
     functionFull: false,
@@ -140,7 +142,7 @@ describe("업적 계산", () => {
 
 describe("한 번에 성공: 답이 맞았는지는 선생님 채점으로", () => {
   const log = [[1000, "i", 0, 0, 0, 0, "a"], [2000, "r:ok"]];
-  const earned = (over: Partial<AchievementSubmission>) =>
+  const earned = (over: Over) =>
     find(computeAchievements([sub({ log, ...over })], [], {}), "one_shot").steps[0].earned;
   it("채점 전이면 아직", () => expect(earned({})).toBeNull());
   it("기능 만점이면 받음", () => expect(earned({ functionFull: true, scoreTotal: 90 })).not.toBeNull());

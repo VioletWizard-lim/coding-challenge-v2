@@ -1,5 +1,6 @@
 import "server-only";
 import { db, fetchAll, type RangeQuery } from "./db";
+import { deleteSummary } from "./submissionSummaryStore";
 import { DEFAULT_RUBRIC, parseRubric, sameRubric, sheetOf, v1Columns, type GradingRow, type RubricPart, type ScorePart } from "./grading";
 import { loadSheets, tablesMissing } from "./scoreSheetStore";
 import { hasUserIdColumn } from "./submissions";
@@ -168,6 +169,7 @@ export async function getScoreTotal(id: number): Promise<number | null | undefin
 export async function deleteSubmission(id: number): Promise<boolean> {
   const { data, error } = await db().from("submissions").delete().eq("id", id).select("id");
   if (error) throw new Error(`제출 삭제 실패: ${error.message}`);
+  await deleteSummary(id);
   return (data ?? []).length > 0;
 }
 

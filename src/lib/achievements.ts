@@ -113,8 +113,8 @@ export type AchievementSubmission = {
   submittedAt: string;
   /** 한국 날짜 YYYY-MM-DD */
   date: string;
-  log: unknown;
-  code: string;
+  /** 작성 기록·코드에서 미리 뽑아 둔 값 (achievementFacts). 무거운 기록을 매번 읽지 않으려고 제출마다 한 번 계산해 저장한다 */
+  facts: AchievementFacts;
   wrongReason: string | null;
   scoreTotal: number | null;
   /** 선생님 채점에서 기능 영역이 만점인지 (채점 기준의 "기능" 영역, 없으면 첫 영역. 채점 전이면 false) */
@@ -259,6 +259,42 @@ export function focusTime(log: unknown, needMs = FOCUS_MS): number | null {
   return null;
 }
 
+/**
+ * 업적 판정에 쓰는, 제출 한 건의 작성 기록·코드에서 뽑은 값. 제출 뒤에는 바뀌지 않으므로
+ * 한 번 계산해 저장해 둔다 (submissionSummary.ts). 계산 방법을 바꾸면 SUMMARY_VERSION을 올린다.
+ */
+export type AchievementFacts = {
+  /** 오류 뒤 처음 성공한 실행의 시각 */
+  firstFix: number | null;
+  /** 오류가 3번 넘게 난 뒤 성공한 실행의 시각 */
+  persist: number | null;
+  /** AI 도움 뒤 붙여넣기 없이 성공한 실행의 시각 */
+  helpOwn: number | null;
+  /** 이어서 10분 작업한 순간 */
+  focus: number | null;
+  /** 첫 실행부터 끝까지 오류가 없었으면 그 첫 실행 시각 */
+  oneShot: number | null;
+  /** 고쳐 낸 오류 종류와 고친 시각 */
+  fixedKinds: [string, number][];
+  /** # 주석 줄 수 */
+  commentLines: number;
+  /** def로 만든 함수가 있는지 */
+  hasFunction: boolean;
+};
+
+export function achievementFacts(log: unknown, code: string): AchievementFacts {
+  return {
+    firstFix: firstFixTime(log),
+    persist: persistTime(log),
+    helpOwn: helpOwnTime(log),
+    focus: focusTime(log),
+    oneShot: oneShotTime(log),
+    fixedKinds: [...fixedErrorKinds(log)],
+    commentLines: commentLines(code),
+    hasFunction: hasFunction(code),
+  };
+}
+
 const commentLines = (code: string) => code.split("\n").filter((line) => line.trim().startsWith("#")).length;
 const hasFunction = (code: string) => /^\s*def\s+\w+\s*\(/m.test(code);
 const unitOf = (problem: string) => problem.split("-")[0];
@@ -306,19 +342,19 @@ export function computeAchievements(
       def("own_hands").tiers!.forEach((n, i) => direct >= n && put("own_hands", i, at(s)));
     }
 
-    const fix = firstFixTime(s.log);
+    const fix = s.facts.firstFix;
     if (fix !== null) put("error_friend", 0, at(s, fix));
-    const persist = persistTime(s.log);
+    const persist = s.facts.persist;
     if (persist !== null) put("persistent", 0, at(s, persist));
 
     if (s.editCount >= 10) put("polisher", 0, at(s));
     const passed = (s.scoreTotal ?? 0) > 0 && !s.wrongReason;
     if (passed && before.some((b) => b.wrongReason)) put("retry", 0, at(s));
 
-    const helpOwn = helpOwnTime(s.log);
+    const helpOwn = s.facts.helpOwn;
     if (helpOwn !== null) put("help_own", 0, at(s, helpOwn));
 
-    const focus = focusTime(s.log);
+    const focus = s.facts.focus;
     if (focus !== null) put("focus10", 0, at(s, focus));
 
     days.add(s.date);
@@ -335,15 +371,15 @@ export function computeAchievements(
     }
 
     // 오류 없이 실행된 것만으로는 답이 맞는지 모르므로, 선생님 채점에서 기능 만점(오답 처리 없음)이어야 한다
-    const oneShot = oneShotTime(s.log);
+    const oneShot = s.facts.oneShot;
     if (oneShot !== null && s.functionFull && !s.wrongReason) put("one_shot", 0, at(s, oneShot));
-    for (const [kind, t] of fixedErrorKinds(s.log)) {
+    for (const [kind, t] of s.facts.fixedKinds) {
       if (!errorKinds.has(kind)) errorKinds.set(kind, at(s, t));
       if (errorKinds.size >= 3) put("error_collector", 0, errorKinds.get(kind)!);
     }
-    if (commentLines(s.code) >= 3) put("commenter", 0, at(s));
+    if (s.facts.commentLines >= 3) put("commenter", 0, at(s));
     if (before.length >= 2) put("third_try", 0, at(s));
-    if (hasFunction(s.code)) put("own_function", 0, at(s));
+    if (s.facts.hasFunction) put("own_function", 0, at(s));
 
     perProblem.set(key, [...before, s]);
   }

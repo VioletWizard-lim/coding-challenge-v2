@@ -5,8 +5,10 @@ import { functionFull, sheetOf, type ScorePart } from "./grading";
 import { loadSheets } from "./scoreSheetStore";
 import { db, fetchAll, type RangeQuery, type SubmissionRow, type UserRow } from "./db";
 import type { LogEvent } from "./editLog";
-import { kstDate, summarizeSubmission, type SubmissionSummary } from "./journey";
+import { kstDate, type SubmissionSummary } from "./journey";
 import { gradeClassFor } from "./problems";
+import { summaryDataOf, toSubmissionSummary } from "./submissionSummary";
+import { loadSummaries, saveSummaries } from "./submissionSummaryStore";
 
 type Profile = Pick<UserRow, "name" | "grade" | "class" | "programming_grade" | "programming_class">;
 
@@ -207,14 +209,35 @@ export async function getReplayDataById(submissionId: number): Promise<(ReplayDa
   };
 }
 
-type JourneyRow = Pick<
-  SubmissionRow,
-  "id" | "subject" | "problem" | "submitted_at" | "init_code" | "edit_log" | "code" | "wrong_reason" | "score_total" | "score_function"
->;
+/** 학습 여정·업적용: 가벼운 칸만 (작성 기록·코드는 빼고) */
+type JourneyRow = Pick<SubmissionRow, "id" | "subject" | "problem" | "submitted_at" | "wrong_reason" | "score_total" | "score_function">;
+
+/** 요약을 새로 계산할 때만 읽는 무거운 칸 */
+type HeavyRow = Pick<SubmissionRow, "id" | "init_code" | "edit_log" | "code">;
+
+const HEAVY_CHUNK = 50;
+
+/** 이 제출들의 작성 기록·코드를 읽는다 (무거우므로 꼭 필요한 제출만, 50건씩) */
+async function loadHeavy(ids: number[]): Promise<Map<number, HeavyRow>> {
+  const found = new Map<number, HeavyRow>();
+  for (let i = 0; i < ids.length; i += HEAVY_CHUNK) {
+    const { data, error } = await db()
+      .from("submissions")
+      .select("id, init_code, edit_log, code")
+      .in("id", ids.slice(i, i + HEAVY_CHUNK))
+      .returns<HeavyRow[]>();
+    if (error) throw new Error(`기록 조회 실패: ${error.message}`);
+    for (const row of data ?? []) found.set(Number(row.id), row);
+  }
+  return found;
+}
 
 /**
- * 학습 여정·업적용: 내 제출을 작성 기록까지 읽어 서버에서 요약만 만든다(무거운 기록은 브라우저로 보내지 않음).
- * 기록이 커서 100건씩 나눠 받는다. 한 번의 화면 요청 안에서는 학습 여정·업적·첫 화면 탭이 같은 결과를 나눠 쓴다(cache).
+ * 학습 여정·업적용: 내 제출의 요약을 돌려준다(무거운 기록은 브라우저로 보내지 않음).
+ * 제출 목록은 가벼운 칸만 읽고, 작성 기록 요약은 저장해 둔 것(submission_summaries, 021)을 읽는다.
+ * 요약이 아직 없는 제출(새 제출, 지난 제출)만 작성 기록을 읽어 계산하고 저장해 둔다 → 다음부터는 기록을 읽지 않는다.
+ * 021 실행 전이면 전처럼 매번 기록에서 계산한다.
+ * 한 번의 화면 요청 안에서는 학습 여정·업적·첫 화면 탭이 같은 결과를 나눠 쓴다(cache).
  */
 export function getMyJourneyData(owner: Owner) {
   return journeyData(owner.id, owner.name, owner.grade, owner.class, owner.programming_grade, owner.programming_class);
@@ -229,7 +252,7 @@ const journeyData = cache(
     cls: Owner["class"],
     programmingGrade: Owner["programming_grade"],
     programmingClass: Owner["programming_class"],
-  ): Promise<{ summaries: SubmissionSummary[]; records: AchievementSubmission[]; inits: string[]; today: string }> => {
+  ): Promise<{ summaries: SubmissionSummary[]; records: (AchievementSubmission & { events: number })[]; today: string }> => {
     const owner: Owner = { id, name, grade, class: cls, programming_grade: programmingGrade, programming_class: programmingClass };
     const f = await ownerFilter(owner);
     const all = await fetchAll<JourneyRow & OwnedRow>(
@@ -238,16 +261,29 @@ const journeyData = cache(
           .apply(
             db()
               .from("submissions")
-              .select(["id, subject, problem, submitted_at, init_code, edit_log, code, wrong_reason, score_total, score_function", f.columns].join(", ")),
+              .select(["id, subject, problem, submitted_at, wrong_reason, score_total, score_function", f.columns].join(", ")),
           )
           .order("submitted_at", { ascending: false })
           .order("id", { ascending: false }) as unknown as RangeQuery<JourneyRow & OwnedRow>,
-      100,
     );
     const rows = all.filter(f.mine);
-    const summaries = rows.map(summarizeSubmission);
-    const sheets = await loadSheets(rows.map((r) => Number(r.id)));
-    const records = rows.map((r, i): AchievementSubmission => {
+    const ids = rows.map((r) => Number(r.id));
+    const [{ ready, found }, sheets] = await Promise.all([loadSummaries(ids), loadSheets(ids)]);
+    // 요약이 없는 제출만 작성 기록을 읽어 계산한다
+    const missing = ids.filter((x) => !found.has(x));
+    if (missing.length) {
+      const heavy = await loadHeavy(missing);
+      const fresh = missing.flatMap((x) => {
+        const h = heavy.get(x);
+        return h ? [{ id: x, data: summaryDataOf(h.init_code, h.edit_log, h.code) }] : [];
+      });
+      for (const x of fresh) found.set(x.id, x.data);
+      if (ready) await saveSummaries(fresh);
+    }
+    const EMPTY = summaryDataOf(null, null, null); // 그 사이 지워진 제출 (거의 없음)
+    const data = rows.map((r) => found.get(Number(r.id)) ?? EMPTY);
+    const summaries = rows.map((r, i) => toSubmissionSummary(r, data[i]));
+    const records = rows.map((r, i) => {
       const s = summaries[i];
       return {
         id: r.id,
@@ -255,8 +291,8 @@ const journeyData = cache(
         problem: r.problem,
         submittedAt: r.submitted_at,
         date: s.date,
-        log: r.edit_log,
-        code: r.code ?? "",
+        facts: data[i].facts,
+        events: data[i].events,
         wrongReason: r.wrong_reason,
         scoreTotal: r.score_total,
         functionFull: functionFull(
@@ -268,10 +304,33 @@ const journeyData = cache(
         editCount: s.editCount,
       };
     });
-    // inits: records와 같은 순서의 시작 코드 (연습 모드의 "내가 막혔던 곳" 계산용)
-    return { summaries, records, inits: rows.map((r) => r.init_code ?? ""), today: kstDate(new Date()) };
+    return { summaries, records, today: kstDate(new Date()) };
   },
 );
+
+/**
+ * 연습 모드의 "내가 막혔던 곳" 계산용: 과목마다 기록이 있는 최근 제출 perSubject개의 작성 기록 (최근 것부터).
+ * 어느 제출인지는 요약으로 고르고, 그 제출들의 작성 기록만 읽는다.
+ */
+export async function getMyRecentRecordings(
+  owner: Owner,
+  subjects: string[],
+  perSubject: number,
+): Promise<{ id: number; subject: string; problem: string; init: string; log: unknown }[]> {
+  const { records } = await getMyJourneyData(owner);
+  const taken = new Map<string, number>();
+  const picked = records.filter((r) => {
+    const n = taken.get(r.subject) ?? 0;
+    if (!subjects.includes(r.subject) || r.events < 2 || n >= perSubject) return false;
+    taken.set(r.subject, n + 1);
+    return true;
+  });
+  const heavy = await loadHeavy(picked.map((r) => Number(r.id)));
+  return picked.flatMap((r) => {
+    const h = heavy.get(Number(r.id));
+    return h ? [{ id: r.id, subject: r.subject, problem: r.problem, init: h.init_code ?? "", log: h.edit_log }] : [];
+  });
+}
 
 /** 오늘(한국 시간) 내가 제출한 문제 번호들 (과목별, 처음 제출한 순서) */
 export async function todaysSubmittedProblems(owner: Owner): Promise<Record<string, string[]>> {
