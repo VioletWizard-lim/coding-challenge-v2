@@ -11,6 +11,7 @@ import { helpTrail, type HelpChat, type HelpStep } from "@/lib/helpTrail";
 import type { TimelineNote } from "@/lib/timelineNotes";
 import AiAnswer from "./AiAnswer";
 import ReplayNotes, { NOTE_STYLE, type NoteActions, type NoteDraft } from "./ReplayNotes";
+import { quietConfirm } from "@/lib/quietDialog";
 
 type Props = {
   init: string;
@@ -49,6 +50,8 @@ export const MARK_STYLE: Record<MarkKind, { glyph: string; label: string; color:
 };
 
 const SPEEDS = [1, 4, 16, 64];
+/** 뒤로 갈 때 처음부터 다시 적용하지 않도록, 편집 이만큼마다 그때의 화면 상태를 기억해 둔다 */
+const SNAPSHOT_EVERY = 200;
 const SKIP_IDLE_MAX_MS = 600; // "멈춘 시간 줄이기": 이벤트 사이를 최대 0.6초로 (v1과 같음)
 
 // 붙여넣은 부분을 배경색 + 밑줄(흑백에서도 보이게)로 표시
@@ -104,6 +107,8 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const extensionsRef = useRef<Extension[]>([]);
+  /** 편집 n개를 적용한 상태 (n은 SNAPSHOT_EVERY의 배수). 같은 기록·화면 설정에서만 쓴다 */
+  const snapshotsRef = useRef(new Map<number, EditorState>());
   const indexRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [index, setIndex] = useState(startIndex);
@@ -133,9 +138,8 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
       }),
       ...(mode === "code" ? [python(), syntaxHighlighting(defaultHighlightStyle, { fallback: true })] : [EditorView.lineWrapping]),
     ];
-    let state = EditorState.create({ doc: edits.length ? init : code, extensions: extensionsRef.current });
-    for (let i = 0; i < startIndex; i++) state = state.update(editSpec(state, edits[i])).state;
-    const view = new EditorView({ parent: parentRef.current!, state });
+    snapshotsRef.current = new Map([[0, EditorState.create({ doc: edits.length ? init : code, extensions: extensionsRef.current })]]);
+    const view = new EditorView({ parent: parentRef.current!, state: stateAt(startIndex) });
     viewRef.current = view;
     indexRef.current = startIndex;
     return () => {
@@ -143,16 +147,31 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
       view.destroy();
       viewRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stateAt은 edits(목록에 있음)와 ref만 쓴다
   }, [init, code, edits, mode, startIndex]);
+
+  /**
+   * 편집 n개를 적용한 상태. 가장 가까운 앞쪽 기억(SNAPSHOT_EVERY마다)에서 이어서 적용하고, 지나가는 길의 상태도 기억해 둔다.
+   * 기록이 길어도 뒤로 끌 때 처음부터 다시 적용하지 않는다 (붙여넣기 표시도 상태에 함께 들어 있다)
+   */
+  function stateAt(n: number): EditorState {
+    const snaps = snapshotsRef.current;
+    let from = n - (n % SNAPSHOT_EVERY);
+    while (!snaps.has(from)) from -= SNAPSHOT_EVERY;
+    let state = snaps.get(from)!;
+    for (let i = from; i < n; i++) {
+      state = state.update(editSpec(state, edits[i])).state;
+      if ((i + 1) % SNAPSHOT_EVERY === 0) snaps.set(i + 1, state);
+    }
+    return state;
+  }
 
   /** n번째 편집까지 적용한 화면으로 이동 */
   function goTo(n: number) {
     const view = viewRef.current;
     if (!view) return;
     if (n < indexRef.current) {
-      let state = EditorState.create({ doc: init, extensions: extensionsRef.current });
-      for (let i = 0; i < n; i++) state = state.update(editSpec(state, edits[i])).state;
-      view.setState(state);
+      view.setState(stateAt(n));
     } else {
       for (let i = indexRef.current; i < n; i++) view.dispatch(editSpec(view.state, edits[i]));
     }
@@ -238,7 +257,7 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
                 onClick={() => {
                   // 쓰는 칸이 열려 있으면 다시 눌러 닫는다 (적은 내용이 있으면 한 번 물어봄)
                   if (draft) {
-                    if (draft.text.trim() && !confirm("적은 내용이 있어요. 지우고 닫을까요?")) return;
+                    if (draft.text.trim() && !quietConfirm("적은 내용이 있어요. 지우고 닫을까요?")) return;
                     return setDraft(null);
                   }
                   startNote(nowTime);

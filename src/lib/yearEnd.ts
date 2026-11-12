@@ -8,9 +8,9 @@
  * - 지우기 전에 전체를 CSV 묶음(ZIP)으로 받고, 그 파일로 되돌리거나(다시 넣기) 지난 기록을 다시 볼 수 있다
  * - 제출·계정은 v1과 함께 쓰는 표이므로, v1을 읽기 전용으로 돌린 뒤(3월 전환 뒤)에 지운다
  */
-import { countFixedErrors, kstDate } from "./journey";
+import { kstDate } from "./journey";
 import { gradeClassFor } from "./problems";
-import { analyzeLog } from "./replay";
+import type { SummaryData } from "./submissionSummary";
 
 /**
  * 학년도 정리에 들어가는 표. 순서 = 되살리는 순서 (지울 때는 거꾸로).
@@ -129,7 +129,8 @@ export type StatRow = {
 type ClassInfo = { grade: number | string | null; class: number | string | null; programming_grade: number | string | null; programming_class: number | string | null };
 
 export type StatInput = {
-  submissions: { subject: string; grade: number | string | null; class: number | string | null; who: string; submitted_at: string; init_code: string | null; edit_log: unknown }[];
+  /** summary: 작성 기록 요약 (submissionSummary.ts, 저장해 둔 것을 읽음) */
+  submissions: { subject: string; grade: number | string | null; class: number | string | null; who: string; submitted_at: string; summary: SummaryData }[];
   reflections: { subject: string; grade: string | null; class: string | null; user_id: string; class_date: string }[];
   /** 아이디 → 반 (AI 대화처럼 반이 없는 기록을 반으로 묶을 때) */
   users: Map<string, ClassInfo>;
@@ -186,20 +187,20 @@ export class StatCollector {
     return clsOf(gc.grade, gc.class);
   }
 
-  /** 제출 몇 개 (작성 기록은 여기서 숫자로만 바꾸고 버린다) */
+  /** 제출 몇 개 (작성 기록은 요약된 숫자로만 받는다) */
   addSubmissions(list: StatInput["submissions"]) {
     for (const s of list) {
       const { r, key } = this.row(s.submitted_at, s.subject, clsOf(s.grade, s.class));
       r.submissions++;
       (this.students.get(key) ?? this.students.set(key, new Set()).get(key)!).add(s.who);
-      const { edits, stats } = analyzeLog(s.init_code ?? "", s.edit_log);
-      if (!edits.length) continue;
+      const { hasLog, stats, fixedErrors } = s.summary;
+      if (!hasLog) continue;
       r.loggedSubmissions++;
       r.typedChars += stats.typedChars;
       r.pastedChars += stats.pastedChars;
       r.runs += stats.runCount;
       r.runErrors += stats.runErrorCount;
-      r.fixedErrors += countFixedErrors(s.edit_log);
+      r.fixedErrors += fixedErrors;
       r.activeMinutes += stats.activeMs / 60_000;
     }
   }

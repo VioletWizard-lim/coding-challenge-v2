@@ -35,6 +35,7 @@ import { findOpenProblem } from "@/lib/problemStore";
 import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
 import { saveTodayReflection } from "@/lib/reflectionStore";
 import { processSummaryText, summarizeProcess } from "@/lib/process-summary";
+import { AI_BUSY_MESSAGE, oneAtATime } from "@/lib/aiTurn";
 import { getSession } from "@/lib/session";
 import { getReplayData, insertSubmission, isMySubmission, submittedSince, type ReplayData } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote, type NotesBundle, type TimelineNote } from "@/lib/timelineNotes";
@@ -245,6 +246,13 @@ const MAX_LOG_EVENTS = 200_000;
  */
 export async function askAiHelper(input: AskInput): Promise<AskResult> {
   const session = await getSession();
+  if (!session) return { ok: false, error: "다시 로그인하세요." };
+  return oneAtATime("ai", session.id, { ok: false, error: AI_BUSY_MESSAGE } as AskResult, () => askAiHelperOnce(input));
+}
+
+/** askAiHelper의 실제 처리 (한 학생의 AI 요청은 한 번에 하나씩: aiTurn.ts) */
+async function askAiHelperOnce(input: AskInput): Promise<AskResult> {
+  const session = await getSession();
   if (!session || session.role !== "student") return { ok: false, error: "다시 로그인한 뒤 물어보세요." };
   const question = String(input.question ?? "").trim();
   const invalid = validateQuestion(question);
@@ -400,6 +408,13 @@ export type ReviewResult = { ok: true; review: AiReview } | { ok: false; error: 
  */
 export async function startMyReview(submissionId: number): Promise<ReviewResult> {
   const session = await getSession();
+  if (!session) return { ok: false, error: "다시 로그인하세요." };
+  return oneAtATime("ai", session.id, { ok: false, error: AI_BUSY_MESSAGE } as ReviewResult, () => startMyReviewOnce(submissionId));
+}
+
+/** startMyReview의 실제 처리 (한 학생의 AI 요청은 한 번에 하나씩: aiTurn.ts) */
+async function startMyReviewOnce(submissionId: number): Promise<ReviewResult> {
+  const session = await getSession();
   if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
   if (!Number.isInteger(submissionId)) return { ok: false, error: "제출을 찾지 못했어요." };
   try {
@@ -485,6 +500,13 @@ export async function saveMyReviewAnswers(submissionId: number, answers: string[
  * 질문 하나에 한 번만. AI 하루 한도에 함께 센다.
  */
 export async function askReviewFollowUp(submissionId: number, index: number): Promise<ReviewResult> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "다시 로그인하세요." };
+  return oneAtATime("ai", session.id, { ok: false, error: AI_BUSY_MESSAGE } as ReviewResult, () => askReviewFollowUpOnce(submissionId, index));
+}
+
+/** askReviewFollowUp의 실제 처리 (한 학생의 AI 요청은 한 번에 하나씩: aiTurn.ts) */
+async function askReviewFollowUpOnce(submissionId: number, index: number): Promise<ReviewResult> {
   const session = await getSession();
   if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
   try {

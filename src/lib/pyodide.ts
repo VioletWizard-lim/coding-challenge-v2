@@ -1,6 +1,11 @@
-/** 브라우저에서 파이썬 실행 (Pyodide, CDN에서 불러옴). 클라이언트 전용. */
+/**
+ * 브라우저에서 파이썬 실행 (Pyodide). 클라이언트 전용.
+ * 이 사이트에서 먼저 받고(scripts/copy-pyodide.mjs가 build 때 public/pyodide/<버전>/에 복사), 안 되면 CDN에서 받는다.
+ * 학교망에서 외부 CDN이 막혀도 실행되게 하려는 것이다.
+ */
+import { version as PYODIDE_VERSION } from "pyodide/package.json";
 
-const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
+const PYODIDE_URLS = [`/pyodide/${PYODIDE_VERSION}/`, `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`];
 
 export type Pyodide = {
   runPython(code: string): unknown;
@@ -98,12 +103,26 @@ function loadScript(src: string) {
   });
 }
 
+/** 이 사이트 → CDN 순서로 불러 본다 */
+async function boot(): Promise<Pyodide> {
+  let lastError: unknown = null;
+  for (const base of PYODIDE_URLS) {
+    try {
+      if (!window.loadPyodide) await loadScript(`${base}pyodide.js`);
+      return await window.loadPyodide!({ indexURL: base });
+    } catch (err) {
+      lastError = err;
+      console.warn(`파이썬 불러오기 실패 (${base}):`, err);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("파이썬을 불러오지 못했어요. 인터넷 연결을 확인하세요.");
+}
+
 /** 한 번만 불러오고 이후에는 같은 것을 돌려준다. 실패하면 다음 호출 때 다시 시도한다. */
 export function loadPython(): Promise<Pyodide> {
   if (!loading) {
     loading = (async () => {
-      if (!window.loadPyodide) await loadScript(`${PYODIDE_URL}pyodide.js`);
-      const py = await window.loadPyodide!({ indexURL: PYODIDE_URL });
+      const py = await boot();
       // input()은 브라우저 입력창으로 받는다 (v1과 같음)
       py.runPython("import builtins, js\nbuiltins.input = lambda p='': (js.prompt(str(p)) or '')");
       // 파일 이름을 "<runner>"로 두어, 오류 글에서 학생 코드("<exec>") 줄만 골라 보여 줄 수 있게 한다

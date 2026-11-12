@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { formatDuration } from "@/lib/replay";
 import { MAX_NOTE_TEXT, type NoteAuthor, type TimelineNote } from "@/lib/timelineNotes";
+import { quietConfirm } from "@/lib/quietDialog";
 
 export const NOTE_STYLE: Record<NoteAuthor, { glyph: string; label: string }> = {
   student: { glyph: "📌", label: "내 메모" },
@@ -62,7 +63,7 @@ export default function ReplayNotes({
   }
 
   function remove(n: TimelineNote) {
-    if (!actions || !confirm("이 메모를 지울까요?")) return;
+    if (!actions || !quietConfirm("이 메모를 지울까요?")) return;
     startTransition(async () => {
       const r = await actions.remove(n.id);
       if (!r.ok) return setError(r.error ?? "지우지 못했어요.");

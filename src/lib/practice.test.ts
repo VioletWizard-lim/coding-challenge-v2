@@ -2,6 +2,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   asProblem,
+  unsafeCodeReason,
   harnessCode,
   judge,
   normalizeSettings,
@@ -128,3 +129,15 @@ describe("테스트 실행 코드 (Pyodide)", () => {
     expect(run("print(leftover)", []).error).toMatch(/^NameError/);
   });
 }, 60_000);
+
+describe("unsafeCodeReason (서버에서 돌리기 전 확인)", () => {
+  it("기본 문법만 쓴 답안은 통과", () => {
+    expect(unsafeCodeReason('n = int(input())\nfor i in range(n):\n    print(i * 2, "개")\nimportant = 1')).toBeNull();
+    expect(unsafeCodeReason("text = input()\nprint(text.upper())")).toBeNull();
+  });
+  it("import, 밑줄 두 개, 위험한 함수는 막는다", () => {
+    for (const code of ["import os", "x = 1\nfrom js import fetch", "print(().__class__)", "open('a.txt')", "eval('1+1')", "getattr(x, 'y')", "  import math"]) {
+      expect(unsafeCodeReason(code)).not.toBeNull();
+    }
+  });
+});

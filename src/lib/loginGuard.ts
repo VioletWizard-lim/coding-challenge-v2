@@ -36,19 +36,25 @@ export async function takeLoginTry(id: string): Promise<boolean> {
       .eq("value->>id", id)
       .gte("updated_at", new Date(now - LOGIN_WINDOW_MINUTES * 60_000).toISOString());
     if (error) throw new Error(error.message);
+    // 가끔 하루 지난 시도 기록을 치운다 (틀린 뒤 잠기지 않고 끝난 시도도 쌓이지 않게)
+    if (Math.random() < 0.05) await clearOld(now);
     if ((count ?? 0) <= LOGIN_MAX_TRIES) return true;
-    // 막힌 시도는 세지 않는다 (계속 눌러도 기다리는 시간이 늘어나지 않게). 하는 김에 오래된 줄도 치운다
+    // 막힌 시도는 세지 않는다 (계속 눌러도 기다리는 시간이 늘어나지 않게)
     await db().from("app_status").delete().eq("key", key);
-    await db()
-      .from("app_status")
-      .delete()
-      .like("key", KEY_PATTERN)
-      .lt("updated_at", new Date(now - 24 * 3_600_000).toISOString());
     return false;
   } catch (err) {
     console.warn("로그인 시도 기록 건너뜀:", (err as Error).message);
     return true;
   }
+}
+
+/** 하루 지난 시도 기록 지우기 */
+async function clearOld(now: number) {
+  await db()
+    .from("app_status")
+    .delete()
+    .like("key", KEY_PATTERN)
+    .lt("updated_at", new Date(now - 24 * 3_600_000).toISOString());
 }
 
 /** 이 아이디의 시도 기록을 지운다 (로그인 성공, 비밀번호 새로 만들기) */

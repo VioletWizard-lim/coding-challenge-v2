@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
 import Replayer from "@/components/Replayer";
 import { useDialog } from "@/components/useDialog";
+import { quietConfirm } from "@/lib/quietDialog";
 import type { RecorderHandle } from "@/components/RecordingEditor";
 import { MAX_QUESTION, type AiChat } from "@/lib/aiChat";
 import type { Recording } from "@/lib/editLog";
@@ -106,12 +107,15 @@ export default function AiHelper({
     const rec = recorder.current?.getRecording();
     if (!rec) return;
     // 질문 직전까지의 기록을 보내고, 질문한 순간은 기록에 남긴다 (재생 타임라인의 "AI 도움 요청")
-    const at = recorder.current?.addMark("q") ?? Date.now();
+    const marked = recorder.current?.addMark("q") ?? null;
+    const at = marked ?? Date.now();
     setError(null);
     startTransition(async () => {
       const r = await backend.ask({ question: q, init: rec.init, log: rec.log, at });
       if (r.remaining !== undefined) setRemaining(r.remaining);
       if (!r.ok) {
+        // 답을 받지 못한 질문은 "AI 도움 요청"으로 남기지 않는다 (재생 타임라인에 빈 도움 요청이 생기지 않게)
+        if (marked !== null) recorder.current?.removeMark(marked, "q");
         if (r.notReady) setNotice(r.error);
         else setError(r.error);
         return;
@@ -128,7 +132,7 @@ export default function AiHelper({
   }
 
   function flag(id: number) {
-    if (!backend.flag || !confirm("이 답이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
+    if (!backend.flag || !quietConfirm("이 답이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
     backend.flag(id).then((r) => {
       if (r.ok) setFlagged((prev) => new Set(prev).add(id));
       else setError(r.error ?? "알리지 못했어요.");

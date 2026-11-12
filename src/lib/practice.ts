@@ -191,6 +191,23 @@ _p_run(${JSON.stringify(code)}, ${JSON.stringify(inputs)})
 `;
 }
 
+/** 서버에서 돌리는 코드(AI가 만든 참고 답안·시작 코드)에 쓰면 안 되는 것 */
+const UNSAFE: [RegExp, string][] = [
+  [/(^|[^\w])import\s|(^|[^\w])from\s+\S+\s+import(\s|$)/m, "import"],
+  [/__/, "밑줄 두 개(__)"],
+  [/\b(open|eval|exec|compile|getattr|setattr|delattr|globals|locals|vars|breakpoint|help|memoryview)\s*\(/, "open·eval·exec 같은 함수"],
+];
+
+/**
+ * 서버에서 돌리기 전에 확인: 문제 풀이에 필요 없는 위험한 코드(모듈 불러오기, 숨은 속성 꺼내기, 파일 열기 등)가 있으면
+ * 그 이유를, 없으면 null. AI가 만든 코드에 학생 코드가 섞여 들어갈 수 있어서(막힌 곳 → 연습 문제) 실행 전에 막는다.
+ * 문자열·주석 안에 있어도 막는다 (확실히 하려고). 걸리면 AI에게 이유를 알려 주고 다시 만들게 한다.
+ */
+export function unsafeCodeReason(code: string): string | null {
+  const found = UNSAFE.filter(([re]) => re.test(code)).map(([, label]) => label);
+  return found.length ? `서버에서 돌릴 수 없는 코드가 있어요: ${found.join(", ")}. 이런 것 없이 기본 문법만으로 다시 써 주세요.` : null;
+}
+
 export function parseRunResult(value: unknown): RunResult {
   try {
     const r = JSON.parse(String(value));

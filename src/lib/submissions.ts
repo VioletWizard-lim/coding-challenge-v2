@@ -7,8 +7,8 @@ import { db, fetchAll, type RangeQuery, type SubmissionRow, type UserRow } from 
 import type { LogEvent } from "./editLog";
 import { kstDate, type SubmissionSummary } from "./journey";
 import { gradeClassFor } from "./problems";
-import { summaryDataOf, toSubmissionSummary } from "./submissionSummary";
-import { loadSummaries, saveSummaries } from "./submissionSummaryStore";
+import { toSubmissionSummary } from "./submissionSummary";
+import { EMPTY_SUMMARY, loadHeavy, summariesFor } from "./submissionSummaryStore";
 
 type Profile = Pick<UserRow, "name" | "grade" | "class" | "programming_grade" | "programming_class">;
 
@@ -212,26 +212,6 @@ export async function getReplayDataById(submissionId: number): Promise<(ReplayDa
 /** 학습 여정·업적용: 가벼운 칸만 (작성 기록·코드는 빼고) */
 type JourneyRow = Pick<SubmissionRow, "id" | "subject" | "problem" | "submitted_at" | "wrong_reason" | "score_total" | "score_function">;
 
-/** 요약을 새로 계산할 때만 읽는 무거운 칸 */
-type HeavyRow = Pick<SubmissionRow, "id" | "init_code" | "edit_log" | "code">;
-
-const HEAVY_CHUNK = 50;
-
-/** 이 제출들의 작성 기록·코드를 읽는다 (무거우므로 꼭 필요한 제출만, 50건씩) */
-async function loadHeavy(ids: number[]): Promise<Map<number, HeavyRow>> {
-  const found = new Map<number, HeavyRow>();
-  for (let i = 0; i < ids.length; i += HEAVY_CHUNK) {
-    const { data, error } = await db()
-      .from("submissions")
-      .select("id, init_code, edit_log, code")
-      .in("id", ids.slice(i, i + HEAVY_CHUNK))
-      .returns<HeavyRow[]>();
-    if (error) throw new Error(`기록 조회 실패: ${error.message}`);
-    for (const row of data ?? []) found.set(Number(row.id), row);
-  }
-  return found;
-}
-
 /**
  * 학습 여정·업적용: 내 제출의 요약을 돌려준다(무거운 기록은 브라우저로 보내지 않음).
  * 제출 목록은 가벼운 칸만 읽고, 작성 기록 요약은 저장해 둔 것(submission_summaries, 021)을 읽는다.
@@ -268,20 +248,9 @@ const journeyData = cache(
     );
     const rows = all.filter(f.mine);
     const ids = rows.map((r) => Number(r.id));
-    const [{ ready, found }, sheets] = await Promise.all([loadSummaries(ids), loadSheets(ids)]);
     // 요약이 없는 제출만 작성 기록을 읽어 계산한다
-    const missing = ids.filter((x) => !found.has(x));
-    if (missing.length) {
-      const heavy = await loadHeavy(missing);
-      const fresh = missing.flatMap((x) => {
-        const h = heavy.get(x);
-        return h ? [{ id: x, data: summaryDataOf(h.init_code, h.edit_log, h.code) }] : [];
-      });
-      for (const x of fresh) found.set(x.id, x.data);
-      if (ready) await saveSummaries(fresh);
-    }
-    const EMPTY = summaryDataOf(null, null, null); // 그 사이 지워진 제출 (거의 없음)
-    const data = rows.map((r) => found.get(Number(r.id)) ?? EMPTY);
+    const [found, sheets] = await Promise.all([summariesFor(ids), loadSheets(ids)]);
+    const data = rows.map((r) => found.get(Number(r.id)) ?? EMPTY_SUMMARY);
     const summaries = rows.map((r, i) => toSubmissionSummary(r, data[i]));
     const records = rows.map((r, i) => {
       const s = summaries[i];

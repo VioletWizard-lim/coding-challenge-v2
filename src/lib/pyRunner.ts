@@ -1,12 +1,13 @@
 import "server-only";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
-import { harnessCode, parseRunResult, type RunResult } from "./practice";
+import { harnessCode, parseRunResult, unsafeCodeReason, type RunResult } from "./practice";
 
 /**
  * 서버에서 파이썬 실행 (연습 문제의 참고 답안 확인용). 브라우저와 같은 Pyodide를 Node에서 돌린다.
  * - 따로 떨어진 작업 공간(worker)에서 돌리고, 서버의 환경변수(API 키 등)는 넘기지 않는다 (env: {})
  * - 시간이 넘으면 작업 공간을 통째로 끈다 (끝나지 않는 반복 대비)
+ * - 돌리기 전에 import·__·open/eval 같은 위험한 코드가 있는지 보고, 있으면 돌리지 않는다 (unsafeCodeReason)
  * AI가 만든 코드만 돌린다. 학생 코드는 브라우저에서 돌린다.
  */
 
@@ -28,6 +29,10 @@ const TIMEOUT_MS = 20_000;
 
 /** codes × inputs를 모두 돌린다. 결과는 codes 순서대로, 그 안은 inputs 순서대로 */
 export async function runPythonTests(codes: string[], inputs: string[][]): Promise<RunResult[][]> {
+  for (const code of codes) {
+    const unsafe = unsafeCodeReason(code);
+    if (unsafe) throw new Error(unsafe);
+  }
   const dir = path.join(process.cwd(), "node_modules", "pyodide") + path.sep;
   const scripts = codes.flatMap((code) => inputs.map((list) => harnessCode(code, list)));
   const raw = await new Promise<unknown[]>((resolve, reject) => {
