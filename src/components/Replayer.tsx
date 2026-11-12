@@ -6,7 +6,7 @@ import { EditorState, StateEffect, StateField, type Extension } from "@codemirro
 import { Decoration, EditorView, lineNumbers, type DecorationSet } from "@codemirror/view";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { editRange, type EditEvent } from "@/lib/editLog";
-import { analyzeLog, formatDuration, type Mark, type MarkKind, type ReplayStats } from "@/lib/replay";
+import { analyzeLog, formatDuration, timeAxis, validEntries, type Mark, type MarkKind, type ReplayStats } from "@/lib/replay";
 import { helpTrail, type HelpChat, type HelpStep } from "@/lib/helpTrail";
 import type { TimelineNote } from "@/lib/timelineNotes";
 import AiAnswer from "./AiAnswer";
@@ -34,10 +34,13 @@ type Props = {
 /** 메모를 남기기 좋은 순간: 오류, 오래 멈춤, 크게 지움 */
 const NOTE_WORTHY: MarkKind[] = ["run-error", "pause", "bigdelete"];
 
-/** 타임라인 표시: 흑백 인쇄에서도 구분되도록 색과 함께 모양이 다른 기호를 쓴다 */
+/**
+ * 타임라인 표시: 흑백 인쇄에서도 구분되도록 색과 함께 모양이 다른 기호를 쓴다.
+ * 빨강은 실행 오류에만 쓴다. 붙여넣기·다른 창으로 이동은 잘못이 아니라 있었던 일이므로 경고처럼 보이지 않는 색으로 둔다.
+ */
 export const MARK_STYLE: Record<MarkKind, { glyph: string; label: string; color: string }> = {
-  paste: { glyph: "▼", label: "붙여넣기", color: "text-amber-600" },
-  away: { glyph: "◇", label: "다른 창으로 이동", color: "text-rose-600" },
+  paste: { glyph: "▼", label: "붙여넣기", color: "text-teal-700" },
+  away: { glyph: "◇", label: "다른 창으로 이동", color: "text-slate-600" },
   "run-ok": { glyph: "●", label: "실행 성공", color: "text-green-600" },
   "run-error": { glyph: "✕", label: "실행 오류", color: "text-red-600" },
   pause: { glyph: "⏸", label: "1분 넘게 멈춤", color: "text-slate-500" },
@@ -111,6 +114,9 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
   settings.current = { speed, skipIdle };
   const [noteList, setNoteList] = useState(notes);
   const [draft, setDraft] = useState<NoteDraft | null>(null);
+  /** 타임라인 기준: 편집 순서(편집 하나가 한 칸) 또는 시간(멈춘 구간이 그만큼 길게) */
+  const [scale, setScale] = useState<"edits" | "time">("edits");
+  const axis = useMemo(() => timeAxis(validEntries(log).map((e) => e[0])), [log]);
   /** 기록 시각 → 그때까지 적용된 편집 수 (타임라인 위치) */
   const indexAt = (t: number) => edits.filter((e) => e[0] <= t).length;
 
@@ -251,13 +257,37 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
               {index} / {edits.length} · {formatDuration(elapsed)}
             </span>
           </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span aria-hidden>타임라인 기준</span>
+            <div role="group" aria-label="타임라인 기준" className="flex overflow-hidden rounded-lg border border-line">
+              {(
+                [
+                  ["edits", "편집 순서"],
+                  ["time", "시간"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={scale === value}
+                  onClick={() => setScale(value)}
+                  className={`px-3 py-1 ${scale === value ? "bg-brand-soft font-bold text-brand" : "bg-white hover:bg-page"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span>{scale === "time" ? "멈춘 구간이 그만큼 길게 보여요 (5분 넘게 비면 5분 길이로 줄여요)" : "편집 한 번이 한 칸이에요"}</span>
+          </div>
           <Timeline
             marks={marks}
             total={edits.length}
             index={index}
+            time={scale === "time" && axis.total > 0 ? { total: axis.total, pos: axis.pos, editTimes: edits.map((e) => e[0]) } : undefined}
             pins={noteList.map((n) => ({
               id: n.id,
               at: indexAt(n.at),
+              time: n.at,
               glyph: NOTE_STYLE[n.author].glyph,
               title: `${n.author === "teacher" ? "선생님" : "메모"}: ${n.text}`,
             }))}
@@ -337,78 +367,110 @@ function Timeline({
   marks,
   total,
   index,
+  time,
   pins,
   onSeek,
 }: {
   marks: Mark[];
   total: number;
   index: number;
+  /** 시간 기준으로 그릴 때: 시각 → 위치, 편집마다의 시각. 없으면 편집 순서 기준 */
+  time?: { total: number; pos: (t: number) => number; editTimes: number[] };
   /** 타임라인 메모 표시 (막대 위쪽) */
-  pins: { id: number; at: number; glyph: string; title: string }[];
+  pins: { id: number; at: number; time: number; glyph: string; title: string }[];
   onSeek: (n: number) => void;
 }) {
-  const pct = (at: number) => (total ? at / total : 0) * 100;
-  // 타임라인은 편집 순서로 나아가서, 코드를 안 바꾸는 동안 일어난 일은 같은 자리에 모인다.
+  // 누르거나 가리킨 표시의 설명 (마우스가 없는 태블릿·키보드에서도 보이게 막대 아래에 글로 보여 준다)
+  const [picked, setPicked] = useState<string | null>(null);
+  /** 막대 위의 위치(%) */
+  const pct = (p: { at: number; time: number }) => (time ? time.pos(p.time) / time.total : total ? p.at / total : 0) * 100;
+  // 시간 기준의 막대: 0~STEPS. 지금 위치 = 마지막으로 적용한 편집의 시각
+  const STEPS = 1000;
+  const sliderValue = time ? (index > 0 ? Math.round((time.pos(time.editTimes[index - 1]) / time.total) * STEPS) : 0) : index;
+  const seekSlider = (v: number) => {
+    if (!time) return onSeek(v);
+    const target = (v / STEPS) * time.total;
+    onSeek(time.editTimes.filter((t) => time.pos(t) <= target).length);
+  };
+  // 편집 순서 기준에서는 코드를 안 바꾸는 동안 일어난 일이 같은 자리에 모인다.
   // 같은 자리·같은 종류는 기호 하나에 횟수를 붙여 보여 준다 (예: ◇3)
-  const groups: { kind: MarkKind; at: number; details: string[] }[] = [];
+  const groups: { kind: MarkKind; at: number; time: number; details: string[] }[] = [];
   for (const m of marks) {
-    const same = groups.find((g) => g.at === m.at && g.kind === m.kind);
+    const same = groups.find((g) => g.kind === m.kind && (time ? Math.abs(pct(g) - pct(m)) < 0.2 : g.at === m.at));
     if (same) same.details.push(m.detail);
-    else groups.push({ kind: m.kind, at: m.at, details: [m.detail] });
+    else groups.push({ kind: m.kind, at: m.at, time: m.time, details: [m.detail] });
   }
   const titleOf = (g: (typeof groups)[number]) =>
     g.details.length === 1
       ? g.details[0]
       : `${MARK_STYLE[g.kind].label} ${g.details.length}번: ${g.details.map((d) => d.replace(/^.*\((.*)\)$/, "$1")).join(", ")}`;
   // 그래도 가까이 겹치는 표시는 아래 줄로 내려 모두 보이게 한다
+  const ROW = 24; // 누르기 쉬운 크기 (24px)
   const rowEnds: number[] = [];
   const rows = groups.map((m) => {
-    let row = rowEnds.findIndex((end) => pct(m.at) - end >= 1.5);
+    let row = rowEnds.findIndex((end) => pct(m) - end >= 2.5);
     if (row < 0) row = rowEnds.length;
-    rowEnds[row] = pct(m.at);
+    rowEnds[row] = pct(m);
     return row;
   });
   const rowCount = Math.max(1, rowEnds.length);
   return (
-    <div className="relative px-1" style={{ paddingBottom: rowCount * 16 + 4, paddingTop: pins.length ? 20 : 0 }}>
-      {pins.map((p) => (
-        <button
-          key={p.id}
-          type="button"
-          title={p.title}
-          aria-label={p.title}
-          onClick={() => onSeek(p.at)}
-          style={{ left: `${pct(p.at)}%` }}
-          className="absolute top-0 -translate-x-1/2 text-sm leading-5"
-        >
-          {p.glyph}
-        </button>
-      ))}
-      <input
-        type="range"
-        min={0}
-        max={total}
-        value={index}
-        onChange={(e) => onSeek(Number(e.target.value))}
-        className="w-full accent-brand"
-        aria-label="재생 위치"
-      />
-      <div className="absolute inset-x-1 bottom-0" style={{ height: rowCount * 16 + 4 }}>
-        {groups.map((g, i) => (
+    <div className="flex flex-col gap-1">
+      <div className="relative px-1" style={{ paddingBottom: rowCount * ROW + 4, paddingTop: pins.length ? ROW : 0 }}>
+        {pins.map((p) => (
           <button
-            key={i}
+            key={p.id}
             type="button"
-            title={titleOf(g)}
-            aria-label={titleOf(g)}
-            onClick={() => onSeek(g.at)}
-            style={{ left: `${pct(g.at)}%`, top: rows[i] * 16 }}
-            className={`absolute -translate-x-1/2 text-xs leading-4 whitespace-nowrap ${MARK_STYLE[g.kind].color}`}
+            title={p.title}
+            aria-label={p.title}
+            onClick={() => {
+              setPicked(p.title);
+              onSeek(p.at);
+            }}
+            onFocus={() => setPicked(p.title)}
+            onMouseEnter={() => setPicked(p.title)}
+            style={{ left: `${pct(p)}%` }}
+            className="absolute top-0 flex h-6 min-w-6 -translate-x-1/2 items-center justify-center rounded text-sm hover:bg-page"
           >
-            {MARK_STYLE[g.kind].glyph}
-            {g.details.length > 1 && <sub className="font-bold">{g.details.length}</sub>}
+            {p.glyph}
           </button>
         ))}
+        <input
+          type="range"
+          min={0}
+          max={time ? STEPS : total}
+          value={sliderValue}
+          onChange={(e) => seekSlider(Number(e.target.value))}
+          className="w-full accent-brand"
+          aria-label="재생 위치"
+        />
+        <div className="absolute inset-x-1 bottom-0" style={{ height: rowCount * ROW + 4 }}>
+          {groups.map((g, i) => (
+            <button
+              key={i}
+              type="button"
+              title={titleOf(g)}
+              aria-label={titleOf(g)}
+              onClick={() => {
+                setPicked(titleOf(g));
+                onSeek(g.at);
+              }}
+              onFocus={() => setPicked(titleOf(g))}
+              onMouseEnter={() => setPicked(titleOf(g))}
+              style={{ left: `${pct(g)}%`, top: rows[i] * ROW }}
+              className={`absolute flex h-6 min-w-6 -translate-x-1/2 items-center justify-center rounded text-sm whitespace-nowrap hover:bg-page ${MARK_STYLE[g.kind].color}`}
+            >
+              {MARK_STYLE[g.kind].glyph}
+              {g.details.length > 1 && <sub className="font-bold">{g.details.length}</sub>}
+            </button>
+          ))}
+        </div>
       </div>
+      {(marks.length > 0 || pins.length > 0) && (
+        <p className="min-h-5 text-xs text-muted" aria-live="polite">
+          {picked ?? "표시를 누르거나 가리키면 무슨 일이 있었는지 여기에 보여요."}
+        </p>
+      )}
     </div>
   );
 }
@@ -499,7 +561,7 @@ function HelpBox({
               {step.aiPastes.map((t) => (
                 <li key={t}>
                   <button type="button" onClick={() => onSeek(t)} className="text-left hover:underline">
-                    <span className="text-amber-600">▼</span> {after(t)} 뒤 AI 답에 있던 내용을 붙여넣음
+                    <span className="text-teal-700">▼</span> {after(t)} 뒤 AI 답에 있던 내용을 붙여넣음
                   </button>
                 </li>
               ))}

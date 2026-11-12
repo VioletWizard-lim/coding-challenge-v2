@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
 import Replayer from "@/components/Replayer";
+import { useDialog } from "@/components/useDialog";
 import { storageKeyFor, type Recording } from "@/lib/editLog";
 import type { HelpChat } from "@/lib/helpTrail";
 import { errorName, judge, type PracticeTest, type TestOutcome } from "@/lib/practice";
@@ -66,6 +67,7 @@ export default function ProblemSolver({
   const [outcomes, setOutcomes] = useState<TestOutcome[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [replay, setReplay] = useState<(Recording & { chats: HelpChat[] }) | null>(null);
+  const replayDialog = useDialog<HTMLDivElement>(!!replay, () => setReplay(null));
   const [flagged, setFlagged] = useState(initiallyFlagged);
   const [aiOpen, setAiOpen] = useState(false);
   const storageKey = storageKeyFor(userId, subject, problemKey);
@@ -210,7 +212,7 @@ export default function ProblemSolver({
           role="presentation"
           onClick={(e) => e.target === e.currentTarget && setReplay(null)}
         >
-          <div role="dialog" aria-label="내 연습 과정" className="mt-10 flex w-full max-w-4xl flex-col gap-3 rounded-xl bg-white p-5 shadow-xl">
+          <div ref={replayDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="내 연습 과정" className="mt-10 flex w-full max-w-4xl flex-col gap-3 rounded-xl bg-white p-5 shadow-xl">
             <div className="flex items-center gap-2">
               <h3 className="font-bold">▶ 내 연습 과정 — {view.title}</h3>
               <button type="button" onClick={() => setReplay(null)} className="ml-auto text-sm text-muted hover:text-ink">

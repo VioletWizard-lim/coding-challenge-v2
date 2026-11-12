@@ -6,8 +6,12 @@ import ScrollTopButton from "./ScrollTopButton";
 
 type Tab = { id: string; label: string; content: ReactNode };
 
-/** 탭을 떠나기 전에 확인할 것 (예: 제출하지 않은 코드). 물을 게 없으면 null */
-export type LeaveGuard = () => { message: string; onLeave: (dontAskAgain: boolean) => void } | null;
+/**
+ * 탭을 떠날 때 알려 줄 것 (예: 제출하지 않은 코드). 알릴 게 없으면 null.
+ * 이동을 막고 묻지 않는다(잃는 것이 없으므로): 바로 이동하고, 화면 아래에 잠깐 안내와 "돌아가기"를 보여 준다.
+ * onLeave: 안내를 보여 준 뒤 부른다 (같은 내용으로 또 알리지 않게 기억하는 데 쓴다)
+ */
+export type LeaveGuard = () => { message: string; onLeave: () => void } | null;
 
 /** 탭끼리 주고받는 상태: 내 기록 다시 보기에서 고른 문제와, 다른 탭에서 "이 제출 보기"로 연 제출 */
 type StudentNav = {
@@ -75,22 +79,24 @@ export default function SideTabs({
     } catch {}
   }, [active, storageKey]);
 
-  // 탭을 떠나기 전 확인 (코드 작성 탭: 제출하지 않은 코드). 사이트 안의 창으로 물어서 작성 기록에 '창 이탈'이 찍히지 않게 한다
+  // 탭을 떠날 때 알림 (코드 작성 탭: 제출하지 않은 코드). 막지 않고 이동한 뒤, 사이트 안의 작은 안내로 알려 준다
   const guards = useRef(new Map<string, LeaveGuard>());
-  const [asking, setAsking] = useState<{ message: string; leave: (dontAskAgain: boolean) => void } | null>(null);
-  const [dontAskAgain, setDontAskAgain] = useState(false);
+  const [notice, setNotice] = useState<{ message: string; from: string } | null>(null);
   const leaveThen = useCallback((go: () => void) => {
-    const check = guards.current.get(activeRef.current)?.();
-    if (!check) return go();
-    setDontAskAgain(false);
-    setAsking({
-      message: check.message,
-      leave: (dontAsk) => {
-        check.onLeave(dontAsk);
-        go();
-      },
-    });
+    const from = activeRef.current;
+    const check = guards.current.get(from)?.();
+    go();
+    if (!check) return;
+    check.onLeave();
+    setNotice({ message: check.message, from });
   }, []);
+  // 안내는 잠깐 보였다 사라진다. 떠났던 탭으로 돌아오면 바로 지운다
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const noticeShown = notice && notice.from !== active ? notice : null;
 
   // 위쪽 로고를 누르면 처음 화면(첫 탭)으로
   const homeTab = tabs[0].id;
@@ -164,6 +170,25 @@ export default function SideTabs({
               id={`tab-${t.id}`}
               aria-selected={active === t.id}
               aria-controls={`panel-${t.id}`}
+              tabIndex={active === t.id ? 0 : -1}
+              onKeyDown={(e) => {
+                // 화살표·Home·End로 메뉴 사이를 옮긴다 (Tab으로는 고른 메뉴 하나에만 멈춘다)
+                const i = tabs.findIndex((x) => x.id === t.id);
+                const next =
+                  e.key === "ArrowDown" || e.key === "ArrowRight"
+                    ? tabs[(i + 1) % tabs.length]
+                    : e.key === "ArrowUp" || e.key === "ArrowLeft"
+                      ? tabs[(i - 1 + tabs.length) % tabs.length]
+                      : e.key === "Home"
+                        ? tabs[0]
+                        : e.key === "End"
+                          ? tabs[tabs.length - 1]
+                          : null;
+                if (!next) return;
+                e.preventDefault();
+                document.getElementById(`tab-${next.id}`)?.focus();
+                if (next.id !== active) leaveThen(() => setActive(next.id));
+              }}
               onClick={() => t.id !== active && leaveThen(() => setActive(t.id))}
               className={`shrink-0 rounded-lg px-4 py-2.5 text-left whitespace-nowrap transition md:w-full ${
                 active === t.id ? "bg-brand-soft font-bold text-brand" : "text-muted hover:bg-page hover:text-ink"
@@ -182,38 +207,26 @@ export default function SideTabs({
         </div>
       </div>
       <ScrollTopButton />
-      {asking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" role="presentation">
-          <div role="alertdialog" aria-modal="true" aria-labelledby="leave-title" className="flex w-full max-w-md flex-col gap-4 rounded-2xl bg-white p-6 shadow-xl">
-            <p id="leave-title" className="whitespace-pre-line leading-7">
-              {asking.message}
-            </p>
-            <label className="flex items-center gap-2 text-sm text-muted">
-              <input type="checkbox" checked={dontAskAgain} onChange={(e) => setDontAskAgain(e.target.checked)} />
-              다시 묻지 않기 (코드를 더 고치면 다시 물어요)
-            </label>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                autoFocus
-                onClick={() => setAsking(null)}
-                className="rounded-lg bg-brand px-4 py-2 font-bold text-white"
-              >
-                계속 작성하기
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const leave = asking.leave;
-                  setAsking(null);
-                  leave(dontAskAgain);
-                }}
-                className="rounded-lg border border-line bg-white px-4 py-2"
-              >
-                이동하기
-              </button>
-            </div>
-          </div>
+      {noticeShown && (
+        <div
+          role="status"
+          className="fixed inset-x-4 bottom-4 z-40 mx-auto flex max-w-xl flex-wrap items-center gap-3 rounded-xl border border-line bg-white px-4 py-3 text-sm shadow-lg"
+        >
+          <p className="min-w-0 flex-1 leading-6">{noticeShown.message}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setActive(noticeShown.from);
+              setNotice(null);
+              window.scrollTo({ top: 0 });
+            }}
+            className="rounded-lg bg-brand px-3 py-1.5 font-bold text-white"
+          >
+            돌아가기
+          </button>
+          <button type="button" onClick={() => setNotice(null)} aria-label="안내 닫기" className="px-1 text-muted hover:text-ink">
+            ✕
+          </button>
         </div>
       )}
     </NavContext>

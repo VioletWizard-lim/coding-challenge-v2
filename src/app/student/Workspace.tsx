@@ -55,11 +55,13 @@ export default function Workspace({
   const [message, setMessage] = useState<Message | null>(null);
   const [pending, startTransition] = useTransition();
   const [coolingDown, setCoolingDown] = useState(false);
+  /** 이 화면에서 이미 제출한 문제들 ("과목_번호"): 버튼과 안내를 "다시 제출"로 바꾼다 */
+  const [submittedKeys, setSubmittedKeys] = useState<Set<string>>(new Set());
   const recorder = useRef<RecorderHandle>(null);
   const [aiOpen, setAiOpen] = useState(false);
 
-  // 제출하지 않은 코드가 있으면 다른 탭으로 가거나 페이지를 떠날 때 알려 준다 (코드는 브라우저에 저장돼 있음)
-  // 이동할 때마다 묻는다. 제출했거나, '다시 묻지 않기'를 고른 코드면 더 묻지 않는다 (고치면 다시 물음)
+  // 제출하지 않은 코드가 있으면 다른 탭으로 갈 때 알려 준다 (막지 않고 안내만: 코드는 이 컴퓨터에 저장돼 있음)
+  // 같은 코드로는 한 번만 알린다 (고치면 다시 알림). 새로고침·창 닫기는 브라우저 기본 경고 창으로 묻는다
   const submittedCode = useRef<string | null>(null);
   const quietCode = useRef<string | null>(null);
   const unsentCode = () => {
@@ -73,10 +75,9 @@ export default function Workspace({
       const code = unsentCode();
       if (code === null || code === quietCode.current) return null;
       return {
-        message:
-          "아직 제출하지 않은 코드가 있어요.\n코드는 이 브라우저에 저장돼서 돌아오면 그대로 있어요.\n다른 화면으로 이동할까요?",
-        onLeave: (dontAskAgain) => {
-          if (dontAskAgain) quietCode.current = code;
+        message: "📝 아직 제출하지 않은 코드가 있어요. 이 컴퓨터에 저장돼 있으니, 돌아와서 제출하면 돼요.",
+        onLeave: () => {
+          quietCode.current = code;
         },
       };
     });
@@ -124,6 +125,7 @@ export default function Workspace({
       writeSession(PENDING_KEY, null);
       if (saved) {
         submittedCode.current = pending.code;
+        setSubmittedKeys((prev) => new Set(prev).add(`${pending.subject}_${pending.problem}`));
         setMessage({
           text: `✅ 제출 완료! (${pending.problem}) 제출하는 동안 화면이 새로 고쳐졌지만 제출은 저장됐어요.`,
           kind: "ok",
@@ -173,6 +175,10 @@ export default function Workspace({
     if (!rec || !current) return;
     if (!rec.code.trim()) return setMessage({ text: "코드를 입력하세요.", kind: "error" });
     if (!description.trim()) return setMessage({ text: "코드 설명을 입력하세요.", kind: "error" });
+    // 방금 낸 것과 똑같은 코드는 또 내지 않는다 (같은 제출이 두 번 쌓이지 않게)
+    if (rec.code === submittedCode.current && submittedKeys.has(`${subject}_${current.number}`)) {
+      return setMessage({ text: "방금 제출한 코드와 같아요. 코드를 고친 뒤에 다시 제출할 수 있어요.", kind: "error" });
+    }
     setMessage(null);
     writeSession(PENDING_KEY, { subject, problem: current.number, at: Date.now(), description, code: rec.code } satisfies Pending);
     startTransition(async () => {
@@ -192,11 +198,14 @@ export default function Workspace({
       // 새로 고친 화면이 이 표시를 보고 "제출 완료"를 다시 보여 준다
       setTimeout(() => writeSession(PENDING_KEY, null), 5000);
       submittedCode.current = rec.code;
+      setSubmittedKeys((prev) => new Set(prev).add(`${subject}_${current.number}`));
       setMessage({ text: `✅ 제출 완료! (${current.number}) '▶ 내 기록 다시 보기'에서 내가 쓴 과정을 돌아볼 수 있어요.`, kind: "ok" });
       setCoolingDown(true);
       setTimeout(() => setCoolingDown(false), COOLDOWN_MS);
     });
   }
+
+  const resubmit = !!current && submittedKeys.has(`${subject}_${current.number}`);
 
   return (
     <section
@@ -244,8 +253,8 @@ export default function Workspace({
           </div>
         )}
         <p className="text-xs leading-5 text-muted">
-          💾 작성 중인 코드와 과정은 이 브라우저에 자동 저장돼서 새로고침해도 그대로 있어요. 다 썼으면 코드 설명을
-          적고 제출하세요.
+          💾 작성 중인 코드와 과정은 <b>이 컴퓨터(이 브라우저)에만</b> 임시로 저장돼요. 새로고침해도 그대로 있지만, 다른
+          컴퓨터에서는 보이지 않아요. <b>제출해야</b> 선생님께 전달되고 어디서든 다시 볼 수 있어요.
         </p>
       </aside>
 
@@ -271,6 +280,11 @@ export default function Workspace({
             className="rounded-lg border border-line bg-white px-3 py-2 text-base text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
           />
         </label>
+        {resubmit && (
+          <p className="rounded-lg bg-page px-3 py-2 text-xs leading-5 text-muted">
+            이 문제는 이미 제출했어요. 코드를 더 고쳐서 다시 내면 <b>새 제출</b>로 하나 더 기록돼요 (앞에 낸 것도 그대로 남아요).
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -278,7 +292,7 @@ export default function Workspace({
             disabled={pending || coolingDown}
             className="rounded-xl bg-gradient-to-br from-brand to-violet-600 px-6 py-2.5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {pending ? "제출 중…" : "제출하기"}
+            {pending ? "제출 중…" : resubmit ? "고쳐서 다시 제출하기" : "제출하기"}
           </button>
           {message && (
             <p
