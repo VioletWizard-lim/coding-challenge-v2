@@ -20,11 +20,14 @@ declare global {
 export const RUN_LIMIT_SECONDS = 5;
 /** 시간 한도를 넘어 멈췄을 때의 오류 이름 (기록에는 [시각, "r:TimeLimitError"]로 남는다) */
 export const TIME_LIMIT_ERROR = "TimeLimitError";
+/** input() 입력창에서 "취소"를 눌러 멈췄을 때의 오류 이름 (오류가 아니므로 실행 기록에는 남기지 않는다) */
+export const INPUT_CANCELLED = "InputCancelled";
 
 /**
  * 학생 코드를 돌리는 파이썬 함수 _lbl_run(code, 한도초).
  * - 실행할 때마다 새 이름 공간에서 돌린다 (앞 실행에서 만든 변수가 남아 오류가 가려지지 않게)
  * - 줄이 실행될 때마다 시간을 확인해 한도를 넘으면 TimeLimitError로 멈춘다
+ * - input()은 화면 쪽 함수(ask_user)에 묻는다. 학생이 취소하면 빈 값을 넣지 않고 InputCancelled로 멈춘다
  * 학생 코드는 "<exec>"라는 파일 이름으로 돌려서, 오류 줄 번호가 학생 코드 기준으로 나온다.
  */
 const RUNNER = `
@@ -34,14 +37,22 @@ def _lbl_setup():
         pass
     ${TIME_LIMIT_ERROR}.__qualname__ = "${TIME_LIMIT_ERROR}"
     ${TIME_LIMIT_ERROR}.__module__ = "builtins"
-    def run(code, limit):
+    class ${INPUT_CANCELLED}(BaseException):
+        pass
+    ${INPUT_CANCELLED}.__qualname__ = "${INPUT_CANCELLED}"
+    ${INPUT_CANCELLED}.__module__ = "builtins"
+    def run(code, limit, ask_user):
         state = [time.monotonic() + limit, 0]
         def ask(prompt=""):
+            sys.stdout.flush()
             start = time.monotonic()
             try:
-                return js.prompt(str(prompt)) or ""
+                answer = ask_user(str(prompt))
             finally:
                 state[0] += time.monotonic() - start
+            if answer is None:
+                raise ${INPUT_CANCELLED}("input cancelled")
+            return str(answer)
         def trace(frame, event, arg):
             state[1] += 1
             if state[1] % 200 == 0 and time.monotonic() > state[0]:
@@ -63,9 +74,16 @@ _lbl_run = _lbl_setup()
 del _lbl_setup
 `;
 
-/** 학생 코드를 한 번 실행한다. 오류(시간 초과 포함)는 던진다 */
-export function runStudentCode(py: Pyodide, code: string): void {
-  (py.globals.get("_lbl_run") as (code: string, limit: number) => void)(code, RUN_LIMIT_SECONDS);
+/**
+ * 학생 코드를 한 번 실행한다. 오류(시간 초과, 입력 취소 포함)는 던진다.
+ * askUser: input()이 불릴 때마다 안내 글을 받아 학생이 넣은 값을 돌려준다 (취소하면 null → 실행을 멈춘다)
+ */
+export function runStudentCode(py: Pyodide, code: string, askUser: (prompt: string) => string | null): void {
+  (py.globals.get("_lbl_run") as (code: string, limit: number, ask: (prompt: string) => string | null) => void)(
+    code,
+    RUN_LIMIT_SECONDS,
+    askUser,
+  );
 }
 
 let loading: Promise<Pyodide> | null = null;

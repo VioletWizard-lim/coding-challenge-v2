@@ -61,6 +61,35 @@ export function validEntries(log: unknown): LogEvent[] {
   );
 }
 
+/** 시간 기준 타임라인에서, 이보다 길게 아무 기록이 없는 구간은 이 길이로 줄여 그린다 (쉬는 시간·다음 날 이어 쓰기) */
+export const TIMELINE_GAP_CAP_MS = 5 * 60_000;
+
+/**
+ * 시간 기준 타임라인의 자: 기록 시각 → 막대 위의 위치(0~total).
+ * 편집 순서 기준과 달리 멈춘 구간이 그만큼 길게 보인다. 다만 아주 긴 빈 구간은 capMs 길이로 줄인다.
+ * times: 기록에 있는 모든 시각 (순서대로)
+ */
+export function timeAxis(times: number[], capMs = TIMELINE_GAP_CAP_MS): { total: number; pos: (t: number) => number } {
+  const ts = [...times].sort((a, b) => a - b);
+  const cum = [0];
+  for (let i = 1; i < ts.length; i++) cum.push(cum[i - 1] + Math.min(ts[i] - ts[i - 1], capMs));
+  const total = cum[cum.length - 1] ?? 0;
+  const pos = (t: number) => {
+    if (!ts.length || t <= ts[0]) return 0;
+    if (t >= ts[ts.length - 1]) return total;
+    // t가 들어 있는 구간 [ts[lo], ts[lo+1])을 찾는다
+    let lo = 0;
+    let hi = ts.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (ts[mid] <= t) lo = mid;
+      else hi = mid;
+    }
+    return Math.min(cum[lo] + Math.min(t - ts[lo], capMs), cum[hi]);
+  };
+  return { total, pos };
+}
+
 const isEdit = (e: LogEvent): e is EditEvent => e.length > 2 && typeof e[6] === "string";
 
 export function analyzeLog(init: string, log: unknown): Analysis {

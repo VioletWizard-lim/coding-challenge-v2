@@ -21,7 +21,7 @@ import {
 } from "@codemirror/view";
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { eventsFromChanges, freeOldRecordings, kindOf, pythonErrorName, runEvent, type Recording } from "@/lib/editLog";
-import { loadPython, RUN_LIMIT_SECONDS, runStudentCode, TIME_LIMIT_ERROR } from "@/lib/pyodide";
+import { INPUT_CANCELLED, loadPython, RUN_LIMIT_SECONDS, runStudentCode, TIME_LIMIT_ERROR } from "@/lib/pyodide";
 
 type Props = {
   /** localStorage 키 (code_rec:{학번}_{과목}_{문제}) */
@@ -153,6 +153,10 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
         "&": { height: "100%", fontSize: "15px" },
         ".cm-scroller": { fontFamily: "var(--font-code)" },
       }),
+      // 키보드만 쓰는 사람: Tab은 들여쓰기라서, 편집기에서 나가는 방법을 알려 준다 (CodeMirror 기본 기능)
+      EditorView.contentAttributes.of({
+        "aria-label": `${mode === "code" ? "코드" : "글"} 편집기. Tab은 들여쓰기예요. 편집기에서 나가려면 Esc를 누른 다음 Tab을 누르세요.`,
+      }),
     ];
     if (mode === "code") {
       extensions.push(
@@ -241,12 +245,28 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
     py.setStderr({ batched: write });
     // "실행 중…"이 화면에 먼저 보이게 한 박자 쉰 뒤 돌린다 (돌리는 동안에는 화면이 멈춘다)
     await new Promise((resolve) => setTimeout(resolve, 30));
+    // input(): 입력창에 지금까지 나온 출력을 함께 보여 주고(무엇을 묻는지 알 수 있게), 넣은 값은 실행 결과에도 적는다
+    const askUser = (prompt: string) => {
+      const recent = buffer.trimEnd().split("\n").slice(-6).join("\n");
+      const answer = window.prompt(
+        [recent && `[지금까지 나온 출력]\n${recent}`, prompt.trim() || "input()에 넣을 값을 적어 주세요."].filter(Boolean).join("\n\n"),
+      );
+      if (answer !== null) write(prompt + answer);
+      return answer;
+    };
     try {
-      runStudentCode(py, view.state.doc.toString());
+      runStudentCode(py, view.state.doc.toString(), askUser);
       rec.log.push(runEvent(Date.now(), null));
       setOutput({ text: shown() || "(출력 없음)", error: false });
     } catch (err) {
       const name = pythonErrorName(err);
+      if (name === INPUT_CANCELLED) {
+        // 입력을 취소한 것은 오류가 아니다: 실행 기록에 남기지 않고 멈췄다고만 알려 준다
+        setOutput({ text: (buffer ? shown() + "\n" : "") + "⏹ 입력을 취소해서 실행을 멈췄어요. 다시 하려면 ▶ 실행을 눌러 주세요.", error: false });
+        setTimeout(() => (runningRef.current = false), 500);
+        setRunning(false);
+        return;
+      }
       rec.log.push(runEvent(Date.now(), name));
       const text =
         name === TIME_LIMIT_ERROR
@@ -285,8 +305,8 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
           </span>
         )}
         {!saveFailed && (
-          <span className="ml-auto text-xs text-muted" title="작성 중인 코드와 과정이 이 브라우저에 자동 저장돼요">
-            {savedAt ? `💾 자동 저장됨 (${savedAt.toLocaleTimeString("ko-KR")})` : "💾 쓰는 내용은 자동 저장돼요"}
+          <span className="ml-auto text-xs text-muted" title="이 컴퓨터의 이 브라우저에만 임시로 저장돼요. 다른 컴퓨터에서는 보이지 않아요">
+            {savedAt ? `💾 이 컴퓨터에 임시 저장됨 (${savedAt.toLocaleTimeString("ko-KR")})` : "💾 쓰는 내용은 이 컴퓨터에 임시 저장돼요"}
           </span>
         )}
       </div>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
 import Replayer from "@/components/Replayer";
+import { useDialog } from "@/components/useDialog";
 import type { RecorderHandle } from "@/components/RecordingEditor";
 import { MAX_QUESTION, type AiChat } from "@/lib/aiChat";
 import type { Recording } from "@/lib/editLog";
@@ -71,6 +72,7 @@ export default function AiHelper({
   const [replay, setReplay] = useState<{ rec: Recording; at: number; label: string } | null>(null);
   const [flagged, setFlagged] = useState<Set<number>>(new Set());
   const listEnd = useRef<HTMLDivElement>(null);
+  const replayDialog = useDialog<HTMLDivElement>(!!replay, () => setReplay(null));
   const backend: HelperBackend = custom ?? {
     load: () => loadMyAiChats(subject, problem),
     ask: (x) => askAiHelper({ subject, problem, ...x, practiceId, studentProblemId }),
@@ -219,15 +221,15 @@ export default function AiHelper({
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => {
-              // Enter: 보내기 / Shift+Enter: 줄 바꾸기. 한글을 조합하는 중의 Enter는 글자 확정이라 보내지 않는다
-              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+              // Enter: 줄 바꾸기 / Ctrl(⌘)+Enter: 보내기. 하루 질문 수가 정해져 있어서, 쓰다 만 질문이 Enter로 나가 버리지 않게 한다
+              if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || e.nativeEvent.isComposing || e.keyCode === 229) return;
               e.preventDefault();
               ask();
             }}
             rows={3}
             maxLength={MAX_QUESTION}
             disabled={outOfQuestions}
-            placeholder={outOfQuestions ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요." : "무엇이 막히나요? (Enter로 보내기, Shift+Enter로 줄 바꾸기)"}
+            placeholder={outOfQuestions ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요." : "무엇이 막히나요? (다 쓰고 아래 '물어보기'를 누르거나 Ctrl+Enter)"}
             className="rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:bg-page"
           />
           <button
@@ -247,7 +249,7 @@ export default function AiHelper({
           role="presentation"
           onClick={(e) => e.target === e.currentTarget && setReplay(null)}
         >
-          <div role="dialog" aria-label="이 순간의 재생" className="mt-10 flex w-full max-w-4xl flex-col gap-3 rounded-xl bg-white p-5 shadow-xl">
+          <div ref={replayDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="이 순간의 재생" className="mt-10 flex w-full max-w-4xl flex-col gap-3 rounded-xl bg-white p-5 shadow-xl">
             <div className="flex items-center gap-2">
               <h3 className="font-bold">⏪ {replay.label} — 이 순간의 재생</h3>
               <button type="button" onClick={() => setReplay(null)} className="ml-auto text-sm text-muted hover:text-ink">

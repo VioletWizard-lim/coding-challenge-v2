@@ -99,3 +99,25 @@ it("시간 표시", () => {
   expect(formatDuration(200 * S)).toBe("3분 20초");
   expect(formatDuration(125 * MIN)).toBe("2시간 5분");
 });
+
+describe("timeAxis (시간 기준 타임라인)", () => {
+  it("멈춘 구간이 그만큼 길게 잡히고, 5분 넘는 빈 구간은 5분 길이로 줄인다", async () => {
+    const { timeAxis, TIMELINE_GAP_CAP_MS: CAP } = await import("./replay");
+    const MIN = 60_000;
+    // 0분, 1분, 3분(2분 멈춤), 그리고 하루 뒤
+    const axis = timeAxis([0, MIN, 3 * MIN, 3 * MIN + 24 * 60 * MIN]);
+    expect(axis.total).toBe(3 * MIN + CAP);
+    expect(axis.pos(0)).toBe(0);
+    expect(axis.pos(MIN)).toBe(MIN);
+    expect(axis.pos(2 * MIN)).toBe(2 * MIN); // 구간 안의 시각
+    expect(axis.pos(3 * MIN)).toBe(3 * MIN);
+    expect(axis.pos(3 * MIN + 10 * MIN)).toBe(3 * MIN + CAP); // 줄인 구간 안에서는 끝에 붙는다
+    expect(axis.pos(-5)).toBe(0);
+    expect(axis.pos(1e15)).toBe(axis.total);
+  });
+  it("기록이 없거나 하나뿐이면 길이 0", async () => {
+    const { timeAxis } = await import("./replay");
+    expect(timeAxis([]).total).toBe(0);
+    expect(timeAxis([5]).pos(5)).toBe(0);
+  });
+});
