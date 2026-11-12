@@ -26,12 +26,12 @@ import {
   savePracticeWork,
   setPracticeFlag,
 } from "@/lib/practiceStore";
-import { stuckBrief, stuckPoints, type StuckPoint } from "@/lib/process-summary";
+import { STUCK_WINDOW, stuckBrief, stuckPoints, type StuckPoint } from "@/lib/process-summary";
 import { allowedSubjects } from "@/lib/problems";
 import { listAllProblems } from "@/lib/problemStore";
 import { runPythonTests } from "@/lib/pyRunner";
 import { getSession } from "@/lib/session";
-import { getMyJourneyData, type Owner } from "@/lib/submissions";
+import { getMyRecentRecordings, type Owner } from "@/lib/submissions";
 
 /** 학생 화면에 보내는 막힌 곳 (AI에 보낼 근거 글과 코드는 빼고) */
 export type StuckChoice = Pick<StuckPoint, "id" | "kind" | "subject" | "concept" | "label" | "evidence">;
@@ -50,20 +50,9 @@ export type PracticeHome =
 
 /** 내 작성 기록에서 찾은 막힌 곳 (최근 제출 기준) */
 async function myStuckPoints(profile: Owner, subjects: string[]): Promise<StuckPoint[]> {
-  const [{ records, inits }, { problems }] = await Promise.all([getMyJourneyData(profile), listAllProblems()]);
+  const [recent, { problems }] = await Promise.all([getMyRecentRecordings(profile, subjects, STUCK_WINDOW), listAllProblems()]);
   const titles = new Map(problems.map((p) => [`${p.subject}_${p.number}`, p.title]));
-  return stuckPoints(
-    records
-      .map((r, i) => ({
-        id: r.id,
-        subject: r.subject,
-        problem: r.problem,
-        title: titles.get(`${r.subject}_${r.problem}`) ?? "",
-        init: inits[i] ?? "",
-        log: r.log,
-      }))
-      .filter((s) => subjects.includes(s.subject)),
-  );
+  return stuckPoints(recent.map((r) => ({ ...r, title: titles.get(`${r.subject}_${r.problem}`) ?? "" })));
 }
 
 /** 연습 탭 처음: 과목별 설정, 내가 막혔던 곳, 내 연습 문제, 오늘 남은 만들기 횟수 */
