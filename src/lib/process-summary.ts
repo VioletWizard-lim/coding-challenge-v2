@@ -69,6 +69,8 @@ const CONCEPTS: Record<string, string> = {
   AttributeError: "메서드·속성 이름",
   ModuleNotFoundError: "모듈 불러오기",
   EOFError: "input() 입력 개수",
+  // 실행 시간 한도를 넘어 멈춤 (src/lib/pyodide.ts)
+  TimeLimitError: "반복문(끝나는 조건, 끝나지 않는 반복)",
 };
 
 const MAX_CODE_CHARS = 3000;

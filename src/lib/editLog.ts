@@ -22,6 +22,42 @@ export type Recording = { init: string; log: LogEvent[]; code: string };
 export const storageKeyFor = (userId: string, subject: string, problem: string) =>
   `code_rec:${userId}_${subject}_${problem}`;
 
+/** 코드 설명 초안의 localStorage 키 (작성 중 코드와 같은 이름 규칙, v2에서만 씀) */
+export const descriptionKeyFor = (userId: string, subject: string, problem: string) =>
+  `code_desc:${userId}_${subject}_${problem}`;
+
+/** 이만큼 오래 손대지 않은 작성 중 기록은 저장 공간이 모자랄 때 지운다 */
+export const STALE_RECORDING_DAYS = 60;
+
+type KeyValueStore = Pick<Storage, "length" | "key" | "getItem" | "removeItem">;
+
+/**
+ * 저장 공간이 모자랄 때: 오래된 작성 중 기록(code_rec:)과 그 코드 설명 초안(code_desc:)을 지운다.
+ * 마지막 기록이 60일 넘게 지난 것, 기록이 하나도 없는 것, 읽을 수 없는 것만 지운다. keepKey(지금 쓰는 것)는 건드리지 않는다.
+ * 지운 개수를 돌려준다.
+ */
+export function freeOldRecordings(store: KeyValueStore, keepKey: string, now: number): number {
+  const keys: string[] = [];
+  for (let i = 0; i < store.length; i++) {
+    const key = store.key(i);
+    if (key?.startsWith("code_rec:") && key !== keepKey) keys.push(key);
+  }
+  let removed = 0;
+  for (const key of keys) {
+    let last: number | null = null;
+    try {
+      const log = JSON.parse(store.getItem(key) ?? "null")?.log;
+      const time = Array.isArray(log) && log.length ? log[log.length - 1]?.[0] : null;
+      last = typeof time === "number" ? time : null;
+    } catch {}
+    if (last !== null && now - last < STALE_RECORDING_DAYS * 86_400_000) continue;
+    store.removeItem(key);
+    store.removeItem(key.replace(/^code_rec:/, "code_desc:"));
+    removed++;
+  }
+  return removed;
+}
+
 type UserEventSource = { isUserEvent(event: string): boolean };
 
 /** CodeMirror 6 트랜잭션의 userEvent를 v1 종류 글자로 바꾼다. */

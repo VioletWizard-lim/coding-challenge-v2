@@ -2,6 +2,7 @@ import "server-only";
 import { LOAD_TEST_PREFIX } from "./loadTest";
 import bcrypt from "bcryptjs";
 import { db, fetchAll, type UserRow } from "./db";
+import { clearLoginTries } from "./loginGuard";
 import type { ExistingAccount } from "./studentCsv";
 
 export type HealthStatus = { checkedAt: string | null; ok: boolean; ageHours: number | null };
@@ -48,7 +49,9 @@ export async function resetStudentPassword(id: string, password: string): Promis
     .eq("role", "student")
     .select("id");
   if (error) throw new Error(`비밀번호 저장 실패: ${error.message}`);
-  return (data ?? []).length === 1;
+  if ((data ?? []).length !== 1) return false;
+  await clearLoginTries(id); // 여러 번 틀려 잠시 막혀 있었으면 바로 로그인할 수 있게
+  return true;
 }
 
 /** 이미 있는 계정(학생·교사 모두) 중에서 ids에 든 것: 아이디 → 이름·역할·과목 */
@@ -133,7 +136,9 @@ export async function resetTeacherPassword(id: string, password: string): Promis
     .eq("role", "teacher")
     .select("id");
   if (error) throw new Error(`비밀번호 저장 실패: ${error.message}`);
-  return (data ?? []).length === 1;
+  if ((data ?? []).length !== 1) return false;
+  await clearLoginTries(id);
+  return true;
 }
 
 

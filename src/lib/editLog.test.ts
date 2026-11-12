@@ -2,6 +2,7 @@ import { EditorSelection, EditorState, type TransactionSpec } from "@codemirror/
 import { describe, expect, it } from "vitest";
 import {
   applyEditEvent,
+  freeOldRecordings,
   isValidLog,
   eventsFromChanges,
   kindOf,
@@ -145,4 +146,39 @@ describe("제출 기록 형식 확인", () => {
     ["길이가 3~6", [[1, "i", 0]]],
     ["텍스트가 문자열이 아님", [[1, "i", 0, 0, 0, 0, 5]]],
   ])("%s → 거부", (_, log) => expect(isValidLog(log)).toBe(false));
+});
+
+describe("freeOldRecordings (저장 공간이 모자랄 때 오래된 작성 중 기록 지우기)", () => {
+  const DAY = 86_400_000;
+  const now = 1_800_000_000_000;
+  function fakeStore(items: Record<string, string>) {
+    const map = new Map(Object.entries(items));
+    return {
+      map,
+      get length() {
+        return map.size;
+      },
+      key: (i: number) => [...map.keys()][i] ?? null,
+      getItem: (k: string) => map.get(k) ?? null,
+      removeItem: (k: string) => void map.delete(k),
+    };
+  }
+  const rec = (lastTime: number | null) => JSON.stringify({ init: "", code: "x", log: lastTime === null ? [] : [[lastTime, "f"]] });
+
+  it("60일 넘게 지난 기록·빈 기록·깨진 기록만 지우고, 지금 쓰는 것과 최근 것은 둔다", () => {
+    const store = fakeStore({
+      "code_rec:1_정보_1-1": rec(now - 61 * DAY),
+      "code_desc:1_정보_1-1": "옛 설명",
+      "code_rec:1_정보_1-2": rec(now - 3 * DAY),
+      "code_desc:1_정보_1-2": "최근 설명",
+      "code_rec:1_정보_1-3": rec(null),
+      "code_rec:1_정보_1-4": "{깨짐",
+      "code_rec:1_정보_now": rec(now - 100 * DAY),
+      "write:pick": "다른 값",
+    });
+    expect(freeOldRecordings(store, "code_rec:1_정보_now", now)).toBe(3);
+    expect([...store.map.keys()].sort()).toEqual(
+      ["code_desc:1_정보_1-2", "code_rec:1_정보_1-2", "code_rec:1_정보_now", "write:pick"].sort(),
+    );
+  });
 });
