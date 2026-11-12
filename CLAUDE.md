@@ -49,7 +49,7 @@ PR 설명에 다음 두 줄을 적는다:
 ## 기술 스택
 
 - Next.js (App Router) + TypeScript + Tailwind CSS
-- 편집기: CodeMirror 6 / 파이썬 실행: Pyodide (브라우저, CDN 로드)
+- 편집기: CodeMirror 6 / 파이썬 실행: Pyodide (브라우저. build 때 `public/pyodide/`에 복사해 사이트에서 내려주고, 안 되면 CDN)
 - DB: **v1과 같은 Supabase 프로젝트** (`@supabase/supabase-js`)
 - AI: Claude API (`@anthropic-ai/sdk`, 서버에서만 호출). 키는 `ANTHROPIC_API_KEY`, 모델 이름은 코드에 박지 말고 `ANTHROPIC_MODEL` 환경변수로 받는다. 교사 채점 보조와 학생 과정 분석 모두 API로 한다. AI 호출은 `src/lib/ai.ts` 한 곳에 모아서, 나중에 다른 AI(Gemini 등)로 바꾸거나 고를 수 있게 한다
 - 배포: Vercel

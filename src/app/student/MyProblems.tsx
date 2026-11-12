@@ -28,6 +28,7 @@ import {
 } from "./myProblemActions";
 import { Outcomes, runTests } from "@/components/TestOutcomes";
 import ProblemSolver from "./ProblemSolver";
+import { quietConfirm } from "@/lib/quietDialog";
 
 const inputClass =
   "rounded-lg border border-line bg-white px-3 py-2 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
@@ -173,7 +174,7 @@ export default function MyProblems({ userId, subjects }: { userId: string; subje
                     <button
                       type="button"
                       onClick={() => {
-                        if (!confirm(`"${p.title}" 문제를 지울까요? 친구들이 푼 기록도 함께 지워져요.`)) return;
+                        if (!quietConfirm(`"${p.title}" 문제를 지울까요? 친구들이 푼 기록도 함께 지워져요.`)) return;
                         deleteMyProblem(p.id).then((r) => (r.ok ? reload() : setMessage(r.error ?? "지우지 못했어요.")));
                       }}
                       className="rounded-lg border border-line px-2.5 py-1 text-sm text-muted hover:text-danger"

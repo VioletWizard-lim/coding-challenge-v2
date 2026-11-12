@@ -5,6 +5,7 @@ import AiAnswer from "@/components/AiAnswer";
 import { canFollowUp, MAX_REVIEW_ANSWER, type AiReview } from "@/lib/aiReview";
 import { flagAiReview } from "../teacher/actions";
 import { askReviewFollowUp, flagMyReview, saveMyReviewAnswers, startMyReview } from "./actions";
+import { quietConfirm } from "@/lib/quietDialog";
 
 type Result = { ok: true; review: AiReview } | { ok: false; error: string };
 
@@ -99,7 +100,7 @@ export default function ReviewPanel({
   function flag() {
     if (!review) return;
     if (role === "student") {
-      if (!backend.flag || !confirm("이 질문이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
+      if (!backend.flag || !quietConfirm("이 질문이 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
       backend.flag(review.id).then((r) => (r.ok ? setFlagged("student") : setMessage({ text: r.error ?? "알리지 못했어요.", ok: false })));
     } else {
       const next = !flagged;

@@ -1,5 +1,6 @@
 import "server-only";
 import { csvLine, kindOf, type BackupSchema } from "./backupCsv";
+import { EMPTY_SUMMARY, summariesFor } from "./submissionSummaryStore";
 import { db } from "./db";
 import { inClass } from "./classes";
 import { mergeStatRows, OMIT_COLUMNS, schoolYearRange, statsCsv, StatCollector, YEAR_TABLES, yearTable, keyOf, type StatRow, type YearTable } from "./yearEnd";
@@ -296,23 +297,37 @@ export function backupZip(year: number, cls = "", studentId = ""): ReadableStrea
   return zipStream(entries());
 }
 
-/** 이름 없는 통계 계산 (제출은 100건씩 읽어 숫자로만 바꾸고 버림) */
+/**
+ * 이름 없는 통계 계산. 제출은 가벼운 칸만 1000건씩 읽고, 작성 기록은 저장해 둔 요약(021)을 쓴다
+ * (요약이 없는 제출만 기록을 읽어 계산해 저장).
+ */
 export async function computeYearStats(year: number): Promise<StatRow[]> {
   const c = new StatCollector();
   const r = schoolYearRange(year);
-  for (let start = 0; ; start += 100) {
+  const PAGE = 1000;
+  for (let start = 0; ; start += PAGE) {
     const { data, error } = await db()
       .from("submissions")
-      .select("id, subject, grade, class, name, submitted_at, init_code, edit_log")
+      .select("id, subject, grade, class, name, submitted_at")
       .gte("submitted_at", r.from)
       .lt("submitted_at", r.to)
       .order("id")
-      .range(start, start + 99);
+      .range(start, start + PAGE - 1);
     if (error) throw new Error(`제출 조회 실패: ${error.message}`);
-    const rows = (data ?? []) as { subject: string; grade: number | string | null; class: number | string | null; name: string; submitted_at: string; init_code: string | null; edit_log: unknown }[];
+    const rows = (data ?? []) as { id: number; subject: string; grade: number | string | null; class: number | string | null; name: string; submitted_at: string }[];
+    const summaries = await summariesFor(rows.map((s) => Number(s.id)));
     // 학생 구분은 이름+반으로만 세고 결과에는 담지 않는다
-    c.addSubmissions(rows.map((s) => ({ ...s, who: `${s.name}|${s.grade}|${s.class}` })));
-    if (rows.length < 100) break;
+    c.addSubmissions(
+      rows.map((s) => ({
+        subject: s.subject,
+        grade: s.grade,
+        class: s.class,
+        submitted_at: s.submitted_at,
+        who: `${s.name}|${s.grade}|${s.class}`,
+        summary: summaries.get(Number(s.id)) ?? EMPTY_SUMMARY,
+      })),
+    );
+    if (rows.length < PAGE) break;
   }
   const collect = async <T,>(table: string, date: string, columns: string) => {
     const out: T[] = [];

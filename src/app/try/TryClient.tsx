@@ -38,6 +38,7 @@ import {
   type TrialRecord,
   type TrialStatus,
 } from "./actions";
+import { quietConfirm } from "@/lib/quietDialog";
 
 type Step = "intro" | "sample" | "write" | "replay" | "practice" | "reflect";
 /** 체험 순서 (왼쪽 메뉴, 위에서 아래로 차례대로) */
@@ -151,7 +152,7 @@ export default function TryClient() {
   }
 
   function startOver() {
-    if (!confirm("이 문제의 체험 기록을 지우고 처음부터 쓸까요?")) return;
+    if (!quietConfirm("이 문제의 체험 기록을 지우고 처음부터 쓸까요?")) return;
     try {
       localStorage.removeItem(trialStorageKey(problemId));
     } catch {}

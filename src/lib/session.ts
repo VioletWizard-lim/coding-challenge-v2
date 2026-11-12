@@ -1,5 +1,7 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import { cache } from "react";
+import { db } from "./db";
 import { EncryptJWT, jwtDecrypt, jwtVerify, SignJWT } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -21,9 +23,30 @@ function secretKey() {
   return new TextEncoder().encode(secret);
 }
 
-/** 서명된 세션 쿠키를 만든다 (jose, HS256). */
-export async function createSession(session: Session) {
-  const token = await new SignJWT({ role: session.role, name: session.name })
+/**
+ * 비밀번호 지문: 비밀번호(해시)가 바뀌면 달라지는 값. 세션 쿠키에 넣어 두고, 비밀번호가 바뀌면(초기화·직접 바꾸기)
+ * 예전에 로그인한 다른 브라우저의 세션을 끊는다. 비밀 키로 만든 HMAC이라 쿠키를 봐도 비밀번호를 짐작할 수 없다.
+ */
+export function passwordStamp(credential: string | null | undefined): string {
+  const secret = process.env.SESSION_SECRET ?? "";
+  return createHmac("sha256", secret).update(`pw:${credential ?? ""}`).digest("hex").slice(0, 16);
+}
+
+/** 계정의 지금 상태 (역할, 비밀번호 지문). 없는 계정이면 null. 한 번의 요청 안에서는 한 번만 읽는다 */
+const accountNow = cache(async (id: string): Promise<{ role: Role; stamp: string } | null> => {
+  const { data, error } = await db().from("users").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const role: Role = data.role === "admin" ? "admin" : data.role === "teacher" ? "teacher" : "student";
+  return { role, stamp: passwordStamp(data.password_hash ?? data.password) };
+});
+
+/**
+ * 서명된 세션 쿠키를 만든다 (jose, HS256).
+ * credential: 지금 저장된 비밀번호 해시(없으면 평문 칸 값). 지문만 쿠키에 넣는다
+ */
+export async function createSession(session: Session, credential?: string | null) {
+  const token = await new SignJWT({ role: session.role, name: session.name, pv: passwordStamp(credential) })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(session.id)
     .setIssuedAt()
@@ -42,18 +65,34 @@ export async function deleteSession() {
   (await cookies()).delete(COOKIE);
 }
 
-/** 쿠키의 서명·만료를 확인해 세션을 돌려준다. 없거나 잘못됐으면 null. */
+/**
+ * 쿠키의 서명·만료를 확인해 세션을 돌려준다. 없거나 잘못됐으면 null.
+ * 계정이 지워졌거나, 역할이 바뀌었거나, 로그인한 뒤 비밀번호가 바뀌었으면(초기화 등) 그 세션도 null.
+ * (계정 확인이 DB 오류로 안 되면 쿠키만 믿는다: 잠깐의 DB 문제로 수업 중에 모두 로그아웃되지 않게)
+ */
 export async function getSession(): Promise<Session | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
+  let session: Session;
+  let pv: unknown;
   try {
     const { payload } = await jwtVerify(token, secretKey(), { algorithms: ["HS256"] });
     const role = payload.role;
     if (!payload.sub || (role !== "student" && role !== "teacher" && role !== "admin")) return null;
-    return { id: payload.sub, role, name: String(payload.name ?? "") };
+    session = { id: payload.sub, role, name: String(payload.name ?? "") };
+    pv = payload.pv;
   } catch {
     return null;
   }
+  try {
+    const now = await accountNow(session.id);
+    if (!now || now.role !== session.role) return null;
+    // pv가 없는 쿠키: 이 기능 전에 로그인한 것 (만료되면 사라진다)
+    if (typeof pv === "string" && pv !== now.stamp) return null;
+  } catch (err) {
+    console.warn("세션 계정 확인 건너뜀:", (err as Error).message);
+  }
+  return session;
 }
 
 /** 로그인과 역할을 확인한다. 아니면 첫 화면으로 보낸다. 모든 서버 화면·액션에서 쓴다. */

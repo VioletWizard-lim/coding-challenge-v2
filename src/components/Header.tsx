@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { SITE } from "@/lib/site";
 import HomeLink from "./HomeLink";
 import Logo from "./Logo";
@@ -19,6 +20,13 @@ export default function Header({ name, role }: { name: string; role: "student" |
             {role === "admin" ? "관리자" : role === "teacher" ? "교사" : "학생"}
           </span>
           <span className="hidden font-bold sm:inline">{name}님</span>
+          <Link
+            href="/account"
+            title="비밀번호 바꾸기"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-page"
+          >
+            🔑<span className="hidden md:inline"> 비밀번호</span>
+          </Link>
           <form action="/logout" method="post">
             <button type="submit" className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-page">
               로그아웃

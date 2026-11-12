@@ -9,7 +9,7 @@ import {
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -21,6 +21,7 @@ import {
 } from "@codemirror/view";
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { eventsFromChanges, freeOldRecordings, kindOf, pythonErrorName, runEvent, type Recording } from "@/lib/editLog";
+import { isQuiet } from "@/lib/quietDialog";
 import { INPUT_CANCELLED, loadPython, RUN_LIMIT_SECONDS, runStudentCode, TIME_LIMIT_ERROR } from "@/lib/pyodide";
 
 type Props = {
@@ -39,6 +40,8 @@ export type RecorderHandle = {
   getRecording(): Recording | null;
   /** 길이 2짜리 표시 이벤트를 기록에 남긴다 (예: AI 도움 요청 "q"). 남긴 시각을 돌려준다 */
   addMark(kind: string): number | null;
+  /** addMark로 남긴 표시를 지운다 (예: AI 질문이 실패했을 때 "AI 도움 요청"을 남기지 않게) */
+  removeMark(time: number, kind: string): void;
 };
 
 type PyStatus = "loading" | "ready" | "error";
@@ -87,21 +90,43 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
   const [pyStatus, setPyStatus] = useState<PyStatus>("loading");
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<{ text: string; error: boolean } | null>(null);
+  /**
+   * 같은 문제가 다른 창(탭)에서도 열려 있을 때: 다른 창이 기록을 저장하면 이 창의 기록은 낡은 것이 된다.
+   * 낡은 기록으로 덮어쓰지 않게 이 창은 잠시 멈추고(stale), 이 창으로 돌아오면 다른 창이 저장한 기록을 불러와 이어 쓴다.
+   */
+  const [stale, setStale] = useState(false);
+  const [tookOver, setTookOver] = useState(false);
+  const [reloadN, setReloadN] = useState(0);
+  const staleRef = useRef(false);
+  /** 다른 창의 기록을 불러와 다시 연 것인지 (다시 열 때 "창 복귀"를 맞춰 남긴다) */
+  const takeOverRef = useRef(false);
 
   useImperativeHandle(ref, () => ({
     getRecording() {
       const rec = recRef.current;
-      if (!rec) return null;
+      if (!rec || staleRef.current) return null;
       saveRef.current();
       return { init: rec.init, code: rec.code, log: [...rec.log] };
     },
     addMark(kind) {
       const rec = recRef.current;
-      if (!rec) return null;
+      if (!rec || staleRef.current) return null;
       const time = Date.now();
       rec.log.push([time, kind]);
       saveRef.current();
       return time;
+    },
+    removeMark(time, kind) {
+      const rec = recRef.current;
+      if (!rec || staleRef.current) return;
+      for (let i = rec.log.length - 1; i >= 0; i--) {
+        const e = rec.log[i];
+        if (e.length === 2 && e[0] === time && e[1] === kind) {
+          rec.log.splice(i, 1);
+          saveRef.current();
+          return;
+        }
+      }
     },
   }));
 
@@ -109,8 +134,21 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
   useEffect(() => {
     const rec = loadRecording(storageKey, initialCode);
     recRef.current = rec;
+    let stale = false;
+    staleRef.current = false;
+    // 다른 창이 남긴 기록을 불러와 다시 열었으면: 그 창을 떠나며 남긴 "창 이탈"을 이 창에 온 순간의 "창 복귀"로 닫는다
+    let closedAway = false;
+    if (takeOverRef.current) {
+      takeOverRef.current = false;
+      const lastAway = rec.log.filter((e) => e.length === 2 && (e[1] === "b" || e[1] === "f")).at(-1);
+      if (lastAway?.[1] === "b") {
+        rec.log.push([Date.now(), "f"]);
+        closedAway = true;
+      }
+    }
 
     const save = () => {
+      if (stale) return; // 낡은 기록으로 다른 창의 기록을 덮어쓰지 않는다
       rec.code = viewRef.current?.state.doc.toString() ?? rec.code;
       const text = JSON.stringify(rec);
       let ok = false;
@@ -132,6 +170,8 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
     };
     saveRef.current = save;
 
+    /** 다른 창에서 쓰는 동안 이 창을 읽기 전용으로 */
+    const lock = new Compartment();
     const extensions: Extension[] = [
       lineNumbers(),
       highlightActiveLineGutter(),
@@ -139,6 +179,7 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       drawSelection(),
       highlightActiveLine(),
       EditorState.allowMultipleSelections.of(true),
+      lock.of([]),
       keymap.of([{ key: "Tab", run: tabKey, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
       EditorView.updateListener.of((update) => {
         let changed = false;
@@ -178,30 +219,53 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
     });
     viewRef.current = view;
 
+    // 다른 창의 기록에 "창 복귀"를 더했으면 저장한다 (그 밖에는 열기만 해서는 저장하지 않는다: 두 창이 서로 다시 불러오며 맴돌지 않게)
+    if (closedAway) save();
+
+    // 같은 문제를 다른 창에서 저장했을 때
+    const takeOver = () => {
+      takeOverRef.current = true;
+      setTookOver(true);
+      setReloadN((n) => n + 1); // 편집기를 다시 만들며 최신 기록을 불러온다
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.storageArea !== localStorage || e.key !== storageKey || e.newValue === null || stale) return;
+      stale = true;
+      staleRef.current = true;
+      // 지금 이 창을 보고 있으면 바로 최신 기록으로 바꾸고, 아니면 멈춰 두었다가 돌아올 때 바꾼다
+      if (document.hasFocus() && !document.hidden) return takeOver();
+      view.dispatch({ effects: lock.reconfigure([EditorState.readOnly.of(true), EditorView.editable.of(false)]) });
+      setStale(true);
+    };
+
     // 창 이탈·복귀. blur/focus와 visibilitychange가 한 번에 겹쳐 오므로
     // 상태가 바뀔 때만 한 번씩 기록한다 (이탈 → 복귀 → 이탈 … 순서).
+    // 실행 중 input() 입력창, 사이트가 띄운 확인 창(quietConfirm) 때문에 생긴 이탈은 기록하지 않는다
     let away = false;
     const mark = (kind: "b" | "f") => {
-      if (runningRef.current || (kind === "b") === away) return;
+      if (stale || runningRef.current || isQuiet() || (kind === "b") === away) return;
       away = kind === "b";
       rec.log.push([Date.now(), kind]);
       save();
     };
     const onBlur = () => mark("b");
-    const onFocus = () => mark("f");
-    const onVisibility = () => mark(document.hidden ? "b" : "f");
+    const onFocus = () => (stale ? takeOver() : mark("f"));
+    const onVisibility = () => (stale && !document.hidden ? takeOver() : mark(document.hidden ? "b" : "f"));
     window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("storage", onStorage);
 
     return () => {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("storage", onStorage);
+      setStale(false);
       view.destroy();
       viewRef.current = null;
     };
-  }, [storageKey, initialCode, mode]);
+  }, [storageKey, initialCode, mode, reloadN]);
 
   // 편집기가 열리면 파이썬을 미리 불러온다 (첫 실행 때 기다리지 않도록)
   useEffect(() => {
@@ -219,7 +283,7 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
   async function run() {
     const view = viewRef.current;
     const rec = recRef.current;
-    if (!view || !rec) return;
+    if (!view || !rec || staleRef.current) return;
     setRunning(true);
     setOutput(pyStatus === "ready" ? null : { text: "파이썬을 불러오는 중이에요 (처음 한 번만 몇 초 걸려요)…", error: false });
     let py;
@@ -282,16 +346,30 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
 
   return (
     <div className="flex flex-col gap-3">
+      {stale && (
+        <p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
+          🪟 이 문제를 다른 창(탭)에서 쓰고 있어요. 기록이 섞이지 않게 이 창은 잠시 멈췄어요. 이 창을 누르면 다른 창에서 쓴 내용을
+          불러와 이어서 쓸 수 있어요.
+        </p>
+      )}
+      {tookOver && !stale && (
+        <p role="status" className="flex items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm text-muted">
+          🪟 다른 창(탭)에서 쓴 내용을 불러왔어요. 같은 문제는 한 창에서만 쓰면 헷갈리지 않아요.
+          <button type="button" onClick={() => setTookOver(false)} aria-label="안내 닫기" className="ml-auto px-1 hover:text-ink">
+            ✕
+          </button>
+        </p>
+      )}
       <div
         ref={parentRef}
-        className="h-[clamp(320px,55vh,620px)] overflow-hidden rounded-xl border border-line bg-white focus-within:border-brand"
+        className={`h-[clamp(320px,55vh,620px)] overflow-hidden rounded-xl border border-line bg-white focus-within:border-brand ${stale ? "opacity-60" : ""}`}
       />
       <div className="flex flex-wrap items-center gap-3">
         {mode === "code" && (
           <button
             type="button"
             onClick={run}
-            disabled={running}
+            disabled={running || stale}
             className="rounded-lg border border-brand bg-white px-5 py-2 font-bold text-brand hover:bg-brand-soft disabled:cursor-wait disabled:opacity-50"
           >
             {running ? "실행 중…" : "▶ 실행"}

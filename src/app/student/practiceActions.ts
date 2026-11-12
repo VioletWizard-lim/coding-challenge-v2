@@ -30,6 +30,7 @@ import { STUCK_WINDOW, stuckBrief, stuckPoints, type StuckPoint } from "@/lib/pr
 import { allowedSubjects } from "@/lib/problems";
 import { listAllProblems } from "@/lib/problemStore";
 import { runPythonTests } from "@/lib/pyRunner";
+import { AI_BUSY_MESSAGE, oneAtATime } from "@/lib/aiTurn";
 import { getSession } from "@/lib/session";
 import { getMyRecentRecordings, type Owner } from "@/lib/submissions";
 
@@ -96,6 +97,13 @@ const MAX_TRIES = 2;
  * 서버가 참고 답안을 실제로 돌려 테스트를 통과한 문제만 저장한다. 참고 답안은 학생에게 보내지 않는다.
  */
 export async function createPractice(input: CreateInput): Promise<CreateResult> {
+  const session = await getSession();
+  if (!session) return { ok: false, error: "다시 로그인하세요." };
+  return oneAtATime("practice", session.id, { ok: false, error: AI_BUSY_MESSAGE } as CreateResult, () => createPracticeOnce(input));
+}
+
+/** createPractice의 실제 처리 (한 학생의 AI 요청은 한 번에 하나씩: aiTurn.ts) */
+async function createPracticeOnce(input: CreateInput): Promise<CreateResult> {
   const session = await getSession();
   if (!session || session.role !== "student") return { ok: false, error: "다시 로그인하세요." };
   const level = [1, 2, 3].includes(Number(input.level)) ? Number(input.level) : 2;

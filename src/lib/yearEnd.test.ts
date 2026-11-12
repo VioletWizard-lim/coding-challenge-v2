@@ -1,3 +1,4 @@
+import { summaryDataOf } from "./submissionSummary";
 import { describe, expect, it } from "vitest";
 import { canClean, confirmPhrase, schoolYearOf, schoolYearRange, statsCsv, yearStats } from "./yearEnd";
 
@@ -25,9 +26,9 @@ describe("이름 없는 통계", () => {
   ];
   const rows = yearStats({
     submissions: [
-      { subject: "프로그래밍", grade: 2, class: 3, who: "a", submitted_at: "2026-11-02T01:00:00Z", init_code: "", edit_log: log },
-      { subject: "프로그래밍", grade: 2, class: 3, who: "a", submitted_at: "2026-11-03T01:00:00Z", init_code: "", edit_log: [] },
-      { subject: "프로그래밍", grade: 2, class: 3, who: "b", submitted_at: "2026-11-03T01:00:00Z", init_code: null, edit_log: null },
+      { subject: "프로그래밍", grade: 2, class: 3, who: "a", submitted_at: "2026-11-02T01:00:00Z", summary: summaryDataOf("", log, "") },
+      { subject: "프로그래밍", grade: 2, class: 3, who: "a", submitted_at: "2026-11-03T01:00:00Z", summary: summaryDataOf("", [], "") },
+      { subject: "프로그래밍", grade: 2, class: 3, who: "b", submitted_at: "2026-11-03T01:00:00Z", summary: summaryDataOf(null, null, null) },
     ],
     reflections: [{ subject: "프로그래밍", grade: "2", class: "3", user_id: "s1", class_date: "2026-11-02" }],
     users: new Map([["s1", { grade: 2, class: 3, programming_grade: null, programming_class: null }]]),

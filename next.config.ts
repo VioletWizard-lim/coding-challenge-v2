@@ -13,6 +13,26 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/student": ["./node_modules/pyodide/**/*"],
   },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          // 다른 사이트가 이 사이트를 틀(iframe) 안에 넣지 못하게 (클릭 가로채기 막기)
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+      {
+        // 브라우저용 파이썬 파일: 버전마다 주소가 달라서 오래 저장해 둬도 된다
+        source: "/pyodide/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+    ];
+  },
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

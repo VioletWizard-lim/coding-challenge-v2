@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useStudentNav } from "@/components/SideTabs";
 import { MAX_REFLECTION_TEXT, type Reflection } from "@/lib/reflection";
 import { saveMyReflection } from "./actions";
+import { quietConfirm } from "@/lib/quietDialog";
 
 const fieldClass =
   "w-full rounded-lg border border-line bg-white px-3 py-2 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
@@ -59,7 +60,7 @@ export default function ReflectionForm({
   };
 
   function changeSubject(next: string) {
-    if (changed && !confirm("저장하지 않은 내용이 있어요. 다른 과목으로 바꿀까요?")) return;
+    if (changed && !quietConfirm("저장하지 않은 내용이 있어요. 다른 과목으로 바꿀까요?")) return;
     setSubject(next);
     setDraft(draftOf(next));
     setMessage(null);

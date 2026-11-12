@@ -13,6 +13,7 @@ import { Outcomes, runTests } from "@/components/TestOutcomes";
 import type { Problem } from "@/lib/problemBank";
 import AiHelper from "./AiHelper";
 import { loadMyAiChats } from "./actions";
+import { quietConfirm } from "@/lib/quietDialog";
 
 type Work = { code: string; init: string; log: unknown };
 
@@ -158,7 +159,7 @@ export default function ProblemSolver({
               <button
                 type="button"
                 onClick={() => {
-                  if (!confirm("문제가 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
+                  if (!quietConfirm("문제가 이상하거나 불편했나요? 선생님께 알릴게요.")) return;
                   flag().then((r) => (r.ok ? setFlagged(true) : setNote(r.error ?? "알리지 못했어요.")));
                 }}
                 className="text-xs text-muted hover:text-danger"

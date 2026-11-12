@@ -11,6 +11,9 @@ import { validEntries } from "@/lib/replay";
 import { getSession, grantTrial, hasTrial, openTrialProblem, sealTrialProblem } from "@/lib/session";
 import { findTrialProblem, trialCodeMatches, trialLimit, TRIAL_SUBJECT } from "@/lib/trial";
 import { getTrialSettings, recordTrialUsage, takeTrialTurn, trialRemaining } from "@/lib/trialStore";
+import { createHash } from "node:crypto";
+import { headers } from "next/headers";
+import { clearLoginTries, LOGIN_WINDOW_MINUTES, takeLoginTry } from "@/lib/loginGuard";
 
 /*
  * 🧪 체험 페이지(/try) 서버 기능. 로그인 없이 쓰므로:
@@ -69,9 +72,21 @@ export async function unlockTrial(code: string): Promise<{ ok: true; status: Tri
   const a = await access();
   if (!a.open && !a.preview) return { ok: false, error: "지금은 체험 페이지가 열려 있지 않아요." };
   if (!aiEnabled(a)) return { ok: false, error: "현재 체험용 AI는 사용하지 않도록 설정되어 있습니다." };
+  // 체험 코드를 마구 넣어 보지 못하게: 같은 곳(접속 주소의 지문)에서 5분 안에 5번까지만 확인한다
+  const who = await visitorKey();
+  if (!(await takeLoginTry(who))) {
+    return { ok: false, error: `체험 코드를 여러 번 틀려서 잠시 쉬어 가요. ${LOGIN_WINDOW_MINUTES}분쯤 뒤에 다시 넣어 주세요.` };
+  }
   if (!trialCodeMatches(code)) return { ok: false, error: "체험 코드가 맞지 않습니다. 접속 안내문의 코드를 다시 확인해 주세요." };
+  await clearLoginTries(who);
   await grantTrial(a.epoch);
   return { ok: true, status: await trialStatus() };
+}
+
+/** 체험 코드 시도 횟수를 셀 때 쓰는 방문자 구분: 접속 주소(IP)의 지문 (주소 자체는 저장하지 않음) */
+async function visitorKey(): Promise<string> {
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  return `trycode:${createHash("sha256").update(`try-ip:${ip}`).digest("hex").slice(0, 16)}`;
 }
 
 /** practiceToken: 체험 중에 만든 연습 문제 (문제·참고 답안을 서버가 암호화해 브라우저에 맡긴 것) */
