@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useStudentNav } from "@/components/SideTabs";
 import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
-import { storageKeyFor } from "@/lib/editLog";
+import { descriptionKeyFor, storageKeyFor } from "@/lib/editLog";
 import { labelOf, type Problem } from "@/lib/problemBank";
 import AiHelper from "./AiHelper";
 import { checkSubmitted, submitCode } from "./actions";
@@ -138,6 +138,25 @@ export default function Workspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 처음 한 번만
   }, []);
 
+  // 코드 설명은 문제마다 따로 둔다: 문제를 바꾸면 그 문제에 적어 둔 설명을 불러온다 (코드처럼 이 브라우저에 저장, 새로고침해도 유지)
+  const descKey = current ? descriptionKeyFor(userId, subject, current.number) : null;
+  useEffect(() => {
+    let saved = "";
+    try {
+      saved = (descKey && localStorage.getItem(descKey)) || "";
+    } catch {}
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 브라우저에만 있는 값을 문제가 바뀔 때 읽어 옴
+    setDescription(saved);
+  }, [descKey]);
+  function changeDescription(text: string) {
+    setDescription(text);
+    if (!descKey) return;
+    try {
+      if (text) localStorage.setItem(descKey, text);
+      else localStorage.removeItem(descKey);
+    } catch {}
+  }
+
   // 고른 문제를 이 창에 기억해 둔다 (위에서 먼저 읽은 뒤)
   useEffect(() => {
     if (current) writeSession(PICK_KEY, { subject, problem: current.number });
@@ -245,7 +264,7 @@ export default function Workspace({
           코드 설명 (필수)
           <textarea
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => changeDescription(e.target.value)}
             rows={3}
             maxLength={5000}
             placeholder="내 코드가 어떻게 동작하는지, 어디를 고민했는지 적어 주세요."

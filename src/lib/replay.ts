@@ -138,7 +138,9 @@ export function analyzeLog(init: string, log: unknown): Analysis {
     } else if (kind.startsWith("r:")) {
       stats.runCount++;
       stats.runErrorCount++;
-      marks.push({ kind: "run-error", at, time: e[0], detail: `실행 오류: ${kind.slice(2)}` });
+      // TimeLimitError: 실행 시간 한도를 넘어 멈춘 것 (src/lib/pyodide.ts)
+      const name = kind.slice(2);
+      marks.push({ kind: "run-error", at, time: e[0], detail: name === "TimeLimitError" ? "실행이 오래 걸려 멈춤 (끝나지 않는 반복)" : `실행 오류: ${name}` });
     } else if (kind === "q") {
       stats.askCount++;
       marks.push({ kind: "ask", at, time: e[0], detail: "AI에게 도움 요청" });

@@ -20,8 +20,8 @@ import {
   type Command,
 } from "@codemirror/view";
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
-import { eventsFromChanges, kindOf, pythonErrorName, runEvent, type Recording } from "@/lib/editLog";
-import { loadPython } from "@/lib/pyodide";
+import { eventsFromChanges, freeOldRecordings, kindOf, pythonErrorName, runEvent, type Recording } from "@/lib/editLog";
+import { loadPython, RUN_LIMIT_SECONDS, runStudentCode, TIME_LIMIT_ERROR } from "@/lib/pyodide";
 
 type Props = {
   /** localStorage 키 (code_rec:{학번}_{과목}_{문제}) */
@@ -44,6 +44,8 @@ export type RecorderHandle = {
 type PyStatus = "loading" | "ready" | "error";
 
 const INDENT = "    ";
+/** 실행 결과로 보여 주는 글자 수 한도 */
+const MAX_OUTPUT_CHARS = 100_000;
 
 /** 선택 영역이 없으면 공백 4칸을 입력, 있으면 여러 줄 들여쓰기 */
 const tabKey: Command = (view) => {
@@ -81,6 +83,7 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
   const runningRef = useRef(false);
   const saveRef = useRef<() => void>(() => {});
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [pyStatus, setPyStatus] = useState<PyStatus>("loading");
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<{ text: string; error: boolean } | null>(null);
@@ -109,10 +112,23 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
 
     const save = () => {
       rec.code = viewRef.current?.state.doc.toString() ?? rec.code;
+      const text = JSON.stringify(rec);
+      let ok = false;
       try {
-        localStorage.setItem(storageKey, JSON.stringify(rec));
-      } catch {}
-      setSavedAt(new Date());
+        localStorage.setItem(storageKey, text);
+        ok = true;
+      } catch {
+        // 저장 공간이 모자라면 오래된 작성 중 기록을 지우고 한 번 더 해 본다
+        try {
+          if (freeOldRecordings(localStorage, storageKey, Date.now())) {
+            localStorage.setItem(storageKey, text);
+            ok = true;
+          }
+        } catch {}
+      }
+      // 저장하지 못했으면 "자동 저장됨"이라고 하지 않는다
+      if (ok) setSavedAt(new Date());
+      setSaveFailed(!ok);
     };
     saveRef.current = save;
 
@@ -213,16 +229,30 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       return;
     }
     let buffer = "";
+    let cut = false;
+    // 출력이 끝없이 쌓이지 않게 (끝나지 않는 반복문 안의 print)
+    const write = (s: string) => {
+      if (buffer.length < MAX_OUTPUT_CHARS) buffer += s + "\n";
+      else cut = true;
+    };
+    const shown = () => buffer + (cut ? "… (출력이 너무 길어서 여기까지만 보여 줘요)\n" : "");
     runningRef.current = true;
-    py.setStdout({ batched: (s) => (buffer += s + "\n") });
-    py.setStderr({ batched: (s) => (buffer += s + "\n") });
+    py.setStdout({ batched: write });
+    py.setStderr({ batched: write });
+    // "실행 중…"이 화면에 먼저 보이게 한 박자 쉰 뒤 돌린다 (돌리는 동안에는 화면이 멈춘다)
+    await new Promise((resolve) => setTimeout(resolve, 30));
     try {
-      await py.runPythonAsync(view.state.doc.toString());
+      runStudentCode(py, view.state.doc.toString());
       rec.log.push(runEvent(Date.now(), null));
-      setOutput({ text: buffer || "(출력 없음)", error: false });
+      setOutput({ text: shown() || "(출력 없음)", error: false });
     } catch (err) {
-      rec.log.push(runEvent(Date.now(), pythonErrorName(err)));
-      setOutput({ text: (buffer ? buffer + "\n" : "") + friendlyTraceback(err), error: true });
+      const name = pythonErrorName(err);
+      rec.log.push(runEvent(Date.now(), name));
+      const text =
+        name === TIME_LIMIT_ERROR
+          ? `⏱ 실행이 ${RUN_LIMIT_SECONDS}초를 넘어서 멈췄어요.\n끝나지 않는 반복문(while)이 있는지, 반복이 끝나는 조건을 확인해 보세요.`
+          : friendlyTraceback(err);
+      setOutput({ text: (buffer ? shown() + "\n" : "") + text, error: true });
     }
     // 입력창이 닫힌 뒤 늦게 도착하는 신호까지 무시하도록 조금 기다렸다가 푼다
     setTimeout(() => (runningRef.current = false), 500);
@@ -254,10 +284,18 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
             {pyStatus === "error" && "⚠️ 파이썬을 불러오지 못했어요. 실행을 누르면 다시 시도해요."}
           </span>
         )}
-        <span className="ml-auto text-xs text-muted" title="작성 중인 코드와 과정이 이 브라우저에 자동 저장돼요">
-          {savedAt ? `💾 자동 저장됨 (${savedAt.toLocaleTimeString("ko-KR")})` : "💾 쓰는 내용은 자동 저장돼요"}
-        </span>
+        {!saveFailed && (
+          <span className="ml-auto text-xs text-muted" title="작성 중인 코드와 과정이 이 브라우저에 자동 저장돼요">
+            {savedAt ? `💾 자동 저장됨 (${savedAt.toLocaleTimeString("ko-KR")})` : "💾 쓰는 내용은 자동 저장돼요"}
+          </span>
+        )}
       </div>
+      {saveFailed && (
+        <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
+          ⚠️ 지금 쓰는 내용을 이 브라우저에 저장하지 못했어요. 새로고침하거나 창을 닫으면 사라질 수 있어요. 창을 닫지 말고 그대로
+          제출하거나, 코드를 복사해 둔 뒤 선생님께 알려 주세요.
+        </p>
+      )}
       {mode === "code" && (
         <pre
           className={`max-h-56 min-h-16 overflow-auto whitespace-pre-wrap rounded-xl border border-line bg-white p-3 text-sm ${
