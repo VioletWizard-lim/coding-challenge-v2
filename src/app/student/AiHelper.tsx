@@ -149,16 +149,24 @@ export default function AiHelper({
       aria-label="AI 도우미"
       className="flex flex-col gap-3 rounded-xl border border-blue-200 bg-white p-4 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start"
     >
-      <div className="flex items-center gap-2">
-        <h2 className="font-bold">🤖 AI 도우미</h2>
-        {remaining !== null && limit !== null && (
-          <span className="rounded-full bg-page px-2 py-0.5 text-xs text-muted" title="하루에 물어볼 수 있는 횟수">
-            {backend.remainingLabel ?? "오늘 남은 질문"} {remaining}/{limit}
-          </span>
-        )}
-        <button type="button" onClick={onClose} className="ml-auto text-sm text-muted hover:text-ink" aria-label="AI 도우미 닫기">
+      {/* 첫 줄: 제목과 닫기 버튼 (창이 좁아도 꺾이지 않게) / 둘째 줄: 남은 횟수 */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <h2 className="shrink-0 font-bold whitespace-nowrap">🤖 AI 도우미</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="order-2 ml-auto shrink-0 rounded-lg border border-line px-2 py-1 text-sm whitespace-nowrap text-muted hover:bg-page hover:text-ink"
+          aria-label="AI 도우미 닫기"
+        >
           ✕ 닫기
         </button>
+        {remaining !== null && limit !== null && (
+          <p className="order-3 basis-full">
+            <span className="rounded-full bg-page px-2 py-0.5 text-xs whitespace-nowrap text-muted" title="하루에 물어볼 수 있는 횟수">
+              {backend.remainingLabel ?? "오늘 남은 질문"} {remaining}/{limit}
+            </span>
+          </p>
+        )}
       </div>
       <p className="text-xs leading-5 text-muted">
         {backend.note ?? (
