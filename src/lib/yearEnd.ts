@@ -6,7 +6,7 @@
  * - 학년도가 끝나면 **학생 기록을 모두 지운다**: 제출·점수·피드백, 학생 계정, AI 대화·되돌아보기, 성찰, 메모, 연습 문제, 학생이 만든 문제
  * - 남는 것: 교사·관리자 계정, 수업 문제, 채점 기준, 설정, 이름 없는 통계(year_stats)
  * - 지우기 전에 전체를 CSV 묶음(ZIP)으로 받고, 그 파일로 되돌리거나(다시 넣기) 지난 기록을 다시 볼 수 있다
- * - 제출·계정은 v1과 함께 쓰는 표이므로, v1을 읽기 전용으로 돌린 뒤(3월 전환 뒤)에 지운다
+ * - 제출·계정은 v1 때부터 쓰던 표다. v1 운영은 끝났으므로(2026-11) 따로 기다릴 것 없이 지울 수 있다
  */
 import { kstDate } from "./journey";
 import { gradeClassFor } from "./problems";
@@ -44,7 +44,7 @@ export const YEAR_TABLES: YearTable[] = [
 
 export const yearTable = (name: string) => YEAR_TABLES.find((t) => t.table === name);
 
-/** 백업에 넣지 않는 칸 (예전 사이트의 평문 비밀번호) */
+/** 백업에 넣지 않는 칸 (v1의 평문 비밀번호 칸. 022 이후로는 빈 글자뿐이지만 혹시 남은 값이 백업에 들어가지 않게) */
 export const OMIT_COLUMNS: Record<string, string[]> = { users: ["password"] };
 
 /**

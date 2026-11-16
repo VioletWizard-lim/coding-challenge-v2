@@ -1,7 +1,7 @@
 import "server-only";
 import { csvLine, kindOf, type BackupSchema } from "./backupCsv";
 import { EMPTY_SUMMARY, summariesFor } from "./submissionSummaryStore";
-import { db } from "./db";
+import { db, NO_PLAIN_PASSWORD } from "./db";
 import { inClass } from "./classes";
 import { mergeStatRows, OMIT_COLUMNS, schoolYearRange, statsCsv, StatCollector, YEAR_TABLES, yearTable, keyOf, type StatRow, type YearTable } from "./yearEnd";
 import { zipStream, type ZipEntry } from "./zip";
@@ -288,7 +288,7 @@ export function backupZip(year: number, cls = "", studentId = ""): ReadableStrea
             "- 이 ZIP 파일을 그대로 관리자 페이지 '백업에서 되돌리기'에 올리면 사이트에 다시 넣을 수 있어요.",
             "- 고친 파일은 되살릴 수 없어요. 원본 ZIP은 그대로 보관해 주세요.",
             "- 학생 이름·코드·성찰이 들어 있어요. 학교 규정에 맞게 보관하거나 폐기해 주세요.",
-            "- 평문 비밀번호는 넣지 않았어요. 되살린 학생이 로그인하지 못하면 선생님이 비밀번호를 초기화해 주세요.",
+            "- 비밀번호는 암호화된 값만 들어 있어요. 되살린 학생은 원래 비밀번호로 로그인할 수 있고, 안 되면 선생님이 비밀번호를 초기화해 주세요.",
           ].join("\r\n"),
         ),
       ],
@@ -440,7 +440,9 @@ export async function restoreRows(
 ): Promise<{ ids: [string, number][]; inserted: number; skipped: number }> {
   const spec = yearTable(table);
   if (!spec) throw new Error("모르는 표예요.");
-  if (spec.table === "users") rows = rows.map((r) => ({ ...r, role: "student" })); // 학생 계정만 되살린다
+  // 학생 계정만 되살린다. 평문 비밀번호 칸은 백업에 없고 비워 둘 수 없는 칸이라 빈 글자를 넣는다
+  // (비밀번호는 백업에 든 암호화된 값(password_hash)으로 그대로 로그인할 수 있다)
+  if (spec.table === "users") rows = rows.map((r) => ({ ...r, role: "student", password: NO_PLAIN_PASSWORD }));
   // 이미 있는 것 찾기 (첫 열쇠 칸으로 좁힌 뒤 나머지 칸까지 맞춰 봄)
   const first = spec.key[0];
   const values = [...new Set(rows.map((r) => r[first]).filter((v) => v !== null && v !== undefined))] as (string | number)[];
