@@ -36,15 +36,14 @@ export function listStudents(): Promise<StudentRow[]> {
 }
 
 /**
- * 학생 비밀번호를 새로 정한다. v2용 bcrypt 해시와 함께, v1 로그인이 되도록
- * 평문 password 칸에도 저장한다 (v1 운영이 끝나면 평문 저장은 뺀다).
+ * 학생 비밀번호를 새로 정한다. bcrypt 해시만 저장하고 평문 칸은 비운다 (v1 운영 끝, 2026-11).
  * 학생 계정만 바꿀 수 있다.
  */
 export async function resetStudentPassword(id: string, password: string): Promise<boolean> {
   const passwordHash = await bcrypt.hash(password, 10);
   const { data, error } = await db()
     .from("users")
-    .update({ password, password_hash: passwordHash })
+    .update({ password: null, password_hash: passwordHash })
     .eq("id", id)
     .eq("role", "student")
     .select("id");
@@ -87,12 +86,13 @@ export type NewStudent = {
 
 /**
  * 학생 계정을 만든다. 같은 아이디가 이미 있으면 덮어쓰지 않고 건너뛴다.
- * 비밀번호는 bcrypt 해시와 v1용 평문을 함께 저장한다. 실제로 만들어진 아이디를 돌려준다.
+ * 비밀번호는 bcrypt 해시만 저장한다(평문 칸은 비움). 실제로 만들어진 아이디를 돌려준다.
  */
 export async function createStudents(students: NewStudent[]): Promise<Set<string>> {
   const rows = [];
   for (const s of students) {
-    rows.push({ ...s, role: "student", password_hash: await bcrypt.hash(s.password, 10) });
+    const { password, ...rest } = s;
+    rows.push({ ...rest, role: "student", password: null, password_hash: await bcrypt.hash(password, 10) });
   }
   const { data, error } = await db()
     .from("users")
@@ -113,12 +113,12 @@ export function listTeachers(): Promise<TeacherRow[]> {
 
 /**
  * 교사 계정을 만든다. 같은 아이디(학생·교사·관리자 모두)가 있으면 만들지 않는다(false).
- * 교사도 v1을 쓰므로 v1 로그인용 평문 비밀번호도 함께 저장한다 (v1 운영이 끝나면 뺀다).
+ * 비밀번호는 bcrypt 해시만 저장한다(평문 칸은 비움).
  */
 export async function createTeacher(id: string, name: string, password: string): Promise<boolean> {
   const { data, error } = await db()
     .from("users")
-    .upsert([{ id, name, role: "teacher", password, password_hash: await bcrypt.hash(password, 10) }], {
+    .upsert([{ id, name, role: "teacher", password: null, password_hash: await bcrypt.hash(password, 10) }], {
       onConflict: "id",
       ignoreDuplicates: true,
     })
@@ -131,7 +131,7 @@ export async function createTeacher(id: string, name: string, password: string):
 export async function resetTeacherPassword(id: string, password: string): Promise<boolean> {
   const { data, error } = await db()
     .from("users")
-    .update({ password, password_hash: await bcrypt.hash(password, 10) })
+    .update({ password: null, password_hash: await bcrypt.hash(password, 10) })
     .eq("id", id)
     .eq("role", "teacher")
     .select("id");

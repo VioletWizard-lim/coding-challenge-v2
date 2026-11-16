@@ -50,7 +50,7 @@ export default function TeacherAccounts({ teachers }: { teachers: TeacherRow[] }
           </button>
         </div>
         <p className="text-xs text-muted">
-          임시 비밀번호(8자리)를 만들어 한 번만 보여 줘요. 선생님께 전해 주세요. 교사 계정은 v1·v2 모두 이 비밀번호로 로그인해요.
+          임시 비밀번호(8자리)를 만들어 한 번만 보여 줘요. 선생님께 전해 주세요. 처음 로그인한 뒤 🔑 비밀번호에서 바꾸도록 알려 주세요.
         </p>
       </div>
 
