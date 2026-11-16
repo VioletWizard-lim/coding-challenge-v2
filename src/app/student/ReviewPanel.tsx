@@ -1,5 +1,6 @@
 "use client";
 
+import AiNoticeCard, { useAiNotice } from "@/components/AiNotice";
 import { useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
 import { canFollowUp, MAX_REVIEW_ANSWER, type AiReview } from "@/lib/aiReview";
@@ -51,6 +52,7 @@ export default function ReviewPanel({
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [pending, startTransition] = useTransition();
   const [flagged, setFlagged] = useState(initial?.flaggedBy ?? null);
+  const { needed: mustReadNotice } = useAiNotice();
   const backend: ReviewBackend = custom ?? {
     start: () => startMyReview(submissionId),
     save: (a, f) => saveMyReviewAnswers(submissionId, a, f),
@@ -111,6 +113,15 @@ export default function ReviewPanel({
   }
 
   if (!review) {
+    // 처음 쓰는 학생은 AI 사용 안내를 읽고 확인해야 질문을 받을 수 있다 (교사 화면·체험 페이지에서는 나오지 않음)
+    if (mustReadNotice) {
+      return (
+        <section aria-label="AI와 되돌아보기" className="flex flex-col gap-2 rounded-xl border border-violet-200 bg-violet-50/50 p-4">
+          <p className="font-bold">🤖 AI와 되돌아보기</p>
+          <AiNoticeCard />
+        </section>
+      );
+    }
     return (
       <section aria-label="AI와 되돌아보기" className="flex flex-col gap-2 rounded-xl border border-violet-200 bg-violet-50/50 p-4">
         <p className="font-bold">🤖 AI와 되돌아보기</p>

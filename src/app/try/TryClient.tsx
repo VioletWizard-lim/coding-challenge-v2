@@ -346,6 +346,10 @@ export default function TryClient() {
               도구예요. 실제 학생 화면과 같은 편집기·재생기·AI를 쓰지만, 체험한 내용은 <b className="text-ink">서버에 저장하지 않아요</b>(이
               브라우저에만 남아요).
             </p>
+            <p className="rounded-lg bg-page px-3 py-2 text-sm leading-6 text-muted">
+              이 체험 페이지는 <b className="text-ink">심사위원·선생님 등 성인 방문자</b>를 위한 것이에요. 학생은 선생님이 만든 계정으로 로그인해서
+              써요(학생의 AI 대화는 선생님이 볼 수 있어요). 체험의 AI에도 학생용과 같은 안전 지침이 들어 있고, AI의 답은 틀릴 수 있어요.
+            </p>
             <ul className="flex flex-col gap-1 text-sm leading-6 text-muted">
             <li>
               ② <b className="text-ink">예시 학생의 기록</b>으로 재생·AI 도움·되돌아보기가 어떻게 보이는지 먼저 봐요.
@@ -378,6 +382,7 @@ export default function TryClient() {
             className={`grid gap-5 lg:grid-cols-[minmax(280px,2fr)_3fr] ${aiOpen ? "xl:grid-cols-[minmax(240px,1.4fr)_2.4fr_minmax(300px,1.6fr)]" : ""}`}
           >
             <aside className="flex flex-col gap-3 rounded-xl border border-line bg-white p-5 lg:self-start">
+              {problem.token && <p className="text-xs font-bold text-blue-700">🤖 AI가 만든 문제입니다</p>}
               <ProblemView problem={problem.view} />
             </aside>
             <div className="flex min-w-0 flex-col gap-4">

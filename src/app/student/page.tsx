@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AiNoticeProvider } from "@/components/AiNotice";
 import { Suspense } from "react";
 import Header from "@/components/Header";
 import { getUserProfile } from "@/lib/auth";
@@ -40,6 +41,8 @@ async function StudentHome() {
   return (
     <>
       <Header name={profile.name} role="student" />
+      {/* AI를 처음 쓸 때 한 번 보이는 안내를 학생 아이디별로 기억한다 */}
+      <AiNoticeProvider userId={profile.id}>
       <SideTabs
         rememberAs="student"
         titles={titles}
@@ -115,6 +118,7 @@ async function StudentHome() {
           },
         ]}
       />
+      </AiNoticeProvider>
     </>
   );
 }

@@ -174,7 +174,8 @@ export default function GuidePage() {
               기록)의 재생이 그 순간부터 열려서, AI가 무엇을 근거로 답했는지 바로 확인할 수 있어요.
             </>,
             <>
-              AI에는 학생 이름·학번을 보내지 않아요. 학생 AI는 미성년자 사용이 허용된 Claude를 쓰고, 수업 밖 요청은 거절하도록 안전 지침이 들어 있어요.
+              AI에는 학생 이름·학번을 보내지 않아요. Anthropic API 이용 정책의 &lsquo;미성년자 대상 서비스 가이드라인&rsquo;에 따라 접근 제한, 콘텐츠 관리, 교사
+              모니터링, AI 사용 고지를 적용해요. 학생은 AI를 처음 쓸 때 사용 안내를 읽고 확인해요.
               자세한 내용은{" "}
               <Link href="/privacy" className="font-bold text-brand underline">
                 개인정보·AI 이용 안내
