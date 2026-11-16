@@ -62,9 +62,6 @@ export default function YearEndPanel() {
           학생 계정, AI 대화, 성찰, 메모, 연습 문제, 학생이 만든 문제). 지우기 전에 <b>전체 백업</b>을 받고 <b>이름 없는 통계</b>를 남겨 주세요. 백업
           파일로 되돌릴 수 있어요. 2월 중에 학생들에게 &lsquo;💭 오늘의 성찰 → 내 성찰 모두 내려받기&rsquo;를 안내해 주세요.
         </p>
-        <p className="mt-1 text-xs text-amber-900">
-          제출과 학생 계정은 예전 수업 사이트와 함께 쓰는 표예요. 예전 사이트를 더 쓰지 않을 때(3월 전환 뒤)에 지워 주세요.
-        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
@@ -356,8 +353,8 @@ function Restore({ onDone }: { onDone: () => void }) {
     <div className="flex flex-col gap-2 border-t border-line pt-4">
       <h3 className="font-bold">↩ 백업에서 되돌리기</h3>
       <p className="text-sm text-muted">
-        ①에서 받은 ZIP(모든 반 또는 한 반)을 올리면 그 기록을 다시 넣어요. 이미 있는 기록은 건너뛰어서 두 번 올려도 겹치지 않아요. 되살린 학생 계정은
-        예전 사이트 비밀번호가 없으니, 로그인이 안 되면 비밀번호를 초기화해 주세요.
+        ①에서 받은 ZIP(모든 반 또는 한 반)을 올리면 그 기록을 다시 넣어요. 이미 있는 기록은 건너뛰어서 두 번 올려도 겹치지 않아요. 되살린 학생은
+        원래 비밀번호로 로그인할 수 있어요(백업에 암호화된 비밀번호가 들어 있어요). 안 되면 비밀번호를 초기화해 주세요.
       </p>
       {/* 파일 고르기를 버튼 모양으로 (기본 모양은 누르는 곳인지 알기 어려움) */}
       <div className="flex flex-wrap items-center gap-3">

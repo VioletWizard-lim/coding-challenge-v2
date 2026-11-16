@@ -50,7 +50,7 @@ PR 설명에 다음 두 줄을 적는다:
 
 - Next.js (App Router) + TypeScript + Tailwind CSS
 - 편집기: CodeMirror 6 / 파이썬 실행: Pyodide (브라우저. build 때 `public/pyodide/`에 복사해 사이트에서 내려주고, 안 되면 CDN)
-- DB: **v1과 같은 Supabase 프로젝트** (`@supabase/supabase-js`)
+- DB: **v1 때부터 쓰던 Supabase 프로젝트** (`@supabase/supabase-js`)
 - AI: Claude API (`@anthropic-ai/sdk`, 서버에서만 호출). 키는 `ANTHROPIC_API_KEY`, 모델 이름은 코드에 박지 말고 `ANTHROPIC_MODEL` 환경변수로 받는다. 교사 채점 보조와 학생 과정 분석 모두 API로 한다. AI 호출은 `src/lib/ai.ts` 한 곳에 모아서, 나중에 다른 AI(Gemini 등)로 바꾸거나 고를 수 있게 한다
 - 배포: Vercel
 
@@ -65,28 +65,29 @@ v1(Streamlit Cloud)은 한동안 접속이 없으면 "Zzzz" 화면이 뜨고 깨
   - 관리자(교사) 화면에 "마지막 연결 확인 시각"을 보여 준다 (DB 연결 정상 / 확인 필요).
 - Pyodide는 첫 실행 때 몇 초 걸린다. 학생이 멈춘 줄 알지 않도록 로딩 문구를 보여 주고, 편집기 화면이 열리면 백그라운드에서 미리 불러온다.
 
-## 절대 규칙: v1과 DB를 함께 쓴다
+## 절대 규칙: 기존 DB(v1 때부터 쓰던 표)를 지킨다
 
-v1 사이트는 수업에서 계속 운영 중이다. v2 작업이 v1을 깨뜨리면 안 된다.
+**v1 운영은 끝났다(2026-11).** v1 사이트는 더 쓰지 않지만, DB에는 v1 때 낸 제출과 계정이 그대로 있고 v2가 이를 읽는다(지난 제출 재생, 학습 여정, 통계, 백업·되돌리기).
 
-- 기존 테이블·컬럼을 **삭제하거나 이름·타입을 바꾸지 않는다.** 추가만 한다(새 컬럼은 nullable, 새 테이블은 자유).
+- 기존 테이블·컬럼을 **삭제하거나 이름·타입을 바꾸지 않는다.** 추가만 한다(새 컬럼은 nullable, 새 테이블은 자유). 지난 기록을 읽는 코드와 백업 파일이 이 모양을 기대한다.
+- v1 때부터 있던 칸에는 `NOT NULL` 같은 제한이 걸려 있을 수 있다. null을 넣거나 칸을 비우기 전에 제한을 확인한다(예: `users.password`는 NOT NULL이라 빈 글자 `''`로 비운다, `NO_PLAIN_PASSWORD`).
 - DB 변경 SQL은 `supabase/migrations/` 에 번호 붙은 파일로 남기고, 직접 실행하지 말고 사용자에게 실행을 요청한다. 실행 전 백업을 권한다.
 - 개발 중 테스트 제출은 테스트 계정으로만 한다(실제 수업 DB다).
-- 예외: 관리자 "학년도 말 정리"는 지난 학년도 학생 기록(제출·학생 계정 포함)의 **행**을 지운다(2026-11 결정, 개인정보 보관 기간). 표·칸은 그대로다. v1을 읽기 전용으로 돌린 뒤에 쓰고, 지우기 전에 전체 백업을 받는다.
+- 예외: 관리자 "학년도 말 정리"는 지난 학년도 학생 기록(제출·학생 계정 포함)의 **행**을 지운다(2026-11 결정, 개인정보 보관 기간). 표·칸은 그대로다. 지우기 전에 전체 백업을 받는다.
 
 ### 기존 테이블 (v1)
 
-`users`: `id`(학번/아이디, PK), `password`(평문), `role`('student'|'teacher', v2 전용 관리자는 'admin' — v1은 로그인 때 역할을 골라서 admin은 v1에 못 들어감, 관리자 평문 비밀번호는 첫 로그인 때 지움), `name`, `grade`, `class`, `programming_grade`, `programming_class`, `subjects`(쉼표 구분 문자열, 예: "프로그래밍,정보")
+`users`: `id`(학번/아이디, PK), `password`(v1의 평문 비밀번호 칸, NOT NULL — 022 이후 모두 빈 글자, 쓰지 않음), `role`('student'|'teacher'|'admin', admin은 v2에서 만든 관리자), `name`, `grade`, `class`, `programming_grade`, `programming_class`, `subjects`(쉼표 구분 문자열, 예: "프로그래밍,정보")
 
 `submissions`: `id`, `submitted_at`, `name`, `subject`, `problem`(예: "2-3"), `code`, `description`, `grade`, `class`, `year`, `init_code`, `edit_log`(jsonb), `score_function`(0~40), `score_understanding`(0~40, 화면 표기 "코드 설명"), `score_challenge`(0~20), `score_total`, `feedback`, `wrong_reason`
 
-- v1은 학생 제출을 `name`으로 조회한다. v2는 `submissions.user_id`(009, 새 칸)에 학생 아이디를 함께 저장하고 **아이디로** 내 제출을 찾는다. `user_id`가 비어 있는 제출(지난 제출, v1 제출)은 이름으로 찾되, 동명이인이 있으면 제출할 때의 반까지 맞아야 내 것으로 본다(`src/lib/submissions.ts`의 `ownerFilter`).
+- v2는 `submissions.user_id`(009, 새 칸)에 학생 아이디를 함께 저장하고 **아이디로** 내 제출을 찾는다. `user_id`가 비어 있는 제출(v1 때 낸 제출, 009 전 제출)은 이름으로 찾되, 동명이인이 있으면 제출할 때의 반까지 맞아야 내 것으로 본다(`src/lib/submissions.ts`의 `ownerFilter`).
 - 과목이 "프로그래밍"이면 `grade/class`에 `programming_grade/programming_class`(없으면 `grade/class`)를 넣는다.
 - Supabase API는 한 번에 최대 1000행만 준다. 목록 조회는 반드시 페이지를 나눠 끝까지 받는다(v1 `db_utils.fetch_all` 참고).
 
-### edit_log 형식 (v1과 반드시 호환)
+### edit_log 형식 (지난 제출과 반드시 같게)
 
-v1 교사 화면의 재생기가 v2 제출도 읽을 수 있어야 한다. 형식을 바꾸지 말 것.
+v1 때 낸 제출과 v2 제출이 같은 형식이라 재생기·학습 여정·통계·업적이 둘 다 그대로 읽는다. 형식을 바꾸지 말 것.
 
 ```
 편집 이벤트: [시각ms, 종류, fromLine, fromCh, toLine, toCh, 입력텍스트]
@@ -97,15 +98,15 @@ v1 교사 화면의 재생기가 v2 제출도 읽을 수 있어야 한다. 형�
 
 - CodeMirror 6 한 트랜잭션에 변경이 여러 개면, 재생 시 순서대로 적용해도 위치가 어긋나지 않도록 **뒤쪽 변경부터** 기록한다.
 - 문서 초기값 설정은 기록하지 않는다. 시작 코드는 `init_code`에 따로 저장한다.
-- **새 이벤트는 길이 2짜리 배열로만 추가한다**(v1 재생기는 길이 3 이상을 편집 이벤트로 간주한다). 예: 실행 기록 `[시각ms, "r:ok"]`, `[시각ms, "r:NameError"]`, AI 도움 요청 `[시각ms, "q"]`(대화 내용은 `ai_chats` 테이블에 따로 저장). AI 응답을 그대로 붙여넣으면 일반 붙여넣기(`p`)로 기록되므로, 재생 화면에서 AI 응답 내용과 비교해 "AI 답 붙여넣기"를 따로 표시할 수 있다.
-- 작성 중 코드는 localStorage `code_rec:{학번}_{과목}_{문제}` 에 `{init, log, code}`로 저장해 새로고침해도 유지한다(v1과 같은 키).
+- **새 이벤트는 길이 2짜리 배열로만 추가한다**(재생기는 길이 3 이상을 편집 이벤트로 간주한다, `src/lib/editLog.ts`). 예: 실행 기록 `[시각ms, "r:ok"]`, `[시각ms, "r:NameError"]`, AI 도움 요청 `[시각ms, "q"]`(대화 내용은 `ai_chats` 테이블에 따로 저장). AI 응답을 그대로 붙여넣으면 일반 붙여넣기(`p`)로 기록되므로, 재생 화면에서 AI 응답 내용과 비교해 "AI 답 붙여넣기"를 따로 표시할 수 있다.
+- 작성 중 코드는 localStorage `code_rec:{학번}_{과목}_{문제}` 에 `{init, log, code}`로 저장해 새로고침해도 유지한다(v1 때부터 쓰던 키).
 
 ## 보안
 
 - 로그인 세션은 **서명된 쿠키**(jose, HS256, `SESSION_SECRET`)로 한다. v1처럼 `{"id": ...}` 평문 쿠키를 쓰지 않는다.
-- 비밀번호는 bcrypt 해시(`users.password_hash`, 새 컬럼)로만 검증·저장한다. **v1 운영은 끝났다(2026-11).** 평문 `password` 칸에는 더 이상 저장하지 않고, 남아 있던 평문은 022 SQL로 해시로 바꾼 뒤 비운다(칸 자체는 지우지 않음). 평문이 남은 계정은 로그인 성공 때 해시를 만들고 평문을 지운다.
+- 비밀번호는 bcrypt 해시(`users.password_hash`, 새 컬럼)로만 검증·저장한다. 평문 `password` 칸에는 더 이상 저장하지 않고, 남아 있던 평문은 022 SQL로 해시로 바꾼 뒤 비운다(칸 자체는 지우지 않음). 평문이 남은 계정은 로그인 성공 때 해시를 만들고 평문을 지운다.
 - Supabase 키와 Claude API 키는 서버 환경변수로만 쓴다(`NEXT_PUBLIC_` 금지). DB 접근은 Server Component / Server Action / Route Handler에서만 한다.
-- 로그인은 v1과 같은 학번(아이디)·비밀번호 방식을 유지한다. 구글 등 외부 계정 로그인은 쓰지 않는다. 학생 계정은 교사가 만들고(CSV 일괄 등록), 비밀번호 초기화도 교사가 한다.
+- 로그인은 학번(아이디)·비밀번호 방식을 유지한다(v1 때와 같음). 구글 등 외부 계정 로그인은 쓰지 않는다. 학생 계정은 교사가 만들고(CSV 일괄 등록), 비밀번호 초기화도 교사가 한다.
 - 교사·관리자가 만든 비밀번호, 학생이 직접 바꾼 비밀번호(🔑, `/account`) 모두 해시만 저장한다.
 - 학생은 자기 제출만, 교사는 전체를 본다. 모든 서버 액션에서 세션의 role을 확인한다.
 - AI에는 학생 이름·학번을 보내지 않는다.
