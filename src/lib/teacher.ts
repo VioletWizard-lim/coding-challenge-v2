@@ -1,7 +1,7 @@
 import "server-only";
 import { LOAD_TEST_PREFIX } from "./loadTest";
 import bcrypt from "bcryptjs";
-import { db, fetchAll, type UserRow } from "./db";
+import { db, NO_PLAIN_PASSWORD, fetchAll, type UserRow } from "./db";
 import { clearLoginTries } from "./loginGuard";
 import type { ExistingAccount } from "./studentCsv";
 
@@ -43,7 +43,7 @@ export async function resetStudentPassword(id: string, password: string): Promis
   const passwordHash = await bcrypt.hash(password, 10);
   const { data, error } = await db()
     .from("users")
-    .update({ password: null, password_hash: passwordHash })
+    .update({ password: NO_PLAIN_PASSWORD, password_hash: passwordHash })
     .eq("id", id)
     .eq("role", "student")
     .select("id");
@@ -92,7 +92,7 @@ export async function createStudents(students: NewStudent[]): Promise<Set<string
   const rows = [];
   for (const s of students) {
     const { password, ...rest } = s;
-    rows.push({ ...rest, role: "student", password: null, password_hash: await bcrypt.hash(password, 10) });
+    rows.push({ ...rest, role: "student", password: NO_PLAIN_PASSWORD, password_hash: await bcrypt.hash(password, 10) });
   }
   const { data, error } = await db()
     .from("users")
@@ -118,7 +118,7 @@ export function listTeachers(): Promise<TeacherRow[]> {
 export async function createTeacher(id: string, name: string, password: string): Promise<boolean> {
   const { data, error } = await db()
     .from("users")
-    .upsert([{ id, name, role: "teacher", password: null, password_hash: await bcrypt.hash(password, 10) }], {
+    .upsert([{ id, name, role: "teacher", password: NO_PLAIN_PASSWORD, password_hash: await bcrypt.hash(password, 10) }], {
       onConflict: "id",
       ignoreDuplicates: true,
     })
@@ -131,7 +131,7 @@ export async function createTeacher(id: string, name: string, password: string):
 export async function resetTeacherPassword(id: string, password: string): Promise<boolean> {
   const { data, error } = await db()
     .from("users")
-    .update({ password: null, password_hash: await bcrypt.hash(password, 10) })
+    .update({ password: NO_PLAIN_PASSWORD, password_hash: await bcrypt.hash(password, 10) })
     .eq("id", id)
     .eq("role", "teacher")
     .select("id");

@@ -39,7 +39,7 @@ const accountNow = cache(async (id: string): Promise<{ role: Role; stamp: string
   if (error) throw new Error(error.message);
   if (!data) return null;
   const role: Role = data.role === "admin" ? "admin" : data.role === "teacher" ? "teacher" : "student";
-  return { role, stamp: passwordStamp(data.password_hash ?? data.password) };
+  return { role, stamp: passwordStamp(data.password_hash ?? (data.password || null)) };
 });
 
 /**

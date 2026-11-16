@@ -1,7 +1,7 @@
 import "server-only";
 import bcrypt from "bcryptjs";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { db, type UserRow } from "./db";
+import { db, NO_PLAIN_PASSWORD, type UserRow } from "./db";
 import { clearLoginTries, LoginLockedError, takeLoginTry } from "./loginGuard";
 import type { Session } from "./session";
 
@@ -32,14 +32,15 @@ export async function verifyLogin(id: string, password: string): Promise<(Sessio
   if (!(await takeLoginTry(String(data.id)))) throw new LoginLockedError("로그인 시도가 너무 많아요.");
 
   const hashOk = data.password_hash ? await bcrypt.compare(password, data.password_hash) : false;
-  const plainOk = !hashOk && typeof data.password === "string" && sameText(password, data.password);
+  // 평문 칸이 빈 글자면(해시로 옮긴 계정) 평문으로는 확인하지 않는다
+  const plainOk = !hashOk && typeof data.password === "string" && data.password !== "" && sameText(password, data.password);
   if (!hashOk && !plainOk) return null;
 
-  let credential: string | null = data.password_hash ?? data.password ?? null;
+  let credential: string | null = data.password_hash ?? (data.password || null);
   if (plainOk && "password_hash" in data) {
     const hash = await bcrypt.hash(password, 10);
     // 해시를 만들면 평문 비밀번호는 지운다 (v1 운영이 끝나 평문을 쓰는 곳이 없음)
-    const values = { password_hash: hash, password: null };
+    const values = { password_hash: hash, password: NO_PLAIN_PASSWORD };
     const { error: updateError } = await db().from("users").update(values).eq("id", data.id);
     if (updateError) console.warn("password_hash 저장 실패:", updateError.message);
     else credential = hash;
@@ -70,7 +71,7 @@ export function checkNewPassword(id: string, current: string, next: string, agai
  */
 export async function setOwnPassword(id: string, next: string): Promise<string> {
   const hash = await bcrypt.hash(next, 10);
-  const values = { password_hash: hash, password: null };
+  const values = { password_hash: hash, password: NO_PLAIN_PASSWORD };
   const { data, error } = await db().from("users").update(values).eq("id", id).select("id");
   if (error) throw new Error(`비밀번호 저장 실패: ${error.message}`);
   if ((data ?? []).length !== 1) throw new Error("계정을 찾지 못했어요.");
