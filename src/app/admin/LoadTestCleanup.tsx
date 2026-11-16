@@ -39,8 +39,7 @@ export default function LoadTestCleanup() {
         </p>
       )}
       {accounts.length > 0 && (
-        <div className="flex flex-wrap items-end gap-2">
-          <ConfirmPhrase phrase={LOAD_TEST_PHRASE} value={phrase} onChange={setPhrase} />
+        <ConfirmPhrase phrase={LOAD_TEST_PHRASE} value={phrase} onChange={setPhrase}>
           <button
             type="button"
             disabled={pending || !samePhrase(phrase, LOAD_TEST_PHRASE)}
@@ -57,7 +56,7 @@ export default function LoadTestCleanup() {
           >
             {pending ? "지우는 중…" : "🗑 테스트 계정과 기록 모두 지우기"}
           </button>
-        </div>
+        </ConfirmPhrase>
       )}
       {message && <p className={`text-sm ${message.ok ? "text-green-700" : "text-danger"}`}>{message.text}</p>}
     </section>

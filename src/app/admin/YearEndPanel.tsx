@@ -199,8 +199,7 @@ export default function YearEndPanel() {
               ) : total === 0 ? (
                 <p className="text-sm text-muted">지울 기록이 없어요.</p>
               ) : (
-                <div className="flex flex-wrap items-end gap-2">
-                  <ConfirmPhrase phrase={confirmPhrase(year, cls)} value={phrase} onChange={setPhrase} />
+                <ConfirmPhrase phrase={confirmPhrase(year, cls)} value={phrase} onChange={setPhrase}>
                   <button
                     type="button"
                     disabled={pending || !samePhrase(phrase, confirmPhrase(year, cls))}
@@ -221,7 +220,7 @@ export default function YearEndPanel() {
                   >
                     🗑 {year}학년도{cls ? ` ${classLabel(cls)}` : ""} 학생 기록 지우기
                   </button>
-                </div>
+                </ConfirmPhrase>
               )}
             </li>
           </ol>

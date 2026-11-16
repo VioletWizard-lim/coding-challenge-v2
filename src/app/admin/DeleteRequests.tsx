@@ -116,8 +116,7 @@ function PendingRequest({ request: r, onDone }: { request: Request; onDone: () =
           ① 💾 이 학생 백업 ZIP
         </a>
       </div>
-      <div className="flex flex-wrap items-end gap-2">
-        <ConfirmPhrase phrase={r.phrase} value={phrase} onChange={setPhrase} label={`② ${r.studentId} 확인 문구`} />
+      <ConfirmPhrase phrase={r.phrase} value={phrase} onChange={setPhrase} label={`② ${r.studentId} 확인 문구`}>
         <button
           type="button"
           disabled={pending || !samePhrase(phrase, r.phrase)}
@@ -132,7 +131,7 @@ function PendingRequest({ request: r, onDone }: { request: Request; onDone: () =
         >
           🗑 계정과 모든 기록 지우기
         </button>
-      </div>
+      </ConfirmPhrase>
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={note}
