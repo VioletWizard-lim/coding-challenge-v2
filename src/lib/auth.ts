@@ -15,8 +15,8 @@ const sameText = (a: string, b: string) =>
  * 학번(아이디)·비밀번호를 확인한다. 맞으면 세션 정보를, 틀리면 null을 돌려준다.
  *
  * - password_hash(bcrypt)가 있으면 그것으로 확인한다.
- * - v1이 운영 중이라 평문 password 컬럼도 남아 있다. 해시가 없거나, v1에서 비밀번호를 바꿔
- *   해시와 달라졌으면 평문으로 확인하고, 맞으면 새 해시를 저장한다.
+ * - v1 운영은 끝났다(2026-11). 평문 password 칸이 아직 남은 계정(022 SQL 실행 전, v1에서 바꾼 비밀번호)은
+ *   평문으로 확인하고, 맞으면 새 해시를 저장하고 평문을 지운다.
  * - 같은 아이디로 5분 안에 5번 넘게 시도하면 LoginLockedError를 던진다 (loginGuard.ts).
  * - password_hash 컬럼이 아직 없으면(마이그레이션 전) 평문으로만 확인하고 해시 저장은 건너뛴다.
  */
@@ -38,8 +38,8 @@ export async function verifyLogin(id: string, password: string): Promise<(Sessio
   let credential: string | null = data.password_hash ?? data.password ?? null;
   if (plainOk && "password_hash" in data) {
     const hash = await bcrypt.hash(password, 10);
-    // 관리자 계정은 v1을 쓰지 않으므로, 해시를 만들면 평문 비밀번호를 지운다
-    const values = data.role === "admin" ? { password_hash: hash, password: null } : { password_hash: hash };
+    // 해시를 만들면 평문 비밀번호는 지운다 (v1 운영이 끝나 평문을 쓰는 곳이 없음)
+    const values = { password_hash: hash, password: null };
     const { error: updateError } = await db().from("users").update(values).eq("id", data.id);
     if (updateError) console.warn("password_hash 저장 실패:", updateError.message);
     else credential = hash;
@@ -65,12 +65,12 @@ export function checkNewPassword(id: string, current: string, next: string, agai
 }
 
 /**
- * 내 비밀번호를 새로 정한다. 해시를 저장하고, v1이 운영 중이라 학생·교사는 평문 칸에도 함께 저장한다(v1 로그인용).
- * 관리자는 v1을 쓰지 않으므로 평문을 지운다. 새 해시를 돌려준다 (세션 쿠키의 비밀번호 지문용)
+ * 내 비밀번호를 새로 정한다. 해시만 저장하고 평문 칸은 비운다.
+ * 새 해시를 돌려준다 (세션 쿠키의 비밀번호 지문용)
  */
-export async function setOwnPassword(id: string, role: Session["role"], next: string): Promise<string> {
+export async function setOwnPassword(id: string, next: string): Promise<string> {
   const hash = await bcrypt.hash(next, 10);
-  const values = role === "admin" ? { password_hash: hash, password: null } : { password_hash: hash, password: next };
+  const values = { password_hash: hash, password: null };
   const { data, error } = await db().from("users").update(values).eq("id", id).select("id");
   if (error) throw new Error(`비밀번호 저장 실패: ${error.message}`);
   if ((data ?? []).length !== 1) throw new Error("계정을 찾지 못했어요.");

@@ -224,7 +224,7 @@ function ResetForm({ studentId, name }: { studentId: string; name: string }) {
         >
           {copied ? "복사됨" : "복사"}
         </button>
-        <span className="text-xs text-muted">이 창을 닫으면 다시 볼 수 없어요. 학생에게 알려 주세요. (v1·v2 모두 이 비밀번호로 로그인)</span>
+        <span className="text-xs text-muted">이 창을 닫으면 다시 볼 수 없어요. 학생에게 알려 주세요.</span>
       </div>
     );
   }

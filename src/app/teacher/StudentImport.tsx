@@ -201,8 +201,7 @@ export default function StudentImport() {
           {done.created.length > 0 && (
             <>
               <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                ⚠️ 비밀번호는 이 화면에서만 볼 수 있어요. 아래 버튼으로 꼭 내려받아 두세요. (v1·v2 모두 이 비밀번호로
-                로그인)
+                ⚠️ 비밀번호는 이 화면에서만 볼 수 있어요. 아래 버튼으로 꼭 내려받아 두세요.
               </p>
               <div className="flex gap-2">
                 <button

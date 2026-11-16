@@ -51,7 +51,7 @@ export async function changeMyPassword(_prev: PasswordState, formData: FormData)
   try {
     const ok = await verifyLogin(session.id, current);
     if (!ok) return { error: "지금 비밀번호가 맞지 않아요." };
-    const hash = await setOwnPassword(session.id, session.role, next);
+    const hash = await setOwnPassword(session.id, next);
     await clearLoginTries(session.id);
     await createSession(session, hash);
   } catch (err) {
