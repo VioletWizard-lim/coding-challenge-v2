@@ -14,6 +14,12 @@ export function db(): SupabaseClient {
   return client;
 }
 
+/**
+ * 평문 비밀번호 칸(users.password)을 비울 때 넣는 값. 이 칸은 v1 때부터 "비워 둘 수 없음(NOT NULL)"이라
+ * null 대신 빈 글자를 넣는다. 빈 비밀번호로는 로그인할 수 없다 (로그인은 password_hash로만 확인)
+ */
+export const NO_PLAIN_PASSWORD = "";
+
 /** v1 users 테이블 한 행 (password_hash는 v2에서 추가하는 컬럼) */
 export type UserRow = {
   id: string;
