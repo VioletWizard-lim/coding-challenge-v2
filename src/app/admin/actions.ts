@@ -12,6 +12,7 @@ import { canClean, confirmPhrase, yearTable } from "@/lib/yearEnd";
 import { getTrialSettings, setTrialAi, setTrialVisible, trialRemaining } from "@/lib/trialStore";
 import { trialLimit } from "@/lib/trial";
 import { ALL_YEARS, computeYearStats, countYear, deleteYear, listYearStats, restoreRows, saveYearStats, YearStatsNotReadyError } from "@/lib/yearEndStore";
+import { samePhrase } from "@/lib/confirmPhrase";
 
 /** 관리자만 쓸 수 있다 (모든 관리자 액션에서 다시 확인) */
 const isAdmin = async () => (await getSession())?.role === "admin";
@@ -127,7 +128,7 @@ export async function cleanYear(
   if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
   if (!Number.isInteger(year)) return { ok: false, message: "학년도를 고르세요." };
   if (!validClass(cls)) return { ok: false, message: "반을 다시 골라 주세요." };
-  if (String(phrase ?? "").trim() !== confirmPhrase(year, cls)) return { ok: false, message: `확인 문구를 "${confirmPhrase(year, cls)}"라고 정확히 적어 주세요.` };
+  if (!samePhrase(phrase, confirmPhrase(year, cls))) return { ok: false, message: `확인 문구를 "${confirmPhrase(year, cls)}"라고 정확히 적어 주세요.` };
   try {
     const stats = await listYearStats();
     if (!stats.years.some((y) => y.year === year)) return { ok: false, message: "먼저 '이름 없는 통계 남기기'를 해 주세요." };
@@ -212,7 +213,7 @@ export async function deleteRequestedStudent(
     const profile = await getUserProfile(request.studentId);
     if (profile && profile.role !== "student") return { ok: false, message: "학생 계정만 지울 수 있어요." };
     const expect = studentPhrase(request.studentId, profile?.name ?? request.studentName);
-    if (String(phrase ?? "").trim() !== expect) return { ok: false, message: `확인 문구를 "${expect}"라고 정확히 적어 주세요.` };
+    if (!samePhrase(phrase, expect)) return { ok: false, message: `확인 문구를 "${expect}"라고 정확히 적어 주세요.` };
     const deleted = await deleteYear(ALL_YEARS, true, "", request.studentId);
     await setRequestStatus(request.id, "done", session.id);
     refresh();
@@ -302,7 +303,7 @@ export async function loadLoadTestAccounts(): Promise<{ ok: true; accounts: { id
 /** loadtest로 시작하는 학생 계정과 그 계정의 모든 기록을 지운다 (백업 없음 — 테스트 기록) */
 export async function cleanLoadTestAccounts(phrase: string): Promise<{ ok: true; accounts: number; records: number } | { ok: false; message: string }> {
   if (!(await isAdmin())) return { ok: false, message: "관리자 계정으로 다시 로그인하세요." };
-  if (String(phrase ?? "").trim() !== LOAD_TEST_PHRASE) return { ok: false, message: `확인 문구를 "${LOAD_TEST_PHRASE}"라고 정확히 적어 주세요.` };
+  if (!samePhrase(phrase, LOAD_TEST_PHRASE)) return { ok: false, message: `확인 문구를 "${LOAD_TEST_PHRASE}"라고 정확히 적어 주세요.` };
   try {
     const accounts = (await listLoadTestAccounts()).filter((a) => a.id.startsWith(LOAD_TEST_PREFIX));
     let records = 0;
