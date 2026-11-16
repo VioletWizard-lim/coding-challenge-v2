@@ -1,5 +1,6 @@
 "use client";
 
+import AiNoticeCard, { useAiNotice } from "@/components/AiNotice";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { asProblem, LEVELS, levelLabel, practiceKey, type PracticeProblem } from "@/lib/practice";
 import MyProblems from "./MyProblems";
@@ -102,6 +103,8 @@ function PracticePanel({ userId }: { userId: string }) {
   };
   /** 만드는 중에 화면을 떠났다 돌아온 경우: 서버에서 다 만들어질 때까지 목록을 다시 불러온다 */
   const [waiting, setWaiting] = useState(false);
+  // 처음 쓰는 학생은 AI 사용 안내를 읽고 확인해야 문제를 만들 수 있다
+  const { needed: mustReadNotice } = useAiNotice();
 
   useEffect(() => {
     let alive = true;
@@ -178,7 +181,7 @@ function PracticePanel({ userId }: { userId: string }) {
 
   const stuck = home.stuck.filter((s) => s.subject === subject);
   const out = home.remaining === 0;
-  const busy = creating || waiting || out;
+  const busy = creating || waiting || out || mustReadNotice;
   const mine = home.problems;
   const allowed = settings?.concepts ?? [];
   const levelPicker = (
@@ -263,6 +266,7 @@ function PracticePanel({ userId }: { userId: string }) {
       </section>
       ) : (
         <>
+      <AiNoticeCard />
       <div className="flex flex-wrap items-end gap-3">
         <p className="mr-auto text-sm text-muted">
           내 작성 기록에서 막혔던 곳을 골라 AI가 나에게 맞는 연습 문제를 만들어 줘요.

@@ -1,5 +1,6 @@
 "use client";
 
+import AiNoticeCard, { useAiNotice } from "@/components/AiNotice";
 import { useEffect, useRef, useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
 import Replayer from "@/components/Replayer";
@@ -140,6 +141,8 @@ export default function AiHelper({
   }
 
   const outOfQuestions = remaining === 0;
+  // 처음 쓰는 학생은 AI 사용 안내를 읽고 확인해야 물어볼 수 있다
+  const { needed: mustReadNotice } = useAiNotice();
 
   return (
     <aside
@@ -173,6 +176,8 @@ export default function AiHelper({
 
       {notice ? (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{notice}</p>
+      ) : mustReadNotice ? (
+        <AiNoticeCard />
       ) : (
         <>
           <div className="flex min-h-24 flex-col gap-3 overflow-y-auto xl:flex-1">
