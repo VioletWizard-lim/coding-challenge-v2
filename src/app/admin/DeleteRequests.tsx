@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { deleteRequestedStudent, loadDeleteRequests, rejectDeleteRequest, studentRecordCounts, type DeleteRequestsInfo } from "./actions";
+import ConfirmPhrase from "@/components/ConfirmPhrase";
+import { samePhrase } from "@/lib/confirmPhrase";
 
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -113,16 +115,12 @@ function PendingRequest({ request: r, onDone }: { request: Request; onDone: () =
         >
           ① 💾 이 학생 백업 ZIP
         </a>
-        <input
-          value={phrase}
-          onChange={(e) => setPhrase(e.target.value)}
-          placeholder={`② "${r.phrase}"라고 적기`}
-          aria-label={`${r.studentId} 확인 문구`}
-          className="rounded-lg border border-line bg-white px-3 py-1.5"
-        />
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <ConfirmPhrase phrase={r.phrase} value={phrase} onChange={setPhrase} label={`② ${r.studentId} 확인 문구`} />
         <button
           type="button"
-          disabled={pending || phrase.trim() !== r.phrase}
+          disabled={pending || !samePhrase(phrase, r.phrase)}
           onClick={() =>
             startTransition(async () => {
               const x = await deleteRequestedStudent(r.id, phrase);

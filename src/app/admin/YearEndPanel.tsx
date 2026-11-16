@@ -5,6 +5,8 @@ import { rowsFromCsv, type BackupSchema } from "@/lib/backupCsv";
 import { classLabel, confirmPhrase, remapRow, schoolYearOf, YEAR_TABLES } from "@/lib/yearEnd";
 import { readZip } from "@/lib/zip";
 import { cleanYear, keepYearStats, loadYearEnd, restoreChunk, type YearEndInfo } from "./actions";
+import ConfirmPhrase from "@/components/ConfirmPhrase";
+import { samePhrase } from "@/lib/confirmPhrase";
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -197,17 +199,11 @@ export default function YearEndPanel() {
               ) : total === 0 ? (
                 <p className="text-sm text-muted">지울 기록이 없어요.</p>
               ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    value={phrase}
-                    onChange={(e) => setPhrase(e.target.value)}
-                    placeholder={`"${confirmPhrase(year, cls)}"라고 적기`}
-                    aria-label="확인 문구"
-                    className="rounded-lg border border-line px-3 py-2 text-sm"
-                  />
+                <div className="flex flex-wrap items-end gap-2">
+                  <ConfirmPhrase phrase={confirmPhrase(year, cls)} value={phrase} onChange={setPhrase} />
                   <button
                     type="button"
-                    disabled={pending || phrase.trim() !== confirmPhrase(year, cls)}
+                    disabled={pending || !samePhrase(phrase, confirmPhrase(year, cls))}
                     onClick={() =>
                       startTransition(async () => {
                         setMessage(null);

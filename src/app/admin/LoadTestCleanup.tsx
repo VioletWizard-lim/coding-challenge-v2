@@ -3,6 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import { LOAD_TEST_PHRASE } from "@/lib/loadTest";
 import { cleanLoadTestAccounts, loadLoadTestAccounts } from "./actions";
+import ConfirmPhrase from "@/components/ConfirmPhrase";
+import { samePhrase } from "@/lib/confirmPhrase";
 
 /**
  * 🧪 부하 테스트 계정 정리: 아이디가 loadtest로 시작하는 학생 계정과 그 계정의 모든 기록(제출·성찰·AI 대화 등)을 한 번에 지운다.
@@ -37,17 +39,11 @@ export default function LoadTestCleanup() {
         </p>
       )}
       {accounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={phrase}
-            onChange={(e) => setPhrase(e.target.value)}
-            placeholder={`"${LOAD_TEST_PHRASE}"라고 적기`}
-            aria-label="확인 문구"
-            className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm"
-          />
+        <div className="flex flex-wrap items-end gap-2">
+          <ConfirmPhrase phrase={LOAD_TEST_PHRASE} value={phrase} onChange={setPhrase} />
           <button
             type="button"
-            disabled={pending || phrase.trim() !== LOAD_TEST_PHRASE}
+            disabled={pending || !samePhrase(phrase, LOAD_TEST_PHRASE)}
             onClick={() =>
               startTransition(async () => {
                 const r = await cleanLoadTestAccounts(phrase);
