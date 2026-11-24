@@ -410,7 +410,8 @@ function GradingCard({
       <p className="text-sm text-muted">
         <b>코드 설명</b> {row.description || "(없음)"}
       </p>
-      <pre className="max-h-80 overflow-auto rounded-lg bg-page p-3 text-sm font-[family-name:var(--font-code)]">{row.code || "(코드 없음)"}</pre>
+      {/* 채점할 때 한눈에 보이게: 높이 제한·칸 안 스크롤 없이 다 펼치고, 아주 긴 줄은 줄을 바꿔 보여 준다 */}
+      <pre className="whitespace-pre-wrap break-words rounded-lg bg-page p-3 text-sm font-[family-name:var(--font-code)]">{row.code || "(코드 없음)"}</pre>
       {showReplay && <ReplaySection submissionId={row.id} loader={loadStudentReplay} noteRole="teacher" autoStart />}
 
       <div className="flex flex-wrap items-end gap-3">
