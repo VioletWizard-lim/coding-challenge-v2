@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import ProblemView from "@/components/ProblemView";
 import { compareNumber, openStatus, type Problem } from "@/lib/problemBank";
 import { SUBJECTS } from "@/lib/problems";
@@ -40,6 +40,30 @@ export default function ProblemManager({
   const [message, setMessage] = useState<ProblemResult | null>(null);
   const list = problems.filter((p) => p.subject === subject);
   const nowDate = new Date(now);
+
+  /** 문제 줄 (미리보기·고치기를 열면 그 줄이 화면 위쪽에 오도록 옮길 때 씀) */
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  /** 방금 연 줄 번호: 펼친 내용이 화면 밖으로 나가면 그 줄이 화면 위쪽에 오게 옮긴다 */
+  const scrollTo = useRef<string | null>(null);
+  const setScrollTo = (n: string) => {
+    scrollTo.current = n;
+  };
+  // 미리보기·고치기 칸이 열린 뒤(화면에 그려진 뒤)에 위치를 잰다
+  useEffect(() => {
+    const n = scrollTo.current;
+    if (!n) return;
+    scrollTo.current = null; // 한 번만 (이미 다 보여서 안 옮길 때도)
+    const row = rowRefs.current.get(n);
+    const opened = row?.nextElementSibling;
+    if (!row || !opened) return;
+    const header = 64; // 맨 위 고정 막대 높이 + 여유
+    const top = row.getBoundingClientRect().top;
+    const bottom = opened.getBoundingClientRect().bottom;
+    // 줄과 펼친 내용이 이미 다 보이면 움직이지 않는다
+    if (top >= header && bottom <= window.innerHeight) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: window.scrollY + top - header - 8, behavior: reduce ? "auto" : "smooth" });
+  }, [viewing, editing]);
 
   /** 새 문제 입력 칸에 무언가 적었는지 (다시 누르면 닫을지 정할 때 씀) */
   const newDirty = useRef(false);
@@ -155,11 +179,20 @@ export default function ProblemManager({
                 <Fragment key={p.number}>
                   {/* 줄을 누르면 학생 화면 미리보기가 펼쳐진다 (고치는 중에는 고치기 칸이 대신 열려 있음) */}
                   <tr
-                    onClick={() => !isEditing && setViewing(isViewing ? null : p.number)}
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(p.number, el);
+                      else rowRefs.current.delete(p.number);
+                    }}
+                    onClick={() => {
+                      if (isEditing) return;
+                      setViewing(isViewing ? null : p.number);
+                      if (!isViewing) setScrollTo(p.number);
+                    }}
                     onKeyDown={(e) => {
                       if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget && !isEditing) {
                         e.preventDefault();
                         setViewing(isViewing ? null : p.number);
+                        if (!isViewing) setScrollTo(p.number);
                       }
                     }}
                     tabIndex={isEditing ? undefined : 0}
@@ -207,6 +240,7 @@ export default function ProblemManager({
                             setMessage(null);
                             setViewing(null);
                             setEditing(isEditing ? null : p);
+                            if (!isEditing) setScrollTo(p.number);
                           }}
                           className="text-brand hover:underline"
                         >
