@@ -146,9 +146,17 @@ export type RunResult = { output: string; error: string | null };
  * - 매번 새 변수 공간에서 돌리고, 무한 반복·너무 긴 출력은 멈춘다
  * JSON 글은 파이썬 문자열로도 그대로 읽힌다.
  */
-export function harnessCode(code: string, inputs: string[]): string {
+export function harnessCode(code: string, inputs: string[], options: { restricted?: boolean } = {}): string {
+  // restricted: 서버에서 AI가 만든 코드를 돌릴 때. 위험한 내장 함수(eval·open·__import__ 등)를 뺀 변수 공간에서 돌린다
+  const env = options.restricted
+    ? `{"__name__": "__main__", "__builtins__": _p_safe_builtins()}`
+    : `{"__name__": "__main__"}`;
   return `
 import sys, json, builtins
+def _p_safe_builtins():
+    _p_keep = {"__build_class__"}
+    _p_ban = set(${JSON.stringify(BANNED_BUILTINS)})
+    return {k: v for k, v in vars(builtins).items() if (k in _p_keep or not k.startswith("_")) and k not in _p_ban}
 def _p_run(_p_code, _p_inputs):
     _p_lines = iter(_p_inputs)
     _p_out = []
@@ -180,7 +188,7 @@ def _p_run(_p_code, _p_inputs):
     _p_error = None
     try:
         sys.settrace(_p_trace)
-        exec(compile(_p_code, "<practice>", "exec"), {"__name__": "__main__"})
+        exec(compile(_p_code, "<practice>", "exec"), ${env})
     except BaseException as e:
         _p_error = type(e).__name__ + ": " + str(e)
     finally:
@@ -206,6 +214,49 @@ const UNSAFE: [RegExp, string][] = [
 export function unsafeCodeReason(code: string): string | null {
   const found = UNSAFE.filter(([re]) => re.test(code)).map(([, label]) => label);
   return found.length ? `서버에서 돌릴 수 없는 코드가 있어요: ${found.join(", ")}. 이런 것 없이 기본 문법만으로 다시 써 주세요.` : null;
+}
+
+/** 서버에서 돌리는 코드에서 빼는 내장 함수 (문법 검사와 실행 공간이 함께 쓴다) */
+export const BANNED_BUILTINS = [
+  "eval", "exec", "compile", "open", "getattr", "setattr", "delattr", "globals", "locals", "vars",
+  "breakpoint", "help", "memoryview", "exit", "quit", "copyright", "credits", "license", "__import__",
+];
+
+/** 숨은 내부(실행 틀·전역 변수·내장 함수)로 가는 속성 이름의 앞부분: 프레임(f_), 생성기(gi_)·코루틴(cr_·ag_), 오류 추적(tb_), 코드(co_) */
+const BANNED_ATTR_PREFIXES = ["_", "f_", "gi_", "cr_", "ag_", "tb_", "co_"];
+
+/**
+ * 서버에서 돌리기 전 두 번째 확인 (Pyodide 안에서 실행하는 파이썬 코드). 마지막 식의 값은 codes 순서대로 이유(없으면 null)를 담은 JSON 글.
+ * 글자 찾기(unsafeCodeReason)는 \`f = eval\`처럼 이름을 다른 변수에 담거나 전각 글자(ｅｖａｌ)를 쓰면 지나가므로,
+ * 파이썬이 실제로 읽는 문법 구조(ast, 이름은 NFKC로 정규화됨)를 보고 막는다:
+ * import, 밑줄로 시작하는 이름·속성, 위험한 내장 함수 이름, 프레임·생성기 속성(gi_frame.f_builtins 등), match 문의 속성 꺼내기.
+ */
+export function serverSafetyCheckCode(codes: string[]): string {
+  return `
+import ast, json
+def _p_safety(_p_src):
+    try:
+        _p_tree = ast.parse(_p_src, "<practice>")
+    except SyntaxError:
+        return None
+    _p_ban = set(${JSON.stringify(BANNED_BUILTINS)})
+    _p_prefixes = tuple(${JSON.stringify(BANNED_ATTR_PREFIXES)})
+    _p_found = []
+    def _p_add(label):
+        if label not in _p_found:
+            _p_found.append(label)
+    for _p_node in ast.walk(_p_tree):
+        if isinstance(_p_node, (ast.Import, ast.ImportFrom)):
+            _p_add("import")
+        elif isinstance(_p_node, ast.Attribute) and _p_node.attr.startswith(_p_prefixes):
+            _p_add("숨은 속성(." + _p_node.attr + ")")
+        elif isinstance(_p_node, ast.Name) and (_p_node.id.startswith("_") or _p_node.id in _p_ban):
+            _p_add("쓸 수 없는 이름(" + _p_node.id + ")")
+        elif isinstance(_p_node, ast.MatchClass) and _p_node.kwd_attrs:
+            _p_add("match 문의 속성 꺼내기")
+    return ${JSON.stringify("서버에서 돌릴 수 없는 코드가 있어요: ")} + ", ".join(_p_found) + ${JSON.stringify(". 이런 것 없이 기본 문법만으로 다시 써 주세요.")} if _p_found else None
+json.dumps([_p_safety(_p_c) for _p_c in ${JSON.stringify(codes)}], ensure_ascii=False)
+`;
 }
 
 export function parseRunResult(value: unknown): RunResult {
