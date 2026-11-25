@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   asProblem,
   unsafeCodeReason,
+  serverSafetyCheckCode,
   harnessCode,
   judge,
   normalizeSettings,
@@ -102,10 +103,11 @@ describe("교사 설정", () => {
 // 브라우저·서버가 함께 쓰는 실행 코드를 진짜 파이썬(Pyodide)으로 확인한다
 describe("테스트 실행 코드 (Pyodide)", () => {
   let run: (code: string, inputs: string[]) => RunResult;
+  let py: { runPython(code: string): unknown };
   beforeAll(async () => {
     const dir = path.join(process.cwd(), "node_modules", "pyodide") + path.sep;
     const { loadPyodide } = await import(/* @vite-ignore */ path.join(dir, "pyodide.mjs"));
-    const py = await loadPyodide({ indexURL: dir });
+    py = await loadPyodide({ indexURL: dir });
     run = (code, inputs) => parseRunResult(py.runPython(harnessCode(code, inputs)));
   }, 60_000);
 
@@ -121,6 +123,36 @@ describe("테스트 실행 코드 (Pyodide)", () => {
   it("끝나지 않는 반복과 너무 긴 출력은 멈춘다", () => {
     expect(run("while True:\n    pass", []).error).toContain("오래");
     expect(run("while True:\n    print('a')", []).error).toContain("출력이 너무");
+  });
+
+  it("서버 실행 공간(restricted)에서는 위험한 내장 함수가 없고, 기본 함수·클래스는 그대로", () => {
+    const restricted = (code: string, inputs: string[] = []) =>
+      parseRunResult(py.runPython(harnessCode(code, inputs, { restricted: true })));
+    expect(restricted("print(eval('1+1'))").error).toMatch(/^NameError/);
+    expect(restricted("print(open)").error).toMatch(/^NameError/);
+    expect(restricted("__import__('os')").error).toMatch(/^NameError/);
+    expect(restricted("import math").error).toMatch(/^ImportError/);
+    expect(restricted("class A:\n    pass\nprint(len([A()]), int(input()) + 1)", ["2"])).toEqual({ output: "1 3\n", error: null });
+    // 브라우저(학생 코드)는 그대로 모든 내장 함수를 쓴다
+    expect(run("import math\nprint(math.floor(2.5))", [])).toEqual({ output: "2\n", error: null });
+  });
+
+  it("문법 구조 확인: 우회를 막고 기본 문법은 통과", () => {
+    const reasons = (codes: string[]) => JSON.parse(String(py.runPython(serverSafetyCheckCode(codes)))) as (string | null)[];
+    const [ok, aliased, wide, frame, attr, syntax] = reasons([
+      'n = int(input())\nfor i in range(n):\n    print(i * 2, "개")',
+      "f = eval",
+      'ｅｖａｌ("1")',
+      "g = (x for x in [1])\ng.gi_frame",
+      "x = 1\nx.real._y",
+      "print(",
+    ]);
+    expect(ok).toBeNull();
+    expect(aliased).toContain("eval");
+    expect(wide).toContain("eval");
+    expect(frame).toContain("gi_frame");
+    expect(attr).toContain("._y");
+    expect(syntax).toBeNull(); // 문법 오류는 실행 결과로 그대로 알려 준다
   });
 
   it("따옴표·줄바꿈·역슬래시가 든 코드도 그대로, 실행마다 변수는 새로", () => {
