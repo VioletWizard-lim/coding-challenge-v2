@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Problem } from "./problemBank";
 import {
   changedFields,
+  parseAnchor,
   parseDifficulty,
   parseOpen,
   parseProblemCsv,
@@ -95,6 +96,41 @@ describe("검사", () => {
   });
   it("필수 제목 줄이 없으면 파일 전체 거부", () => {
     expect(parseProblemCsv("번호,제목\n1-1,가").error).toContain("과목");
+  });
+});
+
+describe("수업 계획 칸 (차시·순서·기본/심화·앵커·성취기준)", () => {
+  const head = "과목,번호,제목,차시,차시 안 순서,기본/심화,앵커,성취기준,공개\n";
+  it("읽고, 내려받은 파일을 그대로 올리면 바뀌는 칸이 없다", () => {
+    const [r] = parseProblemCsv(head + "정보,2-4,가,2,4,심화,O,\"04, [12정03-05]\",\n").rows;
+    expect(r.error).toBeNull();
+    expect(r.input).toMatchObject({ lesson: 2, lessonOrder: 4, level: "심화", anchor: true, standards: ["12정03-04", "12정03-05"] });
+    const tagged: Problem = { ...card, ...r.input, openAt: card.openAt };
+    const [again] = parseProblemCsv(problemsToCsv([tagged], now)).rows;
+    expect(changedFields(tagged, { ...again.input, openAt: card.openAt })).toEqual([]);
+    expect(changedFields(tagged, { ...again.input, anchor: false, openAt: card.openAt })).toEqual(["앵커"]);
+  });
+  it("칸이 없는 예전 양식 파일은 기존 값을 바꾸지 않는다", () => {
+    const [r] = parseProblemCsv("과목,번호,제목\n정보,2-4,가\n").rows;
+    expect(r.input.lesson).toBeUndefined();
+    expect(r.input.standards).toBeUndefined();
+    const tagged: Problem = { ...card, lesson: 2, anchor: true, standards: ["12정03-04"] };
+    const changes = changedFields(tagged, { ...tagged, ...r.input });
+    expect(changes).not.toContain("차시");
+    expect(changes).not.toContain("앵커");
+    expect(changes).not.toContain("성취기준");
+  });
+  it.each([
+    ["정보,1-1,가,0,,,,,", "차시"],
+    ["정보,1-1,가,,둘,,,,", "차시 안 순서"],
+    ["정보,1-1,가,,,중간,,,", "기본/심화"],
+    ["정보,1-1,가,,,,아마,,", "앵커"],
+    ["정보,1-1,가,,,,,12정99-01,", "모르는 성취기준"],
+  ])("%s → 오류", (line, msg) => {
+    expect(parseProblemCsv(head + line).rows[0].error).toContain(msg);
+  });
+  it("앵커 칸", () => {
+    expect([parseAnchor("O"), parseAnchor("○"), parseAnchor(""), parseAnchor("X"), parseAnchor("?")]).toEqual([true, true, false, false, null]);
   });
 });
 

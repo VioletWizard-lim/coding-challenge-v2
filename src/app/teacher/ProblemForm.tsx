@@ -10,6 +10,16 @@ import {
   type Problem,
 } from "@/lib/problemBank";
 import {
+  LESSON_STANDARDS,
+  lessonDefaults,
+  LEVELS,
+  MAX_LESSON,
+  MAX_LESSON_ORDER,
+  STANDARDS,
+  standardLabel,
+  type Level,
+} from "@/lib/standards";
+import {
   deleteProblemAction,
   saveProblemAction,
   type ProblemResult,
@@ -38,8 +48,14 @@ export default function ProblemForm({
   onCancel,
   onDirtyChange,
   onDraft,
+  siblings = [],
+  lessonReady = true,
 }: {
   problem: Problem;
+  /** 같은 과목의 다른 문제들 (차시 안 순서로 기본/심화·앵커를 미리 채울 때) */
+  siblings?: Problem[];
+  /** 성취기준·차시 칸(025)이 DB에 있는지 */
+  lessonReady?: boolean;
   now: Date;
   onDone?: (r: ProblemResult) => void;
   /** 저장하지 않고 고친 문제를 돌려받는다 (학습지 업로드 미리보기) */
@@ -70,8 +86,38 @@ export default function ProblemForm({
   const [openAtLocal, setOpenAtLocal] = useState(
     problem.openAt && !alreadyOpen ? toLocalInput(problem.openAt) : "",
   );
+  // 수업 계획 (025): 차시·순서를 넣으면 성취기준·기본/심화·앵커가 미리 채워진다 (고칠 수 있음)
+  const [lesson, setLesson] = useState(problem.lesson ? String(problem.lesson) : "");
+  const [lessonOrder, setLessonOrder] = useState(problem.lessonOrder ? String(problem.lessonOrder) : "");
+  const [level, setLevel] = useState<Level | null>(problem.level ?? null);
+  const [anchor, setAnchor] = useState(!!problem.anchor);
+  const [standards, setStandards] = useState<string[]>(problem.standards ?? []);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const lessonNum = /^\d+$/.test(lesson) ? Number(lesson) : null;
+  const orderNum = /^\d+$/.test(lessonOrder) ? Number(lessonOrder) : null;
+  const sameLesson = siblings.filter(
+    (q) => q.subject === problem.subject && q.id !== problem.id && lessonNum !== null && q.lesson === lessonNum,
+  );
+  const otherAnchors = anchor ? sameLesson.filter((q) => q.anchor) : [];
+
+  /** 차시·순서를 바꾸면 미리 채우기 */
+  function prefill(nextLesson: string, nextOrder: string) {
+    const l = /^\d+$/.test(nextLesson) ? Number(nextLesson) : null;
+    const o = /^\d+$/.test(nextOrder) ? Number(nextOrder) : null;
+    if (l === null) return;
+    if (o === null) {
+      setStandards(LESSON_STANDARDS[l] ?? []);
+      return;
+    }
+    const orders = siblings
+      .filter((q) => q.subject === problem.subject && q.id !== problem.id && q.lesson === l && q.lessonOrder)
+      .map((q) => q.lessonOrder!);
+    const d = lessonDefaults(l, o, orders);
+    setStandards(d.standards);
+    setLevel(d.level);
+    setAnchor(d.anchor);
+  }
 
   // 처음 값에서 바뀐 칸이 있는지 (번호는 추천 값이라, 다르게 고쳤을 때만)
   const dirty =
@@ -90,7 +136,12 @@ export default function ProblemForm({
         e.output !== (problem.examples[i]?.output ?? ""),
     ) ||
     openAtLocal !==
-      (problem.openAt && !alreadyOpen ? toLocalInput(problem.openAt) : "");
+      (problem.openAt && !alreadyOpen ? toLocalInput(problem.openAt) : "") ||
+    lesson !== (problem.lesson ? String(problem.lesson) : "") ||
+    lessonOrder !== (problem.lessonOrder ? String(problem.lessonOrder) : "") ||
+    level !== (problem.level ?? null) ||
+    anchor !== !!problem.anchor ||
+    standards.join() !== (problem.standards ?? []).join();
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
@@ -99,6 +150,10 @@ export default function ProblemForm({
     if (!NUMBER_PATTERN.test(number.trim()))
       return setError("번호는 '2-3'처럼 단원-번호로 적어 주세요.");
     if (!title.trim()) return setError("제목을 적어 주세요.");
+    if (lesson.trim() && (lessonNum === null || lessonNum < 1 || lessonNum > MAX_LESSON))
+      return setError(`차시는 1~${MAX_LESSON} 사이 숫자로 적어 주세요.`);
+    if (lessonOrder.trim() && (orderNum === null || orderNum < 1 || orderNum > MAX_LESSON_ORDER))
+      return setError(`차시 안 순서는 1~${MAX_LESSON_ORDER} 사이 숫자로 적어 주세요.`);
     if (onDraft) {
       setError(null);
       return onDraft({
@@ -139,6 +194,9 @@ export default function ProblemForm({
         challenge,
         starterCode,
         openAt,
+        ...(lessonReady
+          ? { lesson: lessonNum, lessonOrder: orderNum, level, anchor, standards }
+          : {}),
       });
       if (r.ok) onDone?.(r);
       else setError(r.message);
@@ -228,6 +286,116 @@ export default function ProblemForm({
             </span>
           </div>
         </div>
+        {!onDraft && (
+          <fieldset className="flex flex-col gap-2 rounded-lg border border-line bg-white p-3 text-sm">
+            <legend className="px-1 text-muted">
+              수업 계획 (선택, 연구용 지표를 차시·성취기준별로 나눠 볼 때 써요)
+            </legend>
+            {!lessonReady && (
+              <p className="text-xs text-amber-800">
+                아직 저장되지 않아요. Supabase에서 025_problem_lessons.sql을
+                실행해 주세요.
+              </p>
+            )}
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-muted">
+                차시
+                <input
+                  value={lesson}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                    setLesson(v);
+                    prefill(v, lessonOrder);
+                  }}
+                  inputMode="numeric"
+                  placeholder="2"
+                  className={`${inputClass} w-20 font-mono`}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-muted">
+                차시 안 순서
+                <input
+                  value={lessonOrder}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, "").slice(0, 2);
+                    setLessonOrder(v);
+                    prefill(lesson, v);
+                  }}
+                  inputMode="numeric"
+                  placeholder="1"
+                  className={`${inputClass} w-24 font-mono`}
+                />
+              </label>
+              <div className="flex flex-col gap-1 text-muted">
+                기본/심화
+                <div className="flex gap-1" role="radiogroup" aria-label="기본/심화">
+                  {LEVELS.map((lv) => (
+                    <button
+                      key={lv}
+                      type="button"
+                      role="radio"
+                      aria-checked={level === lv}
+                      onClick={() => setLevel(level === lv ? null : lv)}
+                      className={`rounded-lg border px-3 py-2 ${level === lv ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white text-ink"}`}
+                    >
+                      {lv}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 pb-2 text-ink">
+                <input
+                  type="checkbox"
+                  checked={anchor}
+                  onChange={(e) => setAnchor(e.target.checked)}
+                />
+                앵커(기준 문제)
+              </label>
+            </div>
+            <p className="text-xs text-muted">
+              차시와 순서를 넣으면 성취기준·기본/심화·앵커가 미리 채워져요
+              (3문제 이하면 1번만 기본, 4문제 이상이면 1·2번이 기본, 마지막
+              문제가 앵커). 문제마다 고칠 수 있어요.
+            </p>
+            {otherAnchors.length > 0 && (
+              <p className="text-xs text-amber-800">
+                이 차시에 앵커가 또 있어요:{" "}
+                {otherAnchors.map((q) => q.number).join(", ")}. 차시마다 하나만
+                두는 것을 권해요.
+              </p>
+            )}
+            <div className="flex flex-col gap-1">
+              <span className="text-muted">성취기준 [12정03] 프로그래밍</span>
+              {[true, false].map((main) => (
+                <div key={String(main)} className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span className="w-full text-xs text-muted">
+                    {main ? "주 성취기준" : "확장용"}
+                  </span>
+                  {STANDARDS.filter((s) => s.main === main).map((s) => (
+                    <label
+                      key={s.code}
+                      className="flex items-center gap-1 text-ink"
+                      title={s.text}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={standards.includes(s.code)}
+                        onChange={(e) =>
+                          setStandards(
+                            e.target.checked
+                              ? [...standards, s.code].sort()
+                              : standards.filter((c) => c !== s.code),
+                          )
+                        }
+                      />
+                      {standardLabel(s.code)}
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </fieldset>
+        )}
         <label className="flex flex-col gap-1 text-sm text-muted">
           문제
           <textarea

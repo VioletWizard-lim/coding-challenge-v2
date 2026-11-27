@@ -4,7 +4,8 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import ProblemView from "@/components/ProblemView";
 import { compareNumber, openStatus, type Problem } from "@/lib/problemBank";
 import { SUBJECTS } from "@/lib/problems";
-import type { ProblemResult } from "./actions";
+import { standardLabel, standardOf, type StandardSummary } from "@/lib/standards";
+import { loadStandardSummary, type ProblemResult } from "./actions";
 import ProblemForm, { inputClass } from "./ProblemForm";
 import ProblemImport from "./ProblemImport";
 
@@ -19,16 +20,28 @@ function nextNumber(list: Problem[]) {
   return `${u}-${n + 1}`;
 }
 
-/** 문제 관리: 과목별 문제 목록, 새 문제·고치기·지우기, 공개 시각 */
+/** 차시순: 차시 → 차시 안 순서 → 번호 (차시를 안 정한 문제는 맨 뒤) */
+function compareLesson(a: Problem, b: Problem) {
+  const big = Number.MAX_SAFE_INTEGER;
+  return (
+    (a.lesson ?? big) - (b.lesson ?? big) ||
+    (a.lessonOrder ?? big) - (b.lessonOrder ?? big) ||
+    compareNumber(a.number, b.number)
+  );
+}
+
+/** 문제 관리: 과목별 문제 목록, 새 문제·고치기·지우기, 공개 시각, 수업 계획(차시·성취기준) */
 export default function ProblemManager({
   problems,
   tableReady,
   fieldsReady,
+  lessonReady,
   now,
 }: {
   problems: Problem[];
   tableReady: boolean;
   fieldsReady: boolean;
+  lessonReady: boolean;
   now: string;
 }) {
   const subjects = Object.keys(SUBJECTS);
@@ -38,7 +51,10 @@ export default function ProblemManager({
   /** 저장·삭제 결과를 어느 문제 줄 아래에 보여 줄지 (새 문제는 맨 위) */
   const [messageAt, setMessageAt] = useState<string | null>(null);
   const [message, setMessage] = useState<ProblemResult | null>(null);
-  const list = problems.filter((p) => p.subject === subject);
+  const [order, setOrder] = useState<"number" | "lesson">("number");
+  const [showStandards, setShowStandards] = useState(false);
+  const all = problems.filter((p) => p.subject === subject);
+  const list = order === "lesson" ? [...all].sort(compareLesson) : all;
   const nowDate = new Date(now);
 
   /** 문제 줄 (미리보기·고치기를 열면 그 줄이 화면 위쪽에 오도록 옮길 때 씀) */
@@ -80,7 +96,7 @@ export default function ProblemManager({
     setEditing({
       id: null,
       subject,
-      number: nextNumber(list),
+      number: nextNumber(all),
       title: "",
       difficulty: null,
       description: "",
@@ -134,9 +150,44 @@ export default function ProblemManager({
           <code>supabase/migrations/004_problem_fields.sql</code>을 실행해 주세요.
         </p>
       )}
+      {tableReady && fieldsReady && !lessonReady && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          ⚠️ 문제에 차시·성취기준·기본/심화·앵커를 저장하려면 Supabase SQL Editor에서{" "}
+          <code>supabase/migrations/025_problem_lessons.sql</code>을 실행해 주세요.
+        </p>
+      )}
       <p className="text-sm text-muted">
         공개 시각이 되면 학생 화면에 문제가 나타나요. 그 전에는 학생에게 제목도 보이지 않아요. 시각은 한국 시간이에요. 문제 줄을 누르면 학생 화면에 보이는 모습을 볼 수 있어요.
       </p>
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">순서</span>
+        {(
+          [
+            ["number", "번호순"],
+            ["lesson", "차시순"],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={order === k}
+            onClick={() => setOrder(k)}
+            className={`rounded-lg border px-3 py-1 ${order === k ? "border-brand bg-brand-soft font-bold text-brand" : "border-line bg-white"}`}
+          >
+            {label}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-expanded={showStandards}
+          onClick={() => setShowStandards(!showStandards)}
+          className="ml-auto rounded-lg border border-line bg-white px-3 py-1"
+        >
+          {showStandards ? "▾" : "▸"} 성취기준별 보기
+        </button>
+      </div>
+      {showStandards && <StandardPanel key={subject} subject={subject} />}
 
       {message && messageAt === null && <Notice result={message} />}
 
@@ -146,6 +197,8 @@ export default function ProblemManager({
           key={`new-${editing.number}`}
           problem={editing}
           now={nowDate}
+          siblings={problems}
+          lessonReady={lessonReady}
           onDone={(r) => {
             setMessage(r);
             setMessageAt(null);
@@ -165,6 +218,7 @@ export default function ProblemManager({
               <th className="py-2 pr-3 font-normal">번호</th>
               <th className="py-2 pr-3 font-normal">제목</th>
               <th className="py-2 pr-3 font-normal">난이도</th>
+              <th className="py-2 pr-3 font-normal">차시·성취기준</th>
               <th className="py-2 pr-3 font-normal">내용</th>
               <th className="py-2 pr-3 font-normal">공개</th>
               <th className="py-2 font-normal" />
@@ -215,6 +269,9 @@ export default function ProblemManager({
                     >
                       {p.difficulty ? "★".repeat(p.difficulty) : <span className="text-muted">–</span>}
                     </td>
+                    <td className="py-2 pr-3 text-xs">
+                      <LessonCell p={p} />
+                    </td>
                     <td className="py-2 pr-3 text-xs text-muted">
                       {[
                         p.description && "문제",
@@ -251,7 +308,7 @@ export default function ProblemManager({
                   </tr>
                   {isViewing && (
                     <tr className="border-b border-line/60">
-                      <td colSpan={6} className="bg-page/60 p-4">
+                      <td colSpan={7} className="bg-page/60 p-4">
                         <div className="max-w-xl rounded-xl border border-line bg-white p-4">
                           <p className="mb-2 text-xs text-muted">학생 화면에서 이렇게 보여요</p>
                           <ProblemView problem={p} fit />
@@ -261,11 +318,13 @@ export default function ProblemManager({
                   )}
                   {isEditing && (
                     <tr>
-                      <td colSpan={6} className="py-2">
+                      <td colSpan={7} className="py-2">
                         <ProblemForm
                           key={p.id ?? p.number}
                           problem={editing}
                           now={nowDate}
+                          siblings={problems}
+                          lessonReady={lessonReady}
                           onDone={(r) => {
                             setMessage(r);
                             setMessageAt(p.number);
@@ -278,7 +337,7 @@ export default function ProblemManager({
                   )}
                   {message && messageAt === p.number && !isEditing && (
                     <tr>
-                      <td colSpan={6} className="pb-2">
+                      <td colSpan={7} className="pb-2">
                         <Notice result={message} />
                       </td>
                     </tr>
@@ -291,6 +350,86 @@ export default function ProblemManager({
         {list.length === 0 && <p className="py-4 text-sm text-muted">이 과목에는 아직 문제가 없어요.</p>}
       </div>
     </section>
+  );
+}
+
+/** 목록의 "차시·성취기준" 칸: "2차시 1번 · 기본 · ⚓앵커" + 성취기준 */
+function LessonCell({ p }: { p: Problem }) {
+  const head = [
+    p.lesson ? `${p.lesson}차시${p.lessonOrder ? ` ${p.lessonOrder}번` : ""}` : "",
+    p.level ?? "",
+  ].filter(Boolean);
+  const codes = p.standards ?? [];
+  if (!head.length && !codes.length && !p.anchor) return <span className="text-muted">–</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="whitespace-nowrap">
+        {head.join(" · ")}
+        {p.anchor && (
+          <span className="ml-1 rounded bg-amber-100 px-1 font-bold text-amber-900" title="기준 문제(앵커): 차시의 마지막·가장 어려운 문제">
+            ⚓ 앵커
+          </span>
+        )}
+      </span>
+      {codes.length > 0 && (
+        <span className="text-muted" title={codes.map((c) => `${standardLabel(c)}: ${standardOf(c)?.text ?? ""}`).join("\n")}>
+          {codes.map((c) => c.replace("12정", "")).join(" ")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** 성취기준별 보기: 성취기준마다 문제 수·앵커·낸 학생 수·제출 수 */
+function StandardPanel({ subject }: { subject: string }) {
+  const [rows, setRows] = useState<StandardSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    loadStandardSummary(subject).then((r) => {
+      if (!alive) return;
+      if (r.ok) setRows(r.rows);
+      else setError(r.message);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [subject]);
+  if (error) return <p role="alert" className="text-sm text-danger">{error}</p>;
+  if (!rows) return <p className="text-sm text-muted">불러오는 중…</p>;
+  return (
+    <div className="scrollbar-none overflow-x-auto rounded-lg border border-line bg-page/40 p-3">
+      <table className="w-full text-left text-sm">
+        <thead className="text-muted">
+          <tr className="border-b border-line">
+            <th className="py-1 pr-3 font-normal">성취기준</th>
+            <th className="py-1 pr-3 font-normal">문제</th>
+            <th className="py-1 pr-3 font-normal">앵커</th>
+            <th className="py-1 pr-3 text-right font-normal">낸 학생</th>
+            <th className="py-1 text-right font-normal">제출</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.code || "none"} className="border-b border-line/60 align-top">
+              <td className="py-1 pr-3" title={standardOf(r.code)?.text}>
+                {r.code ? standardLabel(r.code) : <span className="text-muted">(성취기준 없음)</span>}
+              </td>
+              <td className="py-1 pr-3">
+                {r.problems.length}개 <span className="text-xs text-muted">({r.problems.join(", ")})</span>
+              </td>
+              <td className="py-1 pr-3 text-xs">{r.anchors.join(", ") || <span className="text-muted">–</span>}</td>
+              <td className="py-1 pr-3 text-right">{r.students}명</td>
+              <td className="py-1 text-right">{r.submissions}건</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length === 0 && <p className="py-2 text-sm text-muted">이 과목에는 아직 문제가 없어요.</p>}
+      <p className="mt-2 text-xs text-muted">
+        한 문제에 성취기준이 여러 개면 각 줄에 모두 세요. 통과율 같은 연구용 지표는 따로 내려받을 수 있게 할 예정이에요.
+      </p>
+    </div>
   );
 }
 

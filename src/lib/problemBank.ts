@@ -3,6 +3,7 @@
  * (DB 읽기·쓰기는 problemStore.ts)
  */
 import { SUBJECTS } from "./problems";
+import { LEVELS, MAX_LESSON, MAX_LESSON_ORDER, validateStandards, type Level } from "./standards";
 
 export type Example = { input: string; output: string };
 
@@ -30,6 +31,15 @@ export type Problem = {
   starterCode: string;
   /** 공개 시각(ISO). null이면 비공개 */
   openAt: string | null;
+  /*
+   * 수업 계획 (025, 수업 문제에만): 성취기준 코드들, 기본/심화, 차시, 차시 안 순서, 기준 문제(앵커).
+   * undefined면 "정하지 않음/바꾸지 않음" (예: 새 칸이 없는 CSV를 올릴 때 기존 값을 지키려고)
+   */
+  standards?: string[];
+  level?: Level | null;
+  lesson?: number | null;
+  lessonOrder?: number | null;
+  anchor?: boolean;
 };
 
 export const MAX_EXAMPLES = 10;
@@ -111,6 +121,17 @@ export function validateProblem(p: ProblemInput): string | null {
   if (p.examples.some((e) => e.input.length > 5000 || e.output.length > 5000)) return "예시가 너무 길어요.";
   if (p.starterCode.length > 20_000) return "시작 코드가 너무 길어요.";
   if (p.openAt !== null && Number.isNaN(new Date(p.openAt).getTime())) return "공개 시각이 올바르지 않아요.";
+  if (p.standards !== undefined) {
+    const bad = validateStandards(p.standards);
+    if (bad) return bad;
+  }
+  if (p.level !== undefined && p.level !== null && !LEVELS.includes(p.level)) return "기본/심화를 다시 골라 주세요.";
+  if (p.lesson !== undefined && p.lesson !== null && !(Number.isInteger(p.lesson) && p.lesson >= 1 && p.lesson <= MAX_LESSON)) {
+    return `차시는 1~${MAX_LESSON} 사이 숫자로 적어 주세요.`;
+  }
+  if (p.lessonOrder !== undefined && p.lessonOrder !== null && !(Number.isInteger(p.lessonOrder) && p.lessonOrder >= 1 && p.lessonOrder <= MAX_LESSON_ORDER)) {
+    return `차시 안 순서는 1~${MAX_LESSON_ORDER} 사이 숫자로 적어 주세요.`;
+  }
   return null;
 }
 

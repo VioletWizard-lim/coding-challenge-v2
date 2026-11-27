@@ -35,7 +35,7 @@ import { getReview, listReviewsSince, setReviewFlag } from "@/lib/aiReviewStore"
 import { normalizeSettings, practiceLimit, type PracticeForTeacher, type PracticeSettings } from "@/lib/practice";
 import { getPractice, getPracticeSettings, listPracticeSince, PracticeNotReadyError, savePracticeSettings, setPracticeFlag } from "@/lib/practiceStore";
 import { compareNumber, isOpen, openStatus, parseExamples, validateProblem, type ProblemInput } from "@/lib/problemBank";
-import { changedFields, parseProblemCsv, resolveOpenAt } from "@/lib/problemCsv";
+import { changedFields, parseProblemCsv, resolveOpenAt, withoutLesson } from "@/lib/problemCsv";
 import { deleteProblem, listAllProblems, listOpenProblems, saveProblem } from "@/lib/problemStore";
 import { getUserProfile } from "@/lib/auth";
 import { listSolvedPractice } from "@/lib/practiceStore";
@@ -50,7 +50,8 @@ import { buildJourney, type Journey } from "@/lib/journey";
 import { allowedSubjects, SUBJECTS } from "@/lib/problems";
 import type { Reflection } from "@/lib/reflection";
 import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore";
-import { getMyJourneyData, getReplayDataById, submissionExists, submissionIdsAfter, type ReplayData } from "@/lib/submissions";
+import { getMyJourneyData, getReplayDataById, listSubmissionKeys, submissionExists, submissionIdsAfter, type ReplayData } from "@/lib/submissions";
+import { standardSummary, type StandardSummary } from "@/lib/standards";
 import { MAX_NOTES_PER_SUBMISSION, validateNote } from "@/lib/timelineNotes";
 import { countNotes, deleteNote, insertNote, listMyNotes, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 import type { NoteResult, ReplayResult } from "../student/actions";
@@ -205,11 +206,19 @@ export async function saveProblemAction(id: number | null, input: ProblemInput):
     challenge: String(input.challenge ?? ""),
     starterCode: String(input.starterCode ?? ""),
     openAt: input.openAt ? new Date(input.openAt).toISOString() : null,
+    // 수업 계획 (025): 화면에서 보낸 칸만
+    ...(input.standards !== undefined ? { standards: Array.isArray(input.standards) ? [...new Set(input.standards.map(String))].sort() : [] } : {}),
+    ...(input.level !== undefined ? { level: input.level || null } : {}),
+    ...(input.lesson !== undefined ? { lesson: input.lesson === null ? null : Number(input.lesson) } : {}),
+    ...(input.lessonOrder !== undefined ? { lessonOrder: input.lessonOrder === null ? null : Number(input.lessonOrder) } : {}),
+    ...(input.anchor !== undefined ? { anchor: input.anchor === true } : {}),
   };
   const invalid = validateProblem(p);
   if (invalid) return { ok: false, message: invalid };
+  let lessonMissing = false;
   try {
     const result = await saveProblem(id, p);
+    lessonMissing = result === "lesson-missing";
     if (result === "duplicate") return { ok: false, message: `${p.subject} ${p.number}번 문제가 이미 있어요.` };
     if (result === "fields-missing") {
       return { ok: false, message: "난이도·조건·예시 칸이 아직 없어요. Supabase에서 004_problem_fields.sql을 실행해 주세요." };
@@ -219,7 +228,11 @@ export async function saveProblemAction(id: number | null, input: ProblemInput):
     return { ok: false, message: "저장하지 못했어요. 잠시 후 다시 시도하세요." };
   }
   refresh();
-  return { ok: true, message: `${p.subject} ${p.number}번 문제를 저장했어요.` };
+  const saved = `${p.subject} ${p.number}번 문제를 저장했어요.`;
+  return {
+    ok: true,
+    message: lessonMissing ? `${saved} 성취기준·차시는 아직 저장되지 않아요 (Supabase에서 025_problem_lessons.sql을 실행해 주세요).` : saved,
+  };
 }
 
 /** 문제 삭제. 이미 낸 제출(submissions)은 그대로 남는다 */
@@ -233,6 +246,22 @@ export async function deleteProblemAction(id: number): Promise<ProblemResult> {
   }
   refresh();
   return { ok: true, message: "문제를 지웠어요." };
+}
+
+export type StandardSummaryResult = { ok: true; rows: StandardSummary[] } | { ok: false; message: string };
+
+/** 문제 관리 "성취기준별 보기": 성취기준마다 문제 수·앵커·낸 학생 수·제출 수 (한 과목) */
+export async function loadStandardSummary(subject: string): Promise<StandardSummaryResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  if (!(String(subject) in SUBJECTS)) return { ok: false, message: "과목을 고르세요." };
+  try {
+    const [{ problems }, subs] = await Promise.all([listAllProblems(), listSubmissionKeys(String(subject))]);
+    const mine = problems.filter((p) => p.subject === subject).sort((a, b) => compareNumber(a.number, b.number));
+    return { ok: true, rows: standardSummary(mine, subs) };
+  } catch (err) {
+    console.error("성취기준별 보기 오류:", err);
+    return { ok: false, message: "불러오지 못했어요. 잠시 후 다시 시도하세요." };
+  }
 }
 
 export type ProblemPreviewRow = {
@@ -259,14 +288,16 @@ export type ProblemImportPreview = { ok: true; rows: ProblemPreviewRow[] } | { o
 async function planProblemImport(csvText: string) {
   const parsed = parseProblemCsv(String(csvText ?? ""));
   if (parsed.error) return { error: parsed.error } as const;
-  const { problems, tableReady, fieldsReady } = await listAllProblems();
+  const { problems, tableReady, fieldsReady, lessonReady } = await listAllProblems();
   if (!tableReady || !fieldsReady) {
     return { error: "먼저 Supabase에서 003_problems.sql과 004_problem_fields.sql을 실행해 주세요." } as const;
   }
   const now = new Date();
   const plan = parsed.rows.map((r) => {
     const existing = problems.find((p) => p.subject === r.input.subject && p.number === r.input.number);
-    const next: ProblemInput = { ...r.input, openAt: resolveOpenAt(r.open, existing, now) };
+    // 성취기준·차시 칸(025)이 아직 없으면 그 칸은 비교·저장하지 않는다
+    const input = lessonReady ? r.input : withoutLesson(r.input);
+    const next: ProblemInput = { ...input, openAt: resolveOpenAt(r.open, existing, now) };
     const changes = existing ? changedFields(existing, next) : [];
     const status: ProblemPreviewRow["status"] = r.error ? "error" : !existing ? "new" : changes.length ? "update" : "same";
     const wasOpen = !!existing?.openAt && new Date(existing.openAt) <= now;
@@ -323,7 +354,7 @@ export async function importProblems(csvText: string): Promise<ProblemImportResu
       if (status === "error") skipped++;
       if (status !== "new" && status !== "update") continue;
       const saved = await saveProblem(existing?.id ?? null, next);
-      if (saved !== "ok") {
+      if (saved !== "ok" && saved !== "lesson-missing") {
         skipped++;
         continue;
       }

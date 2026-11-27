@@ -400,20 +400,30 @@ async function threadOf(userId: string, subject: string, problem: string, rootId
 
 /**
  * C 상황에서 찾아볼 이전 문제 기록: 같은 과목의 최근 제출 중 이 문제가 아닌 것.
- * 같은 단원("3-2"의 3)을 앞에 둔다. (P4 성취기준 태그가 생기면 같은 태그를 맨 앞에)
+ * 같은 성취기준이 붙은 문제를 맨 앞에, 그다음 같은 단원("3-2"의 3), 나머지는 최근 순.
  */
 async function previousRecords(profile: Owner, subject: string, problem: string): Promise<PrevRecord[]> {
   const [recent, { problems }] = await Promise.all([
     getMyRecentRecordings(profile, [subject], STUCK_RULES.previousRecords + 1),
     listAllProblems(),
   ]);
-  const titles = new Map(problems.map((p) => [`${p.subject}_${p.number}`, p.title]));
+  const byKey = new Map(problems.map((p) => [`${p.subject}_${p.number}`, p]));
+  const mine = new Set(byKey.get(`${subject}_${problem}`)?.standards ?? []);
   const unit = problem.split("-")[0];
-  const list = recent
+  const rank = (r: { subject: string; problem: string }) =>
+    (byKey.get(`${r.subject}_${r.problem}`)?.standards ?? []).some((c) => mine.has(c)) ? 0 : r.problem.split("-")[0] === unit ? 1 : 2;
+  return recent
     .filter((r) => r.problem !== problem)
     .slice(0, STUCK_RULES.previousRecords)
-    .map((r) => ({ problem: r.problem, title: titles.get(`${r.subject}_${r.problem}`) ?? "", submissionId: Number(r.id), init: r.init, log: r.log }));
-  return [...list.filter((r) => r.problem.split("-")[0] === unit), ...list.filter((r) => r.problem.split("-")[0] !== unit)];
+    .map((r, i) => ({ r, i, rank: rank(r) }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i) // 같은 순위 안에서는 최근 순 그대로
+    .map(({ r }) => ({
+      problem: r.problem,
+      title: byKey.get(`${r.subject}_${r.problem}`)?.title ?? "",
+      submissionId: Number(r.id),
+      init: r.init,
+      log: r.log,
+    }));
 }
 
 export type ChatsResult =

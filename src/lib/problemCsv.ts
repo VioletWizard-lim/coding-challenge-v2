@@ -5,12 +5,14 @@
  */
 import { compareNumber, validateProblem, type Example, type Problem, type ProblemInput } from "./problemBank";
 import { parseCsv } from "./studentCsv";
+import { MAX_LESSON, MAX_LESSON_ORDER, parseStandards, type Level } from "./standards";
 
 export const MAX_PROBLEM_ROWS = 300;
 /** CSV에 넣는 예시 칸 수 (화면에서는 10개까지 넣을 수 있지만 엑셀이 너무 넓어지지 않게) */
 export const CSV_EXAMPLES = 5;
 
-const BASE_HEADERS = ["과목", "번호", "제목", "난이도", "문제", "조건"];
+const BASE_HEADERS = ["과목", "번호", "제목", "난이도", "차시", "차시 안 순서", "기본/심화", "앵커", "성취기준", "문제", "조건"];
+// 수업 계획 칸(차시~성취기준, 025): 파일에 이 칸이 없으면 그 값은 바꾸지 않는다 (예전 양식 파일을 올려도 기존 값을 지킴)
 const EXAMPLE_HEADERS = Array.from({ length: CSV_EXAMPLES }, (_, i) => [
   `예시${i + 1} 입력`,
   `예시${i + 1} 출력`,
@@ -41,6 +43,22 @@ export function parseOpen(text: string): OpenValue | null {
   return { kind: "at", iso: new Date(Date.UTC(y, mo - 1, d, h - 9, mi)).toISOString() };
 }
 
+/** 차시·순서 칸: 빈칸이면 null, 1~max 정수가 아니면 NaN */
+export function parseSmallInt(text: string, max: number): number | null {
+  const t = text.trim();
+  if (!t) return null;
+  const n = /^\d{1,2}$/.test(t) ? Number(t) : NaN;
+  return n >= 1 && n <= max ? n : NaN;
+}
+
+/** 앵커 칸: "O"·"○"·"예"·"앵커" → true, 빈칸·"X"·"아니오" → false, 그 밖은 null */
+export function parseAnchor(text: string): boolean | null {
+  const t = text.trim().toLowerCase();
+  if (!t || ["x", "×", "아니오", "아니요", "no", "n", "false", "0", "-"].includes(t)) return false;
+  if (["o", "○", "◯", "●", "예", "네", "앵커", "기준", "yes", "y", "true", "1", "v", "✔"].includes(t)) return true;
+  return null;
+}
+
 /** 난이도 칸: "3" 또는 "★★★". 빈칸이면 null, 알아볼 수 없으면 NaN */
 export function parseDifficulty(text: string): number | null {
   const t = text.trim();
@@ -66,6 +84,11 @@ export function problemsToCsv(problems: Problem[], now: Date): string {
         p.number,
         p.title === p.number ? "" : p.title,
         p.difficulty ? String(p.difficulty) : "",
+        p.lesson ? String(p.lesson) : "",
+        p.lessonOrder ? String(p.lessonOrder) : "",
+        p.level ?? "",
+        p.anchor ? "O" : "",
+        (p.standards ?? []).join(" "),
         p.description,
         p.conditions,
         ...examples,
@@ -115,6 +138,27 @@ export function parseProblemCsv(text: string): { rows: ParsedProblem[]; error: s
     const number = get("번호").trim();
     const difficulty = parseDifficulty(get("난이도"));
     const open = parseOpen(get("공개"));
+    // 수업 계획 칸: 파일에 있는 칸만 읽는다
+    const has = (name: string) => col(name) >= 0;
+    const lesson = has("차시") ? parseSmallInt(get("차시"), MAX_LESSON) : undefined;
+    const lessonOrder = has("차시 안 순서") ? parseSmallInt(get("차시 안 순서"), MAX_LESSON_ORDER) : undefined;
+    const levelText = get("기본/심화").trim();
+    const level: Level | null | undefined | "bad" = !has("기본/심화")
+      ? undefined
+      : !levelText
+        ? null
+        : levelText === "기본" || levelText === "심화"
+          ? levelText
+          : "bad";
+    const anchor = has("앵커") ? parseAnchor(get("앵커")) : undefined;
+    const standards = has("성취기준") ? parseStandards(get("성취기준")) : undefined;
+    const lessonInput = {
+      ...(lesson !== undefined && !Number.isNaN(lesson) ? { lesson } : {}),
+      ...(lessonOrder !== undefined && !Number.isNaN(lessonOrder) ? { lessonOrder } : {}),
+      ...(level !== undefined && level !== "bad" ? { level } : {}),
+      ...(anchor !== undefined && anchor !== null ? { anchor } : {}),
+      ...(standards ? { standards: standards.codes } : {}),
+    };
     const input = {
       subject: get("과목").trim(),
       number,
@@ -126,10 +170,16 @@ export function parseProblemCsv(text: string): { rows: ParsedProblem[]; error: s
       goal: get("문제 목표").trim(),
       challenge: get("도전 과제").trim(),
       starterCode: get("시작 코드"),
+      ...lessonInput,
     };
     const key = `${input.subject}_${number}`;
     let error: string | null = null;
     if (Number.isNaN(difficulty)) error = "난이도는 1~5 숫자나 ★로 적어 주세요.";
+    else if (Number.isNaN(lesson)) error = `차시는 1~${MAX_LESSON} 사이 숫자로 적어 주세요.`;
+    else if (Number.isNaN(lessonOrder)) error = `차시 안 순서는 1~${MAX_LESSON_ORDER} 사이 숫자로 적어 주세요.`;
+    else if (level === "bad") error = "기본/심화 칸에는 '기본'이나 '심화'를 적어 주세요.";
+    else if (anchor === null) error = "앵커 칸에는 O(기준 문제) 또는 빈칸을 적어 주세요.";
+    else if (standards?.bad.length) error = `모르는 성취기준이 있어요: ${standards.bad.join(", ")} (예: 12정03-04)`;
     else if (!open) error = "공개 칸은 '공개', '비공개', 또는 '2026-11-03 09:00'처럼 적어 주세요.";
     else if (seen.has(key)) error = "파일 안에 같은 과목·번호가 또 있어요.";
     else error = validateProblem({ ...input, openAt: null });
@@ -163,9 +213,25 @@ const FIELD_NAMES: [keyof ProblemInput, string][] = [
   ["challenge", "도전 과제"],
   ["starterCode", "시작 코드"],
   ["openAt", "공개"],
+  ["lesson", "차시"],
+  ["lessonOrder", "차시 안 순서"],
+  ["level", "기본/심화"],
+  ["anchor", "앵커"],
+  ["standards", "성취기준"],
 ];
 
-/** 기존 문제와 비교해 바뀌는 칸 이름들 */
+/** 기존 문제와 비교해 바뀌는 칸 이름들 (next에서 정하지 않은 칸(undefined)은 바뀌지 않음) */
 export function changedFields(existing: Problem, next: ProblemInput): string[] {
-  return FIELD_NAMES.filter(([k]) => JSON.stringify(existing[k]) !== JSON.stringify(next[k])).map(([, name]) => name);
+  // 앵커 없음(false)과 성취기준 없음([])은 "정하지 않음"과 같게 본다
+  const same = (k: keyof ProblemInput, v: unknown) => (k === "anchor" ? !!v : k === "standards" ? (v ?? []) : (v ?? null));
+  return FIELD_NAMES.filter(
+    ([k]) => next[k] !== undefined && JSON.stringify(same(k, existing[k])) !== JSON.stringify(same(k, next[k])),
+  ).map(([, name]) => name);
+}
+
+/** 수업 계획 칸(025)이 DB에 없을 때: 그 값은 비교·저장하지 않는다 */
+export function withoutLesson<T extends Partial<ProblemInput>>(p: T): T {
+  const rest = { ...p };
+  for (const k of ["standards", "level", "lesson", "lessonOrder", "anchor"] as const) delete rest[k];
+  return rest;
 }
