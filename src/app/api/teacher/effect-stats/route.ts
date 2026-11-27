@@ -1,14 +1,15 @@
 import { getSession } from "@/lib/session";
 import { mergeStatRows, schoolYearOf } from "@/lib/yearEnd";
-import { computeYearStats, listYearStats } from "@/lib/yearEndStore";
+import { computeYearStats, listYearStats, loadEffectStats, saveEffectStats } from "@/lib/yearEndStore";
 
 export const maxDuration = 300;
 
 /**
  * 📈 수업 분석 화면의 이름 없는 통계 (교사·관리자). 이름·아이디는 담지 않는다 (월 × 과목 × 반의 숫자만).
  * - year 없이: 고를 수 있는 학년도 (올해·지난해 + 학년도 말 정리 때 남겨 둔 해)
- * - ?year=2026: 지금 남은 기록으로 계산하고, 학년도 말 정리 때 남겨 둔 통계(지운 반의 숫자)와 합쳐서.
- *   작성 기록을 모두 읽으므로 시간이 걸릴 수 있다
+ * - ?year=2026: 전에 계산해 둔 결과가 있으면 그것을 바로 돌려준다(computedAt = 계산한 시각).
+ *   없거나 &refresh=1이면 지금 남은 기록으로 계산하고(작성 기록을 모두 읽어 시간이 걸림), 학년도 말 정리 때 남겨 둔 통계(지운 반의 숫자)와 합쳐 저장한다
+ * - &cachedOnly=1: 계산해 둔 결과만 (없으면 { missing: true }) — 화면을 열 때 계산 없이 바로 보여 주려고
  */
 export async function GET(request: Request) {
   const session = await getSession();
@@ -23,11 +24,19 @@ export async function GET(request: Request) {
     }
     const year = Number(raw);
     if (!Number.isInteger(year) || year < 2020 || year > 2100) return Response.json({ error: "학년도를 고르세요." }, { status: 400 });
+    const params = new URL(request.url).searchParams;
+    const headers = { "cache-control": "no-store" };
+    if (params.get("refresh") !== "1") {
+      const cached = await loadEffectStats(year);
+      if (cached) return Response.json({ year, ...cached, cached: true }, { headers });
+      if (params.get("cachedOnly") === "1") return Response.json({ year, missing: true }, { headers });
+    }
     const kept = saved.years.find((y) => y.year === year);
     const rows = mergeStatRows(kept?.rows ?? [], await computeYearStats(year));
-    return Response.json({ year, kept: !!kept, rows }, { headers: { "cache-control": "no-store" } });
+    const computedAt = await saveEffectStats(year, rows, !!kept);
+    return Response.json({ year, kept: !!kept, rows, computedAt, cached: false }, { headers });
   } catch (err) {
-    console.error("수업 효과 통계 오류:", err);
+    console.error("수업 분석 통계 오류:", err);
     return Response.json({ error: "통계를 만들지 못했어요. 잠시 후 다시 시도하세요." }, { status: 500 });
   }
 }

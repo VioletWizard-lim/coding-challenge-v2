@@ -388,6 +388,28 @@ export async function listYearStats(): Promise<{ ready: boolean; years: { year: 
   };
 }
 
+/* ───────── 수업 분석 계산 결과 (다시 계산하지 않고 보여 주기) ───────── */
+// 새 표 없이 app_status(002)에 "effect_stats:{학년도}" 한 줄로 둔다. 이름·아이디 없는 숫자만(월 × 과목 × 반)
+
+const effectKey = (year: number) => `effect_stats:${year}`;
+
+/** 저장해 둔 수업 분석 결과 (없거나 읽지 못하면 null → 새로 계산) */
+export async function loadEffectStats(year: number): Promise<{ rows: StatRow[]; computedAt: string; kept: boolean } | null> {
+  const { data, error } = await db().from("app_status").select("value, updated_at").eq("key", effectKey(year)).maybeSingle();
+  if (error || !data) return null;
+  const v = data.value as { rows?: unknown; kept?: unknown } | null;
+  if (!v || !Array.isArray(v.rows)) return null;
+  return { rows: v.rows as StatRow[], computedAt: String(data.updated_at), kept: v.kept === true };
+}
+
+/** 계산한 결과를 저장한다 (저장하지 못해도 화면에는 보여 준다) */
+export async function saveEffectStats(year: number, rows: StatRow[], kept: boolean): Promise<string> {
+  const computedAt = new Date().toISOString();
+  const { error } = await db().from("app_status").upsert({ key: effectKey(year), value: { rows, kept }, updated_at: computedAt });
+  if (error) console.warn("수업 분석 결과 저장 건너뜀:", error.message);
+  return computedAt;
+}
+
 /** 지우기: 그 학년도(와 반)의 학생 기록 전부 (가리키는 기록부터, 학생 계정은 마지막에). 지운 수를 돌려준다 */
 export async function deleteYear(year: number, everyStudent: boolean, cls = "", studentId = ""): Promise<{ table: string; deleted: number | null }[]> {
   const scope = await buildScope(year, cls, everyStudent, studentId);

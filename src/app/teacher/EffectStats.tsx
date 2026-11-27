@@ -19,7 +19,10 @@ const METRICS: Metric[] = [
 const monthLabel = (m: string) => `${m.slice(2, 4)}.${Number(m.slice(5))}`;
 const fmt = (v: number | null, unit: string) => (v === null ? "—" : `${v.toLocaleString()}${unit}`);
 
-type Loaded = { year: number; kept: boolean; rows: StatRow[] };
+type Loaded = { year: number; kept: boolean; rows: StatRow[]; computedAt: string };
+
+const timeText = (iso: string) =>
+  new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
 /**
  * 📈 수업 분석 (이름 없는 통계, 보고서 캡처용). 학년도를 골라 계산하면 월 × 과목 × 반의 숫자만 받아
@@ -47,13 +50,36 @@ export default function EffectStats() {
       .catch(() => setError("학년도 목록을 불러오지 못했어요."));
   }, []);
 
-  async function load() {
+  // 고른 학년도를 전에 계산해 둔 결과가 모두 있으면 계산 없이 바로 보여 준다 (하나라도 없으면 "통계 계산하기")
+  const pickedKey = [...picked].sort().join(",");
+  useEffect(() => {
+    if (!pickedKey) return;
+    let alive = true;
+    Promise.all(
+      pickedKey.split(",").map(async (y) => {
+        const r = await fetch(`/api/teacher/effect-stats?year=${y}&cachedOnly=1`);
+        const x = await r.json();
+        return r.ok && !x.missing ? (x as Loaded) : null;
+      }),
+    )
+      .then((list) => {
+        if (!alive) return;
+        setLoaded(list.every((x) => x) ? (list as Loaded[]) : null);
+      })
+      .catch(() => alive && setLoaded(null));
+    return () => {
+      alive = false;
+    };
+  }, [pickedKey]);
+
+  /** refresh: 계산해 둔 결과가 있어도 다시 계산 (다시 생성) */
+  async function load(refresh = false) {
     setLoading(true);
     setError(null);
     try {
       const list = await Promise.all(
         [...picked].sort().map(async (y) => {
-          const r = await fetch(`/api/teacher/effect-stats?year=${y}`);
+          const r = await fetch(`/api/teacher/effect-stats?year=${y}${refresh ? "&refresh=1" : ""}`);
           const x = await r.json();
           if (!r.ok) throw new Error(x.error ?? "통계를 만들지 못했어요.");
           return x as Loaded;
@@ -82,7 +108,8 @@ export default function EffectStats() {
         <h2 className="text-lg font-bold">📈 수업 분석 (이름 없는 통계)</h2>
         <p className="mt-1 text-sm leading-6 text-muted">
           월 × 과목 × 반의 <b>숫자만</b> 모아 보여 줘요(이름·아이디 없음). 보고서·연구 자료로 캡처해 쓰세요. 학년도 말 정리로 기록을 지운 해도
-          그때 남겨 둔 통계로 계속 보여요. 작성 기록을 모두 읽어 계산하므로 1~2분 걸릴 수 있어요.
+          그때 남겨 둔 통계로 계속 보여요. 처음 계산할 때는 작성 기록을 모두 읽어 1~2분 걸리고, 계산한 결과는 저장해 두었다가
+          다음부터 바로 보여 줘요(새 제출을 넣으려면 &lsquo;↻ 다시 생성&rsquo;).
         </p>
       </div>
 
@@ -99,14 +126,30 @@ export default function EffectStats() {
             {years.saved.includes(y) && <span className="text-xs text-muted">· 남겨 둔 통계 있음</span>}
           </label>
         ))}
-        <button
-          type="button"
-          disabled={loading || picked.length === 0}
-          onClick={load}
-          className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-dark disabled:opacity-50"
-        >
-          {loading ? "계산하는 중…" : loaded ? "↻ 다시 계산하기" : "📈 통계 계산하기"}
-        </button>
+        {loaded && !loading ? (
+          <span className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted">
+              계산한 시각: {timeText(loaded.map((l) => l.computedAt).sort()[0])}
+              {" "}(그 뒤에 낸 제출은 &lsquo;다시 생성&rsquo;을 눌러야 들어가요)
+            </span>
+            <button
+              type="button"
+              onClick={() => load(true)}
+              className="rounded-lg border border-brand bg-white px-4 py-2 font-bold text-brand hover:bg-brand-soft"
+            >
+              ↻ 다시 생성
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={loading || picked.length === 0}
+            onClick={() => load()}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-dark disabled:opacity-50"
+          >
+            {loading ? "계산하는 중… (1~2분 걸릴 수 있어요)" : "📈 통계 계산하기"}
+          </button>
+        )}
       </div>
       {error && <p className="text-sm text-danger">{error}</p>}
 
