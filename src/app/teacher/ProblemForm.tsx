@@ -92,6 +92,19 @@ export default function ProblemForm({
   const [level, setLevel] = useState<Level | null>(problem.level ?? null);
   const [anchor, setAnchor] = useState(!!problem.anchor);
   const [standards, setStandards] = useState<string[]>(problem.standards ?? []);
+  // 선택 칸: 이미 값이 있으면 처음부터 펼쳐 둔다 (고칠 때 찾느라 헤매지 않게)
+  const [more, setMore] = useState(
+    () =>
+      problem.difficulty !== null ||
+      !!problem.conditions.trim() ||
+      !!problem.goal.trim() ||
+      !!problem.challenge.trim() ||
+      !!problem.starterCode.trim() ||
+      !!problem.lesson ||
+      !!problem.level ||
+      !!problem.anchor ||
+      !!problem.standards?.length,
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const lessonNum = /^\d+$/.test(lesson) ? Number(lesson) : null;
@@ -260,6 +273,91 @@ export default function ProblemForm({
             />
           </label>
         </div>
+        <label className="flex flex-col gap-1 text-sm text-muted">
+          문제
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={5}
+            placeholder="용돈과 과자 가격을 입력받아, 과자를 살 수 있는지 출력하는 프로그램을 만드세요."
+            className={`${inputClass} leading-6`}
+          />
+        </label>
+        <fieldset className="flex flex-col gap-2 text-sm text-muted">
+          <legend className="mb-1">
+            예시 (입력값이 여러 개면 &lsquo;길동 / 돈까스 / 볶음밥 /
+            된장국&rsquo;처럼, 입력이 없는 문제는 비워 두세요)
+          </legend>
+          {examples.map((ex, i) => (
+            <div
+              key={i}
+              className="grid gap-2 rounded-lg border border-line bg-white p-2 sm:grid-cols-[1fr_1fr_auto]"
+            >
+              <label className="flex flex-col gap-1">
+                <span className="text-xs">예시 {i + 1} 입력</span>
+                <textarea
+                  value={ex.input}
+                  onChange={(e) =>
+                    setExamples(
+                      examples.map((x, j) =>
+                        j === i ? { ...x, input: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  rows={2}
+                  spellCheck={false}
+                  className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs">예시 {i + 1} 출력</span>
+                <textarea
+                  value={ex.output}
+                  onChange={(e) =>
+                    setExamples(
+                      examples.map((x, j) =>
+                        j === i ? { ...x, output: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  rows={2}
+                  spellCheck={false}
+                  className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setExamples(examples.filter((_, j) => j !== i))}
+                className="self-end rounded-lg px-2 py-1 text-xs text-danger hover:bg-red-50"
+                aria-label={`예시 ${i + 1} 지우기`}
+              >
+                지우기
+              </button>
+            </div>
+          ))}
+          {examples.length < MAX_EXAMPLES && (
+            <button
+              type="button"
+              onClick={() =>
+                setExamples([...examples, { input: "", output: "" }])
+              }
+              className="self-start rounded-lg border border-line bg-white px-3 py-1 text-sm"
+            >
+              ＋ 예시 추가
+            </button>
+          )}
+        </fieldset>
+        {/* 꼭 필요한 칸(번호·제목·문제·예시·공개)만 먼저 보이고, 나머지는 "더 적기"를 눌러 연다. 값이 있으면 처음부터 열림 */}
+        <button
+          type="button"
+          onClick={() => setMore(!more)}
+          aria-expanded={more}
+          className="self-start rounded-lg border border-line bg-white px-3 py-1.5 text-sm hover:bg-page"
+        >
+          {more ? "▾" : "▸"} 더 적기 (선택: 난이도, 조건, 문제 목표, 도전 과제, 시작 코드{onDraft ? "" : ", 수업 계획"})
+        </button>
+        {more && (
+          <div className="flex flex-col gap-3 border-l-2 border-brand/20 pl-3">
         <div className="flex flex-col gap-1 text-sm text-muted">
           난이도
           <div
@@ -286,6 +384,51 @@ export default function ProblemForm({
             </span>
           </div>
         </div>
+        <label className="flex flex-col gap-1 text-sm text-muted">
+          조건 (한 줄에 하나씩, 학생 화면에 1. 2. 3. 번호가 붙어요)
+          <textarea
+            value={conditions}
+            onChange={(e) => setConditions(e.target.value)}
+            rows={3}
+            placeholder={
+              "input()을 4번 이상 사용할 것 (이름, 반찬, 밥 종류, 국 종류)\n추천 조합 메뉴는 밥 종류와 반찬을 결합해서 새로 만들 것\n예시와 같은 형태로 여러 줄에 걸쳐 출력할 것"
+            }
+            className={`${inputClass} leading-6`}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-muted">
+          문제 목표
+          <textarea
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            rows={2}
+            placeholder="입력값을 정수로 바꾸고, 조건문으로 두 경우를 나눌 수 있다."
+            className={`${inputClass} leading-6`}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-muted">
+          도전 과제 (경험자용, 선택)
+          <textarea
+            value={challenge}
+            onChange={(e) => setChallenge(e.target.value)}
+            rows={2}
+            placeholder="과자를 여러 개 살 때 몇 개까지 살 수 있는지도 출력해 보세요."
+            className={`${inputClass} leading-6`}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm text-muted">
+          시작 코드 (선택, 학생 편집기에 처음부터 들어 있음)
+          <textarea
+            value={starterCode}
+            onChange={(e) => setStarterCode(e.target.value)}
+            rows={4}
+            spellCheck={false}
+            placeholder={
+              "money = int(input())\n# 여기에 코드를 이어서 작성하세요"
+            }
+            className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
+          />
+        </label>
         {!onDraft && (
           <fieldset className="flex flex-col gap-2 rounded-lg border border-line bg-white p-3 text-sm">
             <legend className="px-1 text-muted">
@@ -396,125 +539,8 @@ export default function ProblemForm({
             </div>
           </fieldset>
         )}
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          문제
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={5}
-            placeholder="용돈과 과자 가격을 입력받아, 과자를 살 수 있는지 출력하는 프로그램을 만드세요."
-            className={`${inputClass} leading-6`}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          조건 (한 줄에 하나씩, 학생 화면에 1. 2. 3. 번호가 붙어요)
-          <textarea
-            value={conditions}
-            onChange={(e) => setConditions(e.target.value)}
-            rows={3}
-            placeholder={
-              "input()을 4번 이상 사용할 것 (이름, 반찬, 밥 종류, 국 종류)\n추천 조합 메뉴는 밥 종류와 반찬을 결합해서 새로 만들 것\n예시와 같은 형태로 여러 줄에 걸쳐 출력할 것"
-            }
-            className={`${inputClass} leading-6`}
-          />
-        </label>
-        <fieldset className="flex flex-col gap-2 text-sm text-muted">
-          <legend className="mb-1">
-            예시 (입력값이 여러 개면 &lsquo;길동 / 돈까스 / 볶음밥 /
-            된장국&rsquo;처럼, 입력이 없는 문제는 비워 두세요)
-          </legend>
-          {examples.map((ex, i) => (
-            <div
-              key={i}
-              className="grid gap-2 rounded-lg border border-line bg-white p-2 sm:grid-cols-[1fr_1fr_auto]"
-            >
-              <label className="flex flex-col gap-1">
-                <span className="text-xs">예시 {i + 1} 입력</span>
-                <textarea
-                  value={ex.input}
-                  onChange={(e) =>
-                    setExamples(
-                      examples.map((x, j) =>
-                        j === i ? { ...x, input: e.target.value } : x,
-                      ),
-                    )
-                  }
-                  rows={2}
-                  spellCheck={false}
-                  className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs">예시 {i + 1} 출력</span>
-                <textarea
-                  value={ex.output}
-                  onChange={(e) =>
-                    setExamples(
-                      examples.map((x, j) =>
-                        j === i ? { ...x, output: e.target.value } : x,
-                      ),
-                    )
-                  }
-                  rows={2}
-                  spellCheck={false}
-                  className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => setExamples(examples.filter((_, j) => j !== i))}
-                className="self-end rounded-lg px-2 py-1 text-xs text-danger hover:bg-red-50"
-                aria-label={`예시 ${i + 1} 지우기`}
-              >
-                지우기
-              </button>
-            </div>
-          ))}
-          {examples.length < MAX_EXAMPLES && (
-            <button
-              type="button"
-              onClick={() =>
-                setExamples([...examples, { input: "", output: "" }])
-              }
-              className="self-start rounded-lg border border-line bg-white px-3 py-1 text-sm"
-            >
-              ＋ 예시 추가
-            </button>
-          )}
-        </fieldset>
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          문제 목표
-          <textarea
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            rows={2}
-            placeholder="입력값을 정수로 바꾸고, 조건문으로 두 경우를 나눌 수 있다."
-            className={`${inputClass} leading-6`}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          도전 과제 (경험자용, 선택)
-          <textarea
-            value={challenge}
-            onChange={(e) => setChallenge(e.target.value)}
-            rows={2}
-            placeholder="과자를 여러 개 살 때 몇 개까지 살 수 있는지도 출력해 보세요."
-            className={`${inputClass} leading-6`}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-muted">
-          시작 코드 (선택, 학생 편집기에 처음부터 들어 있음)
-          <textarea
-            value={starterCode}
-            onChange={(e) => setStarterCode(e.target.value)}
-            rows={4}
-            spellCheck={false}
-            placeholder={
-              "money = int(input())\n# 여기에 코드를 이어서 작성하세요"
-            }
-            className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
-          />
-        </label>
+          </div>
+        )}
         {!onDraft && (
           <fieldset className="flex flex-col gap-2 text-sm">
             <legend className="mb-1 text-muted">공개</legend>
