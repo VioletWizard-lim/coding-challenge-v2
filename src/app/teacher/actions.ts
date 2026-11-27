@@ -53,6 +53,7 @@ import { listMyReflections, listReflectionsByDate } from "@/lib/reflectionStore"
 import { getMyJourneyData, getReplayDataById, listSubmissionKeys, submissionExists, submissionIdsAfter, type ReplayData } from "@/lib/submissions";
 import { standardSummary, type StandardSummary } from "@/lib/standards";
 import { MAX_NOTES_PER_SUBMISSION, validateNote } from "@/lib/timelineNotes";
+import { schoolYearOf, schoolYearRange } from "@/lib/yearEnd";
 import { countNotes, deleteNote, insertNote, listMyNotes, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 import type { NoteResult, ReplayResult } from "../student/actions";
 import { parseStudentCsv, planForExisting, type ExistingPlan, type ParsedRow } from "@/lib/studentCsv";
@@ -478,12 +479,15 @@ export type TeacherChatsResult =
   | { ok: true; ready: boolean; chats: AiChat[]; reviews: AiReview[]; practice: PracticeForTeacher[] }
   | { ok: false; message: string };
 
-/** 학생 AI 대화 열람 (최근 days일). 미성년자 보호: 교사는 모든 학생의 AI 대화를 볼 수 있다 */
+/**
+ * 학생 AI 대화 열람 (최근 days일, 0이면 이번 학년도 전체 = 3월 1일부터). 미성년자 보호: 교사는 모든 학생의 AI 대화를 볼 수 있다.
+ * 기록은 학년도 말 정리 때까지(다음 해 2월 말) 남으므로, 학년도 전체를 볼 수 있어야 한다
+ */
 export async function loadAiChats(days: number): Promise<TeacherChatsResult> {
   if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
-  const span = [7, 30, 180].includes(Number(days)) ? Number(days) : 7;
+  const span = [0, 7, 30, 180].includes(Number(days)) ? Number(days) : 7;
   try {
-    const since = new Date(Date.now() - span * 86_400_000).toISOString();
+    const since = span === 0 ? schoolYearRange(schoolYearOf(new Date())).from : new Date(Date.now() - span * 86_400_000).toISOString();
     const [chats, reviews, practice] = await Promise.all([listChatsSince(since), listReviewsSince(since), listPracticeSince(since)]);
     return { ok: true, ...chats, reviews: reviews.reviews, practice: practice.items };
   } catch (err) {

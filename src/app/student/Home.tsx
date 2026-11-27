@@ -67,7 +67,7 @@ export default function Home({ name, data }: { name: string; data: HomeData }) {
                   onClick={() => (s.next ? startWriting(s.subject, s.next) : showTab("write"))}
                   className="rounded-lg bg-brand px-5 py-2.5 font-bold text-white"
                 >
-                  📝 {s.next ? "이 문제 풀러 가기" : "코드 작성하러 가기"} →
+                  📝 {s.next ? "이 문제 풀러 가기" : "코드 제출하러 가기"} →
                 </button>
               )}
             </li>

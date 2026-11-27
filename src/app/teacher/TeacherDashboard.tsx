@@ -45,14 +45,14 @@ export default function TeacherDashboard({
         <div className="flex flex-wrap gap-1.5">
         {[
           // 왼쪽 메뉴와 같은 순서
-          ["📚 문제 관리", "problems"],
+          ["📚 문제 등록 및 관리", "problems"],
           ["✏️ 학생이 만든 문제", "student-problems"],
           ["📝 채점", "grading"],
           ["📊 반별 현황", "stats"],
           ["🧭 학생별 학습 여정", "journey"],
           ["💭 성찰 모아보기", "reflections"],
-          ["🤖 AI 대화", "ai"],
-          ["📈 수업 효과", "effect"],
+          ["🤖 학생 AI 대화 기록", "ai"],
+          ["📈 수업 분석", "effect"],
         ].map(([label, tab]) => (
           <button
             key={tab}
@@ -167,7 +167,7 @@ export default function TeacherDashboard({
         <div className="flex flex-wrap items-baseline gap-x-3">
           <h3 className="font-bold">🗓 문제 공개 일정</h3>
           <button type="button" onClick={() => showTab("problems")} className="ml-auto text-sm font-bold text-brand hover:underline">
-            문제 관리 →
+            문제 등록 및 관리 →
           </button>
         </div>
         <div className="grid gap-4 md:grid-cols-2">

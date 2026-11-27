@@ -22,7 +22,7 @@ const fmt = (v: number | null, unit: string) => (v === null ? "—" : `${v.toLoc
 type Loaded = { year: number; kept: boolean; rows: StatRow[] };
 
 /**
- * 📈 수업 효과 (이름 없는 통계, 보고서 캡처용). 학년도를 골라 계산하면 월 × 과목 × 반의 숫자만 받아
+ * 📈 수업 분석 (이름 없는 통계, 보고서 캡처용). 학년도를 골라 계산하면 월 × 과목 × 반의 숫자만 받아
  * 과목·반으로 골라 월별 변화와 새 사이트 도입 전후를 보여 준다. 학년도 말 정리로 기록을 지운 해도 남겨 둔 통계로 보인다.
  */
 export default function EffectStats() {
@@ -79,7 +79,7 @@ export default function EffectStats() {
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5">
       <div>
-        <h2 className="text-lg font-bold">📈 수업 효과 (이름 없는 통계)</h2>
+        <h2 className="text-lg font-bold">📈 수업 분석 (이름 없는 통계)</h2>
         <p className="mt-1 text-sm leading-6 text-muted">
           월 × 과목 × 반의 <b>숫자만</b> 모아 보여 줘요(이름·아이디 없음). 보고서·연구 자료로 캡처해 쓰세요. 학년도 말 정리로 기록을 지운 해도
           그때 남겨 둔 통계로 계속 보여요. 작성 기록을 모두 읽어 계산하므로 1~2분 걸릴 수 있어요.

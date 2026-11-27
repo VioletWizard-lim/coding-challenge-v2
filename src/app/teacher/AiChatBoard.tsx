@@ -206,11 +206,12 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5">
       <div className="flex flex-wrap items-end gap-3">
-        <h2 className="mr-auto text-lg font-bold">🤖 학생 AI 대화</h2>
+        <h2 className="mr-auto text-lg font-bold">🤖 학생 AI 대화 기록</h2>
         <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="기간" className={inputClass}>
           <option value={7}>최근 7일</option>
           <option value={30}>최근 30일</option>
           <option value={180}>최근 6개월</option>
+          <option value={0}>이번 학년도 전체 (3월 1일부터)</option>
         </select>
         <select
           value={picked}

@@ -60,7 +60,7 @@ async function StudentHome() {
           },
           {
             id: "write",
-            label: "📝 코드 작성",
+            label: "📝 코드 제출",
             content: <Workspace userId={profile.id} subjects={subjects} problems={problems} />,
           },
           {

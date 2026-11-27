@@ -112,7 +112,7 @@ export default function ProblemManager({
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="mr-auto text-lg font-bold">📚 문제 관리</h2>
+        <h2 className="mr-auto text-lg font-bold">📚 문제 등록 및 관리</h2>
         <select
           value={subject}
           onChange={(e) => {
@@ -138,7 +138,7 @@ export default function ProblemManager({
 
       {!tableReady && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          ⚠️ 문제 관리를 쓰려면 Supabase SQL Editor에서 <code>supabase/migrations/003_problems.sql</code>을 실행해
+          ⚠️ 문제 등록 및 관리를 쓰려면 Supabase SQL Editor에서 <code>supabase/migrations/003_problems.sql</code>을 실행해
           주세요. 지금은 코드에 들어 있는 문제 목록을 보여 줘요(고칠 수 없음).
         </p>
       )}
