@@ -144,7 +144,9 @@ const quote = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` 
 export function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows.length) return "﻿";
   const headers = Object.keys(rows[0]);
-  const lines = [headers.map(quote).join(","), ...rows.map((r) => headers.map((h) => quote(csvSafe(r[h]))).join(","))];
+  // "1-2"(문제 번호), "2-3"(반)은 엑셀이 날짜(1월 2일)로 바꾸므로 ="1-2"로 적어 글자 그대로 보이게 한다
+  const cell = (v: unknown) => (typeof v === "string" && /^\d{1,2}-\d{1,2}$/.test(v) ? `="${v}"` : quote(csvSafe(v)));
+  const lines = [headers.map(quote).join(","), ...rows.map((r) => headers.map((h) => cell(r[h])).join(","))];
   return `﻿${lines.join("\r\n")}\r\n`;
 }
 

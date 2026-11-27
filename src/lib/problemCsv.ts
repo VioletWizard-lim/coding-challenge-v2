@@ -69,6 +69,36 @@ export function parseDifficulty(text: string): number | null {
 
 const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
+/**
+ * 번호 칸: 엑셀은 "1-1"을 날짜(1월 1일)로 바꿔 버린다. ="1-1"로 적으면 글자 그대로 보이고,
+ * 엑셀에서 저장하면 보이는 값(1-1)으로 저장된다.
+ */
+const numberCell = (n: string) => (/^\d+-\d+$/.test(n) ? `="${n}"` : esc(n));
+
+/**
+ * 올린 번호 칸 바로잡기: ="1-1" → 1-1, 엑셀이 날짜로 바꾼 것 → 단원-번호
+ * ("01월 01일", "1월 1일", "2026-01-01", "2026/1/1", "1/1", "Jan-01", "1-Jan")
+ */
+export function normalizeNumber(text: string): string {
+  // ="1-1" (CSV 읽기가 따옴표를 떼면 =1-1)
+  const t = text.trim().replace(/^="?([^"]*)"?$/, "$1").trim();
+  const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const pair = (a: string, b: string) => `${Number(a)}-${Number(b)}`;
+  let m = t.match(/^(\d{1,2})\s*월\s*(\d{1,2})\s*일$/);
+  if (m) return pair(m[1], m[2]);
+  m = t.match(/^\d{4}[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})\.?$/);
+  if (m) return pair(m[1], m[2]);
+  m = t.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (m) return pair(m[1], m[2]);
+  m = t.match(/^([a-z]{3})-(\d{1,2})$/i) ?? t.match(/^(\d{1,2})-([a-z]{3})$/i);
+  if (m) {
+    const [a, b] = /\d/.test(m[1]) ? [m[2], m[1]] : [m[1], m[2]];
+    const month = MONTHS.indexOf(a.toLowerCase()) + 1;
+    if (month) return `${month}-${Number(b)}`;
+  }
+  return t;
+}
+
 /** 문제 목록 → CSV 글 (BOM은 내려받을 때 붙인다) */
 export function problemsToCsv(problems: Problem[], now: Date): string {
   const rows = [...problems]
@@ -81,7 +111,7 @@ export function problemsToCsv(problems: Problem[], now: Date): string {
       ]).flat();
       return [
         p.subject,
-        p.number,
+        numberCell(p.number),
         p.title === p.number ? "" : p.title,
         p.difficulty ? String(p.difficulty) : "",
         p.lesson ? String(p.lesson) : "",
@@ -98,7 +128,8 @@ export function problemsToCsv(problems: Problem[], now: Date): string {
         open,
       ];
     });
-  return [PROBLEM_HEADERS, ...rows].map((r) => r.map(esc).join(",")).join("\r\n") + "\r\n";
+  // 번호 칸은 numberCell이 이미 엑셀용으로 바꿔 둠
+  return [PROBLEM_HEADERS.map(esc).join(","), ...rows.map((r) => r.map((v, i) => (i === 1 ? v : esc(v))).join(","))].join("\r\n") + "\r\n";
 }
 
 export type ParsedProblem = {
@@ -135,7 +166,7 @@ export function parseProblemCsv(text: string): { rows: ParsedProblem[]; error: s
       const output = get(`예시${n} 출력`).replace(/\s+$/, "");
       if (input || output) examples.push({ input, output });
     }
-    const number = get("번호").trim();
+    const number = normalizeNumber(get("번호"));
     const difficulty = parseDifficulty(get("난이도"));
     const open = parseOpen(get("공개"));
     // 수업 계획 칸: 파일에 있는 칸만 읽는다
@@ -234,4 +265,34 @@ export function withoutLesson<T extends Partial<ProblemInput>>(p: T): T {
   const rest = { ...p };
   for (const k of ["standards", "level", "lesson", "lessonOrder", "anchor"] as const) delete rest[k];
   return rest;
+}
+
+/**
+ * 새로 만들 때 쓰는 빈 양식: 제목 줄 + 예시 한 줄 (예시 줄은 비공개라 그대로 올려도 학생에게 보이지 않음).
+ * 지금 문제를 고칠 때는 "지금 문제 내려받기"를 쓴다.
+ */
+export function problemTemplateCsv(): string {
+  const sample: Record<string, string> = {
+    과목: "정보",
+    번호: "9-1",
+    제목: "(예시 줄: 지우고 쓰세요) 두 배 출력",
+    난이도: "1",
+    차시: "2",
+    "차시 안 순서": "1",
+    "기본/심화": "기본",
+    앵커: "",
+    성취기준: "12정03-04",
+    문제: "정수 하나를 입력받아 두 배를 출력하세요.",
+    조건: "input()을 한 번 사용할 것\nint()로 정수로 바꿀 것",
+    "예시1 입력": "3",
+    "예시1 출력": "6",
+    "예시2 입력": "10",
+    "예시2 출력": "20",
+    "문제 목표": "입력값을 정수로 바꿔 계산할 수 있다.",
+    "도전 과제": "",
+    "시작 코드": "n = int(input())\n",
+    공개: "비공개",
+  };
+  const row = PROBLEM_HEADERS.map((h) => (h === "번호" ? numberCell(sample[h]) : esc(sample[h] ?? "")));
+  return [PROBLEM_HEADERS.map(esc).join(","), row.join(",")].join("\r\n") + "\r\n";
 }

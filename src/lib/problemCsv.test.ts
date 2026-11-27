@@ -148,3 +148,29 @@ describe("공개 시각 정하기", () => {
     expect(changedFields(card, { ...card, goal: "다른 목표", openAt: null })).toEqual(["문제 목표", "공개"]);
   });
 });
+
+describe("빈 양식", async () => {
+  const { problemTemplateCsv } = await import("./problemCsv");
+  it("그대로 올려도 오류 없이 읽히고, 예시 줄은 비공개", () => {
+    const { rows, error } = parseProblemCsv(problemTemplateCsv());
+    expect(error).toBeNull();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].error).toBeNull();
+    expect(rows[0].open).toEqual({ kind: "hidden" });
+    expect(rows[0].input).toMatchObject({ lesson: 2, level: "기본", standards: ["12정03-04"], examples: [{ input: "3", output: "6" }, { input: "10", output: "20" }] });
+  });
+});
+
+describe("번호 칸과 엑셀", async () => {
+  const { normalizeNumber } = await import("./problemCsv");
+  it("엑셀이 날짜로 바꾼 번호를 되돌린다", () => {
+    for (const t of ['="1-1"', "01월 01일", "1월 1일", "2026-01-01", "2026. 1. 1.", "1/1", "Jan-01", "1-Jan", " 1-1 "]) expect(normalizeNumber(t)).toBe("1-1");
+    expect(normalizeNumber("12월 3일")).toBe("12-3");
+    expect(normalizeNumber("연습")).toBe("연습");
+  });
+  it("내려받은 파일에는 번호가 =\"1-6\"으로 들어가고, 다시 읽으면 1-6", () => {
+    const csv = problemsToCsv([card], now);
+    expect(csv.split("\r\n")[1]).toContain(',="1-6",');
+    expect(parseProblemCsv(csv).rows[0].input.number).toBe("1-6");
+  });
+});

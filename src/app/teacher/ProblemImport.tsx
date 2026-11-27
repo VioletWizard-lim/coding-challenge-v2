@@ -18,7 +18,7 @@ import {
   type WorksheetStage,
   type ExtractedProblem,
 } from "@/lib/worksheet";
-import { problemsToCsv, toKstText } from "@/lib/problemCsv";
+import { problemsToCsv, problemTemplateCsv, toKstText } from "@/lib/problemCsv";
 import { decodeCsvFile } from "@/lib/studentCsv";
 import { importProblems, previewProblemImport, type ProblemImportResult, type ProblemPreviewRow } from "./actions";
 
@@ -77,7 +77,7 @@ const kstInputToIso = (v: string) => new Date(`${v}:00+09:00`).toISOString();
 
 /**
  * 문제 일괄 등록. 두 가지 길이 같은 미리보기 → 반영으로 이어진다.
- * - CSV: 지금 문제 내려받기(= 양식) → 엑셀에서 고치기 → 올리기
+ * - CSV: 빈 양식(새로 만들 때) 또는 지금 문제 내려받기(고칠 때) → 엑셀에서 고치기 → 올리기
  * - 학습지(AI): PDF·사진·워드를 올리면 AI가 읽어 문제로 옮김 → 교사가 확인 후 반영
  */
 export default function ProblemImport({
@@ -325,7 +325,7 @@ export default function ProblemImport({
           onClick={() => download("문제목록.csv", "﻿" + problemsToCsv(problems, new Date(now)))}
           className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm"
         >
-          ⬇ 지금 문제 내려받기
+          ⬇ 지금 문제 내려받기 (고칠 때)
         </button>
         {(["csv", "ai"] as const).map((m) => (
           <button
@@ -440,8 +440,16 @@ export default function ProblemImport({
         <>
           <ol className="list-decimal pl-5 text-sm text-muted">
             <li>
-              &lsquo;지금 문제 내려받기&rsquo;로 받은 파일을 엑셀에서 열어 고치거나 줄을 더하세요. 이 파일이 곧
-              양식이에요.
+              <b>새 문제를 만들 때</b>는{" "}
+              <button
+                type="button"
+                onClick={() => download("문제등록_양식.csv", "\uFEFF" + problemTemplateCsv())}
+                className="rounded-md border border-brand bg-white px-2 py-0.5 font-bold text-brand hover:bg-brand-soft"
+              >
+                ⬇ 빈 양식 내려받기
+              </button>
+              를 받아 예시 줄을 지우고 한 줄에 한 문제씩 적어요. <b>이미 있는 문제를 고칠 때</b>는 위의 &lsquo;지금 문제
+              내려받기&rsquo;로 받은 파일을 고쳐서 올려요 (같은 과목·번호면 고치기, 없는 번호면 새 문제).
             </li>
             <li>
               한 칸 안에서 줄을 바꾸려면 <b>Alt + Enter</b>. 난이도는 1~5(또는 ★★★), 예시는 &lsquo;예시1
