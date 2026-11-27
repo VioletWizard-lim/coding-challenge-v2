@@ -20,6 +20,8 @@ type Props = {
   mode?: "code" | "text";
   /** 이 시각(기록 안의 ms)까지 진행된 화면으로 연다. 없으면 처음부터 */
   startAt?: number;
+  /** 이 시각까지만 재생하고 멈춘다 (AI 도우미가 보여 주는 "기록의 한 구간"). ▶을 다시 누르면 구간 처음부터 */
+  endAt?: number;
   /** 타임라인 메모(학생 📌)·피드백(교사 💬) */
   notes?: TimelineNote[];
   /** 메모를 쓸 수 있으면 (학생: 내 제출, 교사: 피드백). 없으면 읽기만 */
@@ -85,7 +87,7 @@ function editSpec(state: EditorState, e: EditEvent) {
 /** 작성 과정 재생기 (교사·학생 공용). v1 replay.html과 같은 기록을 읽는다. */
 const NO_CHATS: HelpChat[] = [];
 
-export default function Replayer({ init, code, log, mode = "code", startAt, notes = [], noteActions, chats = NO_CHATS, extra, onEnd }: Props) {
+export default function Replayer({ init, code, log, mode = "code", startAt, endAt, notes = [], noteActions, chats = NO_CHATS, extra, onEnd }: Props) {
   const analysis = useMemo(() => analyzeLog(init, log), [init, log]);
   const { edits, stats, startTime } = analysis;
   // 도움도 과정의 일부: AI 도움 요청 ↔ 그때의 대화, AI 답 붙여넣기, 도움 뒤 첫 실행
@@ -196,6 +198,8 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
       onEnd?.();
       return stop();
     }
+    // 구간 재생: 다음 편집이 구간 끝을 넘으면 멈춘다
+    if (endAt !== undefined && edits[i + 1][0] > endAt) return stop();
     let gap = (edits[i + 1][0] - edits[i][0]) / settings.current.speed;
     if (settings.current.skipIdle) gap = Math.min(gap, SKIP_IDLE_MAX_MS);
     timerRef.current = setTimeout(step, Math.max(gap, 8));
@@ -204,6 +208,8 @@ export default function Replayer({ init, code, log, mode = "code", startAt, note
   function togglePlay() {
     if (playing) return stop();
     if (indexRef.current >= edits.length) goTo(0);
+    // 구간 재생: 구간 끝까지 봤으면 구간 처음으로
+    else if (endAt !== undefined && index > 0 && edits[index - 1][0] >= endAt && (index >= edits.length || edits[index][0] > endAt)) goTo(startIndex);
     setPlaying(true);
     timerRef.current = setTimeout(step, 0);
   }
@@ -565,7 +571,11 @@ function HelpBox({
                 <b>질문</b> {step.chat.question}
               </p>
               <div className="rounded-lg border border-line bg-white px-3 py-2">
-                <p className="text-xs font-bold text-blue-700">🤖 AI가 만든 답변입니다</p>
+                {step.chat.step === "ask" ? (
+                  <p className="text-xs font-bold text-amber-800">📼 사이트가 작성 기록에서 찾아 되물음 (AI 답이 아님)</p>
+                ) : (
+                  <p className="text-xs font-bold text-blue-700">🤖 AI가 만든 답변입니다{step.chat.step === "hint" ? " (되물음에 답한 뒤의 힌트)" : ""}</p>
+                )}
                 <p className="whitespace-pre-wrap leading-7">
                   <AiAnswer chat={step.chat} onMoment={(m) => onSeek(m.at)} />
                 </p>

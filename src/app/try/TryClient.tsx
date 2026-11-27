@@ -215,7 +215,17 @@ export default function TryClient() {
               : "지금은 체험 AI가 꺼져 있어요. AI 도우미가 어떻게 돕는지는 ② 예시 학생의 기록에서 볼 수 있어요.",
           },
     ask: async (x) => {
-      const r = await trialAsk({ problemId, practiceToken, ...x, history: (chats[problemId] ?? []).map((c) => ({ question: c.question, answer: c.answer })) });
+      // 체험은 저장하지 않으므로, 되묻기 흐름을 이어 가도록 이 문제의 대화와 다른 체험 문제의 기록(C 상황)을 함께 보낸다
+      const r = await trialAsk({
+        problemId,
+        practiceToken,
+        question: x.question,
+        init: x.init,
+        log: x.log,
+        at: x.at,
+        chats: (chats[problemId] ?? []).map(({ id, question, answer, at, step, situation, clip, parentId }) => ({ id, question, answer, at, step, situation, clip, parentId })),
+        others: myRecords().filter((r) => r.problemId !== problemId),
+      });
       if (r.ok) {
         setChats((all) => ({ ...all, [problemId]: [...(all[problemId] ?? []), r.chat] }));
         remainingNote(r.remaining);
@@ -229,6 +239,11 @@ export default function TryClient() {
       </>
     ),
     remainingLabel: "오늘 남은 체험 AI",
+    // C 상황: 다른 체험 문제의 기록에서 그 구간 다시 보기 (이 브라우저에 남은 기록)
+    openSource: async (clip) => {
+      const p = allProblems.find((x) => x.view.number === clip.source?.problem);
+      return p ? savedRecording(p.id) : null;
+    },
   };
 
   const review = reviews[problemId] ?? null;

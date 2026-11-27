@@ -1,6 +1,7 @@
 import "server-only";
 import { db, fetchAll, type RangeQuery } from "./db";
 import { kstDayStart, kstMonthStart, type AiChat, type Usage } from "./aiChat";
+import type { AskClip, Situation } from "./askBack";
 import type { HelpChat } from "./helpTrail";
 import type { Moment } from "./process-summary";
 import { validEntries } from "./replay";
@@ -21,6 +22,11 @@ type ChatRow = {
   flagged_by: string | null;
   flag_note: string | null;
   created_at: string;
+  // 023 (기록으로 되묻기). 실행 전이면 없음
+  step?: string | null;
+  situation?: string | null;
+  clip?: unknown;
+  parent_id?: number | null;
 };
 
 const isMoment = (m: unknown): m is Moment =>
@@ -41,6 +47,10 @@ const fromRow = (r: ChatRow): AiChat => ({
   model: r.model,
   inputTokens: r.input_tokens,
   outputTokens: r.output_tokens,
+  step: r.step === "ask" || r.step === "hint" ? r.step : null,
+  situation: r.situation === "A" || r.situation === "B" || r.situation === "C" ? r.situation : null,
+  clip: r.clip && typeof r.clip === "object" ? (r.clip as AskClip) : null,
+  parentId: r.parent_id === null || r.parent_id === undefined ? null : Number(r.parent_id),
 });
 
 /** ai_chats 표가 없어서(010 실행 전) 생긴 오류인지 */
@@ -57,12 +67,13 @@ function check(error: { message: string } | null, what: string) {
   throw new Error(`${what}: ${error.message}`);
 }
 
-/** 오늘(한국 시간) 이 학생이 물어본 횟수 */
+/** 오늘(한국 시간) 이 학생이 AI를 부른 횟수 (사이트가 바로 보여 준 되물음 step='ask'는 AI 호출이 아니라 세지 않는다) */
 export async function countTodayChats(userId: string): Promise<number> {
   const { count, error } = await db()
     .from("ai_chats")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
+    .or("step.is.null,step.neq.ask")
     .gte("created_at", kstDayStart());
   check(error, "AI 대화 수 조회 실패");
   return count ?? 0;
@@ -91,9 +102,14 @@ export async function insertChat(row: {
   question: string;
   answer: string;
   moments: Moment[];
-  model: string;
+  /** AI가 답하지 않은 되물음(step='ask')이면 null */
+  model: string | null;
   inputTokens: number;
   outputTokens: number;
+  step?: "ask" | "hint" | null;
+  situation?: Situation | null;
+  clip?: AskClip | null;
+  parentId?: number | null;
 }): Promise<AiChat> {
   const { data, error } = await db()
     .from("ai_chats")
@@ -109,6 +125,8 @@ export async function insertChat(row: {
       model: row.model,
       input_tokens: row.inputTokens,
       output_tokens: row.outputTokens,
+      // 기록으로 되묻기 (023): 되물음이 아닌 예전 방식이면 넣지 않는다
+      ...(row.step ? { step: row.step, situation: row.situation ?? null, clip: row.clip ?? null, parent_id: row.parentId ?? null } : {}),
     })
     .select("*")
     .single<ChatRow>();
@@ -183,7 +201,7 @@ export async function listChatsForReplay(
   problem: string,
   fromMs: number,
   toMs: number,
-): Promise<{ at: number; question: string; answer: string; moments: Moment[] }[]> {
+): Promise<HelpChat[]> {
   try {
     const { data, error } = await db()
       .from("ai_chats")
@@ -195,7 +213,7 @@ export async function listChatsForReplay(
       .lte("at_ms", Math.ceil(toMs) + 5000)
       .order("at_ms");
     check(error, "AI 대화 조회 실패");
-    return ((data ?? []) as ChatRow[]).map(fromRow).map((c) => ({ at: c.at ?? 0, question: c.question, answer: c.answer, moments: c.moments }));
+    return ((data ?? []) as ChatRow[]).map(fromRow).map((c) => ({ at: c.at ?? 0, question: c.question, answer: c.answer, moments: c.moments, step: c.step }));
   } catch (err) {
     if (err instanceof AiChatsNotReadyError) return [];
     throw err;

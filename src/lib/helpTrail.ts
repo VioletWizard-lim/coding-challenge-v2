@@ -9,7 +9,8 @@ import type { EditEvent } from "./editLog";
 import type { Moment } from "./process-summary";
 import { validEntries } from "./replay";
 
-export type HelpChat = { at: number; question: string; answer: string; moments: Moment[] };
+/** step: "ask"면 사이트가 기록에서 찾아 되물은 것(AI 답이 아님), "hint"면 학생 답을 보고 AI가 준 힌트 */
+export type HelpChat = { at: number; question: string; answer: string; moments: Moment[]; step?: "ask" | "hint" | null };
 
 export type HelpStep = {
   /** 도움 요청 시각 (기록 안) */
