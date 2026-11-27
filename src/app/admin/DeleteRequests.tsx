@@ -24,7 +24,7 @@ const STATUS: Record<Request["status"], string> = {
 };
 
 /**
- * 🧑‍🎓 학생 삭제 요청 (관리자). 교사가 🏫 학생 관리에서 보낸 요청을 보고,
+ * 🧑‍🎓 학생 삭제 요청 (관리자). 교사가 🏫 학생 등록 및 관리에서 보낸 요청을 보고,
  * ① 그 학생 백업 ZIP → ② 확인 문구("아이디 이름 삭제") → 계정과 모든 기록 삭제. 또는 거절.
  */
 export default function DeleteRequests() {
@@ -44,7 +44,7 @@ export default function DeleteRequests() {
       <div>
         <h2 className="text-lg font-bold">🧑‍🎓 학생 삭제 요청 {pending.length > 0 && <span className="text-danger">({pending.length})</span>}</h2>
         <p className="mt-1 text-sm leading-6 text-muted">
-          교사가 🏫 학생 관리에서 보낸 요청이에요(전학, 잘못 만든 계정, 학생·보호자 요청 등). 지우면 그 학생의 <b>계정과 모든 학년도의 기록</b>이
+          교사가 🏫 학생 등록 및 관리에서 보낸 요청이에요(전학, 잘못 만든 계정, 학생·보호자 요청 등). 지우면 그 학생의 <b>계정과 모든 학년도의 기록</b>이
           지워져요. 먼저 <b>백업 ZIP</b>을 받아 두면 &lsquo;🗓 학년도 말 정리 → ↩ 백업에서 되돌리기&rsquo;로 되살릴 수 있어요.
         </p>
       </div>

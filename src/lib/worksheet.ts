@@ -121,3 +121,27 @@ export function cleanDocxHtml(html: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/* ── 학습지 읽기 진행 게이지 ── */
+
+/** sending: 파일을 보내는 중 / reading: AI가 학습지를 읽는 중(생각) / writing: 문제를 옮겨 적는 중 */
+export type WorksheetStage = "sending" | "reading" | "writing";
+
+/** 서버 → 브라우저로 한 줄씩 보내는 진행 상황 (NDJSON) */
+export type WorksheetLine =
+  | { type: "progress"; stage: WorksheetStage; found: number; chars: number }
+  | { type: "done"; problems: ExtractedProblem[] }
+  | { type: "error"; message: string };
+
+/** 지금까지 받은 JSON 글에서 옮겨 적기 시작한 문제 수 ("number" 칸 개수) */
+export const countFoundProblems = (partialJson: string) => (partialJson.match(/"number"\s*:/g) ?? []).length;
+
+/**
+ * 게이지 위치(0~100). 전체 문제 수는 끝나야 알 수 있어서 어림값이다:
+ * 보내는 중 5% → 읽는 중 10~40% (시간이 갈수록 천천히) → 옮겨 적는 중 40~95% (적은 글자가 늘수록 천천히) → 끝나면 100%
+ */
+export function gaugePercent(stage: WorksheetStage, stageMs: number, chars: number): number {
+  if (stage === "sending") return 5;
+  if (stage === "reading") return Math.round(10 + 30 * (1 - Math.exp(-stageMs / 40_000)));
+  return Math.round(40 + 55 * (1 - Math.exp(-chars / 8_000)));
+}

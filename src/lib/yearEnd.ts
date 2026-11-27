@@ -284,6 +284,8 @@ export function statsCsv(rows: StatRow[]): string {
     const typed = r.typedChars + r.pastedChars ? Math.round((r.typedChars / (r.typedChars + r.pastedChars)) * 100) : "";
     return [...HEAD.map(([k]) => String(r[k])), String(typed)];
   });
-  const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  // 반("2-3")·월("2026-03")은 엑셀이 날짜로 바꾸므로 ="2-3"으로 적어 글자 그대로 보이게 한다
+  const esc = (v: string) =>
+    /^(\d{1,2}-\d{1,2}|\d{4}-\d{2})$/.test(v) ? `="${v}"` : /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
   return [head, ...lines].map((l) => l.map(esc).join(",")).join("\r\n");
 }

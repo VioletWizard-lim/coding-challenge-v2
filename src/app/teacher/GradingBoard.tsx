@@ -18,7 +18,8 @@ import {
 import ReplaySection from "../student/ReplaySection";
 import { loadGrading, loadStudentReplay, makeGradingDraft, removeSubmission, saveGrade, setWrong } from "./actions";
 import { scoreFormula, type GradingDraft } from "@/lib/gradingDraft";
-import { RUBRIC_CHANGED_EVENT } from "./RubricSettings";
+import RubricSettings, { RUBRIC_CHANGED_EVENT } from "./RubricSettings";
+import CloseButton from "@/components/CloseButton";
 
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
@@ -65,13 +66,14 @@ export default function GradingBoard({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [reload, setReload] = useState(0);
+  /** 채점 기준을 이 화면에서 바로 고치는 칸 */
+  const [editRubric, setEditRubric] = useState(false);
   const savers = useRef(new Map<number, () => Promise<boolean>>());
   /** 아직 초안이 없는 미채점 카드들의 "초안 만들기" */
   const drafters = useRef(new Map<number, () => Promise<boolean>>());
   const [drafting, setDrafting] = useState<{ done: number; total: number } | null>(null);
   const [dirty, setDirty] = useState<Set<number>>(new Set());
   const [savingAll, setSavingAll] = useState(false);
-  const { showTab } = useStudentNav();
 
   // 처음 화면에서 과목을 골라 왔으면 그 과목으로
   useEffect(() => {
@@ -112,6 +114,19 @@ export default function GradingBoard({
     if (dirty.size && !confirm(`저장하지 않은 채점이 ${dirty.size}개 있어요. 저장하지 않고 넘어갈까요?`)) return;
     setPage(p);
   };
+
+  /**
+   * 카드에서 채점·오답 처리(또는 해제)로 미채점 여부가 바뀌면 위쪽 수(N개 (미채점), 과목별 미채점 수)를 바로 고친다.
+   * 카드는 그 자리에 두고(실수했으면 바로 되돌릴 수 있게), 다음에 불러올 때 목록에서 빠진다.
+   */
+  const onStatus = useCallback(
+    (subject: string, graded: boolean) => {
+      const step = graded ? -1 : 1;
+      setPendingCounts((c) => ({ ...c, [subject]: Math.max(0, (c[subject] ?? 0) + step) }));
+      if (filter.ungradedOnly) setData((d) => (d ? { ...d, total: Math.max(0, d.total + step) } : d));
+    },
+    [filter.ungradedOnly],
+  );
 
   const onDirty = useCallback((id: number, isDirty: boolean) => {
     setDirty((d) => {
@@ -199,9 +214,28 @@ export default function GradingBoard({
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm">
           <span className="font-bold">⚖️ {filter.subject} 채점 기준</span>
           <span>{rubricText(rubric)}</span>
-          <button type="button" onClick={() => showTab("settings")} className="ml-auto font-bold text-brand hover:underline">
-            ⚙️ 설정에서 바꾸기 →
-          </button>
+          {!editRubric && (
+            <button
+              type="button"
+              onClick={() => {
+                if (dirty.size && !confirm(`저장하지 않은 채점이 ${dirty.size}개 있어요. 기준을 저장하면 목록을 다시 불러와서 적던 점수가 사라져요. 그래도 열까요?`)) return;
+                setEditRubric(true);
+              }}
+              className="ml-auto rounded-lg border border-brand bg-white px-3 py-1 font-bold text-brand hover:bg-brand-soft"
+            >
+              ✏️ 채점 기준 바로 고치기
+            </button>
+          )}
+          {editRubric && (
+            <div className="flex w-full flex-col gap-2 rounded-lg border border-line bg-white p-3">
+              <div className="flex items-center gap-2">
+                <span className="font-bold">✏️ {filter.subject} 채점 기준 고치기</span>
+                <span className="text-xs text-muted">저장하면 앞으로 채점하는 제출에 쓰여요 (이미 채점한 제출은 그대로)</span>
+                <CloseButton onClick={() => setEditRubric(false)} />
+              </div>
+              <RubricSettings key={filter.subject} subject={filter.subject} inline />
+            </div>
+          )}
           {!data.rubric.ready && (
             <p className="w-full text-xs text-amber-800">
               지금은 기본 기준이에요. 과목마다 기준을 정하려면 Supabase에서 <code>012_grading_rubrics.sql</code>을 실행해 주세요.
@@ -258,6 +292,8 @@ export default function GradingBoard({
             drafters={drafters}
             onDirty={onDirty}
             onRemoved={() => setReload((n) => n + 1)}
+            ungradedOnly={filter.ungradedOnly}
+            onStatus={onStatus}
           />
         ))}
       </ul>
@@ -277,6 +313,8 @@ function GradingCard({
   drafters,
   onDirty,
   onRemoved,
+  ungradedOnly,
+  onStatus,
 }: {
   row: GradingRow;
   rubric: RubricPart[];
@@ -284,9 +322,18 @@ function GradingCard({
   drafters: React.RefObject<Map<number, () => Promise<boolean>>>;
   onDirty: (id: number, dirty: boolean) => void;
   onRemoved: () => void;
+  /** "미채점만" 목록을 보는 중인지 */
+  ungradedOnly: boolean;
+  /** 미채점 ↔ 처리됨(채점·오답)이 바뀌었을 때 */
+  onStatus: (subject: string, graded: boolean) => void;
 }) {
   const { problemLabel } = useStudentNav();
-  const [row, setRow] = useState(initial);
+  const [row, setRowState] = useState(initial);
+  /** 저장 결과로 줄을 바꾸고, 미채점 여부가 바뀌었으면 위쪽 수를 고치게 알린다 */
+  const setRow = (next: GradingRow) => {
+    if (isGraded(row) !== isGraded(next)) onStatus(next.subject, isGraded(next));
+    setRowState(next);
+  };
   // 이미 채점한 제출은 그때 기준, 아니면 지금 과목 기준
   const [ownParts, setParts] = useState<RubricPart[]>(() =>
     initial.sheet ? initial.sheet.map(({ name, max, desc }) => ({ name, max, ...(desc ? { desc } : {}) })) : rubric,
@@ -573,6 +620,9 @@ function GradingCard({
         <p role={message.ok ? "status" : "alert"} className={`text-sm ${message.ok ? "text-green-700" : "text-danger"}`}>
           {message.text}
         </p>
+      )}
+      {ungradedOnly && graded && !isGraded(initial) && (
+        <p className="text-xs text-muted">✓ 미채점 목록에서 빠졌어요. 다음에 불러오면 이 카드는 보이지 않아요 (잘못했으면 지금 고칠 수 있어요).</p>
       )}
     </li>
   );

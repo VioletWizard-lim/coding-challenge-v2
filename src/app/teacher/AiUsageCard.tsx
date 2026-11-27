@@ -103,7 +103,7 @@ export default async function AiUsageCard({ teacherId }: { teacherId?: string })
           )}
           <p className="text-xs text-muted">
             학습지 업로드(AI)는 여기에 들어가지 않아요. 비용은 어림값이에요. 정확한 금액은 Anthropic 콘솔(Usage)에서 확인하세요.
-            {teacherId && <> 대화 내용은 &lsquo;🤖 AI 대화&rsquo; 탭에서 볼 수 있어요.</>}
+            {teacherId && <> 대화 내용은 &lsquo;🤖 학생 AI 대화 기록&rsquo; 탭에서 볼 수 있어요.</>}
           </p>
         </>
       ) : (

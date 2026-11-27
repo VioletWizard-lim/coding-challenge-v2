@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import ProblemView from "@/components/ProblemView";
 import ProblemForm from "./ProblemForm";
 import { compareNumber, type Problem } from "@/lib/problemBank";
@@ -13,9 +13,13 @@ import {
   MAX_WORKSHEET_FILES,
   WORKSHEET_ACCEPT,
   worksheetType,
+  gaugePercent,
+  type WorksheetLine,
+  type WorksheetStage,
   type ExtractedProblem,
 } from "@/lib/worksheet";
-import { problemsToCsv, toKstText } from "@/lib/problemCsv";
+import { problemsToCsv, problemTemplateCsv, toKstText } from "@/lib/problemCsv";
+import CloseButton from "@/components/CloseButton";
 import { decodeCsvFile } from "@/lib/studentCsv";
 import { importProblems, previewProblemImport, type ProblemImportResult, type ProblemPreviewRow } from "./actions";
 
@@ -74,7 +78,7 @@ const kstInputToIso = (v: string) => new Date(`${v}:00+09:00`).toISOString();
 
 /**
  * 문제 일괄 등록. 두 가지 길이 같은 미리보기 → 반영으로 이어진다.
- * - CSV: 지금 문제 내려받기(= 양식) → 엑셀에서 고치기 → 올리기
+ * - CSV: 빈 양식(새로 만들 때) 또는 지금 문제 내려받기(고칠 때) → 엑셀에서 고치기 → 올리기
  * - 학습지(AI): PDF·사진·워드를 올리면 AI가 읽어 문제로 옮김 → 교사가 확인 후 반영
  */
 export default function ProblemImport({
@@ -102,6 +106,8 @@ export default function ProblemImport({
   /** 반영 전에 고치는 중인 문제 (학습지 결과의 몇 번째) */
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
+  /** 학습지 읽기 진행 (게이지). since: 이 단계가 시작된 시각 */
+  const [progress, setProgress] = useState<{ stage: WorksheetStage; found: number; chars: number; since: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -183,11 +189,15 @@ export default function ProblemImport({
         return setMessage("파일이 너무 커요(PDF는 모두 합쳐 4MB까지). PDF를 나눠서 올리거나, 워드 파일이 있으면 워드로 올려 주세요.");
       }
       let data: { ok: boolean; message?: string; problems?: ExtractedProblem[] };
+      setProgress({ stage: "sending", found: 0, chars: 0, since: Date.now() });
       try {
-        const res = await fetch("/api/teacher/worksheet", { method: "POST", body: form });
-        data = await res.json();
+        data = await readWorksheet(form, (line) =>
+          setProgress((prev) => ({ ...line, since: prev?.stage === line.stage ? prev.since : Date.now() })),
+        );
       } catch {
-        return setMessage("학습지를 보내지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.");
+        data = { ok: false, message: "학습지를 보내지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요." };
+      } finally {
+        setProgress(null);
       }
       if (!data.ok || !data.problems) return setMessage(data.message ?? "학습지를 읽지 못했어요.");
       if (!data.problems.length)
@@ -316,7 +326,7 @@ export default function ProblemImport({
           onClick={() => download("문제목록.csv", "﻿" + problemsToCsv(problems, new Date(now)))}
           className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm"
         >
-          ⬇ 지금 문제 내려받기
+          ⬇ 지금 문제 내려받기 (고칠 때)
         </button>
         {(["csv", "ai"] as const).map((m) => (
           <button
@@ -335,6 +345,19 @@ export default function ProblemImport({
           </button>
         ))}
       </div>
+      {mode && (
+        <div className="flex items-center gap-2 border-t border-line pt-3">
+          <span className="text-sm font-bold">{mode === "csv" ? "⬆ CSV 올리기" : "📄 학습지 업로드(AI)"}</span>
+          {pending && mode === "ai" && <span className="text-xs text-muted">AI가 읽는 동안에는 닫을 수 없어요</span>}
+          <CloseButton
+            disabled={pending}
+            onClick={() => {
+              setMode(null);
+              reset();
+            }}
+          />
+        </div>
+      )}
       {mode === "ai" && (
         <>
           <ol className="list-decimal pl-5 text-sm text-muted">
@@ -431,8 +454,16 @@ export default function ProblemImport({
         <>
           <ol className="list-decimal pl-5 text-sm text-muted">
             <li>
-              &lsquo;지금 문제 내려받기&rsquo;로 받은 파일을 엑셀에서 열어 고치거나 줄을 더하세요. 이 파일이 곧
-              양식이에요.
+              <b>새 문제를 만들 때</b>는{" "}
+              <button
+                type="button"
+                onClick={() => download("문제등록_양식.csv", "\uFEFF" + problemTemplateCsv())}
+                className="rounded-md border border-brand bg-white px-2 py-0.5 font-bold text-brand hover:bg-brand-soft"
+              >
+                ⬇ 빈 양식 내려받기
+              </button>
+              를 받아 예시 줄을 지우고 한 줄에 한 문제씩 적어요. <b>이미 있는 문제를 고칠 때</b>는 위의 &lsquo;지금 문제
+              내려받기&rsquo;로 받은 파일을 고쳐서 올려요 (같은 과목·번호면 고치기, 없는 번호면 새 문제).
             </li>
             <li>
               한 칸 안에서 줄을 바꾸려면 <b>Alt + Enter</b>. 난이도는 1~5(또는 ★★★), 예시는 &lsquo;예시1
@@ -462,11 +493,10 @@ export default function ProblemImport({
       )}
       {mode && (
         <>
-          {pending && (
-            <p className="text-sm text-muted">
-              {mode === "ai" ? "🤖 AI가 학습지를 읽는 중이에요… (1~3분 걸릴 수 있어요)" : "확인하는 중…"}
-            </p>
+          {pending && !(mode === "ai" && progress) && (
+            <p className="text-sm text-muted">{mode === "ai" ? "🤖 AI가 읽은 문제를 미리보기로 만드는 중…" : "확인하는 중…"}</p>
           )}
+          {mode === "ai" && progress && <WorksheetGauge progress={progress} />}
           {message && (
             <p role="alert" className="text-sm text-danger">
               {message}
@@ -656,6 +686,79 @@ export default function ProblemImport({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * 학습지를 보내고, 서버가 한 줄씩 보내는 진행 상황(NDJSON)을 읽는다.
+ * 파일 검사에서 걸리면 서버는 보통 JSON으로 답한다.
+ */
+async function readWorksheet(
+  form: FormData,
+  onProgress: (p: Extract<WorksheetLine, { type: "progress" }>) => void,
+): Promise<{ ok: boolean; message?: string; problems?: ExtractedProblem[] }> {
+  const res = await fetch("/api/teacher/worksheet", { method: "POST", body: form });
+  if (!(res.headers.get("content-type") ?? "").includes("ndjson") || !res.body) return res.json();
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buffer += value;
+    const lines = buffer.split("\n");
+    buffer = done ? "" : (lines.pop() ?? "");
+    for (const raw of lines) {
+      if (!raw.trim()) continue;
+      const line = JSON.parse(raw) as WorksheetLine;
+      if (line.type === "progress") onProgress(line);
+      else if (line.type === "done") return { ok: true, problems: line.problems };
+      else return { ok: false, message: line.message };
+    }
+    if (done) return { ok: false, message: "AI 응답이 중간에 끊겼어요. 잠시 후 다시 시도해 주세요." };
+  }
+}
+
+const STAGES: { stage: WorksheetStage; label: string }[] = [
+  { stage: "sending", label: "보내는 중" },
+  { stage: "reading", label: "AI가 읽는 중" },
+  { stage: "writing", label: "옮겨 적는 중" },
+];
+
+/** 학습지 읽기 진행 게이지 (전체 문제 수는 끝나야 알 수 있어서 어림값) */
+function WorksheetGauge({ progress }: { progress: { stage: WorksheetStage; found: number; chars: number; since: number } }) {
+  // 읽는 중에는 서버에서 소식이 없어도 게이지가 천천히 움직이도록 1초마다 다시 그린다
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const percent = gaugePercent(progress.stage, Math.max(0, now - progress.since), progress.chars);
+  const step = STAGES.findIndex((s) => s.stage === progress.stage);
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-violet-200 bg-violet-50/60 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-bold text-violet-800">🤖 학습지 읽는 중</span>
+        <ol className="flex flex-wrap gap-x-2 text-xs">
+          {STAGES.map((s, i) => (
+            <li key={s.stage} className={i < step ? "text-muted line-through" : i === step ? "font-bold text-violet-800" : "text-muted"}>
+              {i + 1}. {s.label}
+            </li>
+          ))}
+        </ol>
+        <span className="ml-auto text-xs tabular-nums text-muted">
+          {progress.stage === "writing" && progress.found > 0 ? `문제 ${progress.found}개 옮겨 적는 중` : "1~3분 걸릴 수 있어요"}
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="학습지 읽기 진행 (어림)"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        className="h-2.5 overflow-hidden rounded-full bg-violet-100"
+      >
+        <div className="h-full rounded-full bg-violet-500 transition-[width] duration-700 ease-out" style={{ width: `${percent}%` }} />
+      </div>
     </div>
   );
 }

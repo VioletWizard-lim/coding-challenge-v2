@@ -8,6 +8,7 @@ import { standardLabel, standardOf, type StandardSummary } from "@/lib/standards
 import { loadStandardSummary, type ProblemResult } from "./actions";
 import ProblemForm, { inputClass } from "./ProblemForm";
 import ProblemImport from "./ProblemImport";
+import CloseButton from "@/components/CloseButton";
 
 /** 다음 번호 추천: 그 과목 마지막 번호의 다음 (예: 3-5 → 3-6) */
 function nextNumber(list: Problem[]) {
@@ -112,7 +113,7 @@ export default function ProblemManager({
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="mr-auto text-lg font-bold">📚 문제 관리</h2>
+        <h2 className="mr-auto text-lg font-bold">📚 문제 등록 및 관리</h2>
         <select
           value={subject}
           onChange={(e) => {
@@ -138,7 +139,7 @@ export default function ProblemManager({
 
       {!tableReady && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          ⚠️ 문제 관리를 쓰려면 Supabase SQL Editor에서 <code>supabase/migrations/003_problems.sql</code>을 실행해
+          ⚠️ 문제 등록 및 관리를 쓰려면 Supabase SQL Editor에서 <code>supabase/migrations/003_problems.sql</code>을 실행해
           주세요. 지금은 코드에 들어 있는 문제 목록을 보여 줘요(고칠 수 없음).
         </p>
       )}
@@ -187,7 +188,7 @@ export default function ProblemManager({
           {showStandards ? "▾" : "▸"} 성취기준별 보기
         </button>
       </div>
-      {showStandards && <StandardPanel key={subject} subject={subject} />}
+      {showStandards && <StandardPanel key={subject} subject={subject} onClose={() => setShowStandards(false)} />}
 
       {message && messageAt === null && <Notice result={message} />}
 
@@ -310,7 +311,10 @@ export default function ProblemManager({
                     <tr className="border-b border-line/60">
                       <td colSpan={7} className="bg-page/60 p-4">
                         <div className="max-w-xl rounded-xl border border-line bg-white p-4">
-                          <p className="mb-2 text-xs text-muted">학생 화면에서 이렇게 보여요</p>
+                          <div className="mb-2 flex items-center gap-2">
+                            <p className="text-xs text-muted">학생 화면에서 이렇게 보여요</p>
+                            <CloseButton onClick={() => setViewing(null)} />
+                          </div>
                           <ProblemView problem={p} fit />
                         </div>
                       </td>
@@ -381,7 +385,7 @@ function LessonCell({ p }: { p: Problem }) {
 }
 
 /** 성취기준별 보기: 성취기준마다 문제 수·앵커·낸 학생 수·제출 수 */
-function StandardPanel({ subject }: { subject: string }) {
+function StandardPanel({ subject, onClose }: { subject: string; onClose: () => void }) {
   const [rows, setRows] = useState<StandardSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -399,6 +403,10 @@ function StandardPanel({ subject }: { subject: string }) {
   if (!rows) return <p className="text-sm text-muted">불러오는 중…</p>;
   return (
     <div className="scrollbar-none overflow-x-auto rounded-lg border border-line bg-page/40 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-sm font-bold">성취기준별 보기</span>
+        <CloseButton onClick={onClose} />
+      </div>
       <table className="w-full text-left text-sm">
         <thead className="text-muted">
           <tr className="border-b border-line">

@@ -67,7 +67,7 @@ async function TeacherHome() {
           },
           {
             id: "students",
-            label: "🏫 학생 관리",
+            label: "🏫 학생 등록 및 관리",
             content: (
               <div className="mx-auto flex max-w-5xl flex-col gap-6">
                 <StudentImport />
@@ -79,7 +79,7 @@ async function TeacherHome() {
           },
           {
             id: "problems",
-            label: "📚 문제 관리",
+            label: "📚 문제 등록 및 관리",
             content: (
               <div className="mx-auto max-w-5xl">
                 <Suspense fallback={<p className="text-muted">문제 불러오는 중…</p>}>
@@ -143,7 +143,7 @@ async function TeacherHome() {
           },
           {
             id: "ai",
-            label: "🤖 AI 대화",
+            label: "🤖 학생 AI 대화 기록",
             content: (
               <div className="mx-auto max-w-5xl">
                 <Suspense fallback={<p className="text-muted">학생 목록 불러오는 중…</p>}>
@@ -154,7 +154,7 @@ async function TeacherHome() {
           },
           {
             id: "effect",
-            label: "📈 수업 효과",
+            label: "📈 수업 분석",
             content: (
               <div className="mx-auto max-w-6xl">
                 <EffectStats />

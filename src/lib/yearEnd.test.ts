@@ -49,7 +49,7 @@ describe("이름 없는 통계", () => {
   it("CSV에는 이름·아이디가 없고 직접 작성 비율이 붙는다", () => {
     const csv = statsCsv(rows);
     expect(csv.split("\r\n")[0]).toContain("직접 작성 비율(%)");
-    expect(csv).toContain("2026-11,프로그래밍,2-3,3,2,1,3,1,2,1,1");
+    expect(csv).toContain(`="2026-11",프로그래밍,="2-3",3,2,1,3,1,2,1,1`); // 엑셀이 날짜로 바꾸지 않게
     expect(csv).not.toMatch(/s1|zz/);
   });
 });
