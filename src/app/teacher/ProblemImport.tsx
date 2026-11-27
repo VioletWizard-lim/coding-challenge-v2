@@ -13,6 +13,7 @@ import {
   MAX_WORKSHEET_FILES,
   WORKSHEET_ACCEPT,
   worksheetType,
+  fillLessonDefaults,
   gaugePercent,
   type WorksheetLine,
   type WorksheetStage,
@@ -202,7 +203,9 @@ export default function ProblemImport({
       if (!data.ok || !data.problems) return setMessage(data.message ?? "학습지를 읽지 못했어요.");
       if (!data.problems.length)
         return setMessage("학습지에서 문제를 찾지 못했어요. 문제 표가 잘 보이는 파일인지 확인해 주세요.");
-      const asProblems: Problem[] = data.problems.map((p) => {
+      // 차시·순서만 적은 문제는 문제 양식과 같은 규칙으로 성취기준·기본/심화·앵커를 미리 채운다
+      const filled = fillLessonDefaults(data.problems, problems);
+      const asProblems: Problem[] = filled.map((p) => {
         const existing = problems.find((x) => x.subject === p.subject && x.number === p.number);
         if (!existing) return { ...p, id: null, openAt: null }; // 새 문제는 비공개로
         // 이미 있는 문제: AI가 못 읽은(빈) 칸과 학습지에 없는 시작 코드·공개 상태는 지금 값을 그대로 둔다
@@ -218,6 +221,12 @@ export default function ProblemImport({
           challenge: p.challenge || existing.challenge,
           starterCode: existing.starterCode,
           openAt: existing.openAt,
+          // 학습지에 수업 계획이 없으면 지금 값을 그대로 둔다
+          lesson: p.lesson !== undefined ? p.lesson : existing.lesson,
+          lessonOrder: p.lessonOrder !== undefined ? p.lessonOrder : existing.lessonOrder,
+          level: p.level !== undefined ? p.level : existing.level,
+          anchor: p.anchor !== undefined ? p.anchor : existing.anchor,
+          standards: p.standards !== undefined ? p.standards : existing.standards,
         };
       });
       // 미리보기 줄 순서(= CSV 순서)와 맞추려고 과목·번호 순으로 정렬해 둔다
@@ -364,6 +373,17 @@ export default function ProblemImport({
             <li>
               학습지 <b>PDF</b>, <b>워드</b>(docx), <b>사진</b>(jpg, png)을 올리면 AI가 난이도·문제·조건·예시·목표·도전 과제를 읽어 옮겨
               줘요. 한글(HWP) 파일은 한글에서 <b>&lsquo;PDF로 저장&rsquo;</b>해서 올려 주세요.
+            </li>
+            <li>
+              새로 만들 때는{" "}
+              <a
+                href="/worksheet-template.docx"
+                download="학습지_양식.docx"
+                className="rounded-md border border-brand bg-white px-2 py-0.5 font-bold text-brand hover:bg-brand-soft"
+              >
+                ⬇ 워드 학습지 양식 내려받기
+              </a>{" "}
+              에 문제마다 표 하나씩 채워 올리면 가장 정확하게 읽어요 (표를 복사해 문제를 늘려요).
             </li>
             <li>
               파일을 고르고 <b>확인</b>을 누르면 AI가 읽기 시작해요. 여러 장이면 한꺼번에 고를 수 있어요. 사진은 자동으로 줄여서 보내고, 워드는 글만 뽑아 보내서 크기
