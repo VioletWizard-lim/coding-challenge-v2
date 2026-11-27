@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { askedBackText, continuesThread, decideAsk } from "./askBack";
-import { currentStuck, findStuckMoments, meaningfulLines, strongestStuck } from "./process-summary";
+import { askedBackText, continuesThread, decideAsk, nudgeDue, nudgeKind, nudgeRange, nudgeText } from "./askBack";
+import { currentStuck, findStuckMoments, meaningfulLines, strongestStuck, summarizeProcess } from "./process-summary";
+import { analyzeLog } from "./replay";
 
 const S = 1000;
 const MIN = 60 * S;
@@ -125,5 +126,44 @@ describe("첫 되물음 (A·B·C)", () => {
     expect(text).toContain("print(a * 2)");
     expect(text).not.toContain("[[M1]]");
     expect(text).not.toContain("모르겠어요");
+  });
+});
+
+describe("막힘 알림 (P2)", () => {
+  const errLog = [type(0, 0, "print(y)"), run(10 * S, "NameError"), run(20 * S, "NameError"), run(30 * S, "NameError")];
+
+  it("지금 막힌 곳이 있으면 알린다, 같은 막힘은 다시 알리지 않는다", () => {
+    const m = nudgeDue("", errLog, 40 * S)!;
+    expect(m.rule).toBe("error-repeat");
+    expect(nudgeText(m)).toBe("같은 NameError가 3번 이어서 났어요. 오류가 난 구간을 다시 볼까요?");
+    expect(nudgeDue("", [...errLog, [41 * S, nudgeKind(m)], [45 * S, "n:close"]], 10 * MIN)).toBeNull();
+  });
+
+  it("마지막 알림에서 5분이 지나야 다른 막힘을 알린다", () => {
+    const shown = [...errLog, [41 * S, "n:error-repeat@10000"], [42 * S, "n:close"]];
+    // 같은 줄 반복 수정이 새로 생겨도 5분 전에는 알리지 않는다
+    const more: unknown[] = [...shown];
+    let t = 50 * S;
+    for (let k = 0; k < 4; k++) {
+      more.push(type((t += 5 * S), 1, String(k)));
+      more.push(run((t += 5 * S), "TypeError"));
+    }
+    expect(nudgeDue("\n", more, t + S)).toBeNull();
+    expect(nudgeDue("\n", more, 41 * S + 5 * MIN)).not.toBeNull();
+  });
+
+  it("알림 표시는 멈춤·작업 시간 계산에 들어가지 않고, 재생 타임라인에는 반응과 함께 보인다", () => {
+    const log = [type(0, 0, "a"), [2 * MIN, "n:long-pause@0"], [2 * MIN + 5 * S, "n:open"], type(4 * MIN, 0, "b")];
+    const a = analyzeLog("", log);
+    expect(a.stats.pauseCount).toBe(1); // 0~4분 멈춤 하나 (알림이 멈춤을 둘로 나누지 않음)
+    expect(a.marks.find((m) => m.kind === "nudge")!.detail).toBe("막힘 알림: 긴 멈춤 → 다시 봄");
+    expect(summarizeProcess("", log).pauses).toHaveLength(1);
+    expect(findStuckMoments("", log).filter((m) => m.rule === "long-pause")).toHaveLength(1);
+  });
+
+  it("다시 보기 구간: 멈춤이면 멈추기 전 2분, 나머지는 막힘 구간", () => {
+    expect(nudgeRange({ ...currentStuck("", errLog)!, from: 10 * S, to: 30 * S })).toEqual({ from: 10 * S - 1, to: 30 * S });
+    const pause = currentStuck("", [type(0, 0, "a")], 10 * MIN)!;
+    expect(nudgeRange(pause)).toEqual({ from: -2 * MIN, to: 0 });
   });
 });

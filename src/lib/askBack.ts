@@ -196,3 +196,41 @@ export function askedBackText(ask: { situation: Situation; clip: AskClip | null;
   }
   return lines.join("\n");
 }
+
+/* ───────── 막힘 알림 (P2): 학생이 AI를 누르지 않아도 기록 일부를 먼저 띄운다 ───────── */
+
+/** 알림이 뜬 표시 (작성 기록에 [시각, 이 값]으로 남긴다). 같은 막힘으로 두 번 알리지 않으려고 규칙과 시작 시각을 담는다 */
+export const nudgeKind = (m: StuckMoment) => `n:${m.rule}@${Math.round(m.from)}`;
+
+/**
+ * 지금 막힘 알림을 띄울지: 지금 막힌 곳(currentStuck)이 있고, 같은 막힘으로 알린 적이 없고,
+ * 마지막 알림에서 nudge.gapMs가 지났으면 그 막힘을, 아니면 null
+ */
+export function nudgeDue(init: string, log: unknown, now: number): StuckMoment | null {
+  const shown = validEntries(log).filter((e) => e.length === 2 && /^n:[a-z-]+@\d+$/.test(e[1]));
+  const last = shown[shown.length - 1];
+  if (last && now - last[0] < STUCK_RULES.nudge.gapMs) return null;
+  const m = currentStuck(init, log, now);
+  if (!m || shown.some((e) => e[1] === nudgeKind(m))) return null;
+  return m;
+}
+
+/** 알림 문장 (탓하지 않고, 다시 볼지 묻기만) */
+export function nudgeText(m: StuckMoment): string {
+  const lineText = m.line ? `${m.line}번째 줄` : "코드";
+  switch (m.rule) {
+    case "error-repeat":
+      return `같은 ${m.error}가 ${m.count}번 이어서 났어요. 오류가 난 구간을 다시 볼까요?`;
+    case "paste-error":
+      return `붙여넣은 뒤 바로 ${m.error}가 났어요. 그 구간을 다시 볼까요?`;
+    case "same-line":
+      return `방금 ${lineText}을 ${m.count}번 고쳤어요. 고친 과정을 다시 볼까요?`;
+    case "long-pause":
+      return `${Math.round(m.minutes)}분째 멈춰 있어요. 지금까지 쓴 과정을 다시 볼까요?`;
+  }
+}
+
+/** 알림의 "다시 보기"에서 재생할 구간: 멈춤이면 멈추기 전 2분, 나머지는 그 막힘 구간 */
+export function nudgeRange(m: StuckMoment): { from: number; to: number } {
+  return m.rule === "long-pause" ? { from: m.from - 2 * 60_000, to: m.from } : { from: m.from - 1, to: m.to };
+}

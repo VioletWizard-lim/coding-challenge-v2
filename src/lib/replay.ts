@@ -3,6 +3,7 @@
  * 교사·학생 화면이 같이 쓴다. 감시가 아니라 성찰용이므로 "몇 번 했다"를 사실대로만 보여 준다.
  */
 import { editRange, type EditEvent, type LogEvent } from "./editLog";
+import { STUCK_RULE_NAMES } from "./stuckRules";
 
 /** 이 시간보다 오래 아무 기록이 없으면 "멈춤"으로 표시 */
 export const PAUSE_MS = 60_000;
@@ -16,7 +17,7 @@ export const MIN_AWAY_MS = 1000;
 /** 한 번에 이만큼 넘게 지우면 "크게 지움"으로 표시 */
 export const BIG_DELETE_CHARS = 30;
 
-export type MarkKind = "paste" | "away" | "run-ok" | "run-error" | "pause" | "bigdelete" | "ask";
+export type MarkKind = "paste" | "away" | "run-ok" | "run-error" | "pause" | "bigdelete" | "ask" | "nudge";
 
 export type Mark = {
   kind: MarkKind;
@@ -52,6 +53,13 @@ export function formatDuration(ms: number) {
   if (m < 60) return `${m}분 ${s % 60}초`;
   return `${Math.floor(m / 60)}시간 ${m % 60}분`;
 }
+
+/**
+ * 막힘 알림(P2) 표시: [시각, "n:same-line@시작시각"] 알림이 뜸(자동), [시각, "n:open" | "n:ask" | "n:close"] 학생 반응.
+ * 학생이 쓴 기록이 아니라서 멈춤·작업 시간 계산에는 넣지 않는다 (activityEntries)
+ */
+export const isNudgeEvent = (e: LogEvent) => e.length === 2 && e[1].startsWith("n:");
+export const NUDGE_REACTIONS: Record<string, string> = { "n:open": "다시 봄", "n:ask": "AI에게 물음", "n:close": "닫음" };
 
 /** 형식이 맞는 기록 항목만 (v1 valid_entries와 같음) */
 export function validEntries(log: unknown): LogEvent[] {
@@ -90,14 +98,20 @@ export function timeAxis(times: number[], capMs = TIMELINE_GAP_CAP_MS): { total:
   return { total, pos };
 }
 
+/** 학생이 한 일만 (막힘 알림 표시는 뺀다): 멈춤·작업 시간·집중 시간을 셀 때 쓴다 */
+export function activityEntries(log: unknown): LogEvent[] {
+  return validEntries(log).filter((e) => !isNudgeEvent(e));
+}
+
 const isEdit = (e: LogEvent): e is EditEvent => e.length > 2 && typeof e[6] === "string";
 
 export function analyzeLog(init: string, log: unknown): Analysis {
   const all = validEntries(log);
+  const timed = all.filter((e) => !isNudgeEvent(e));
   const edits: EditEvent[] = [];
   const marks: Mark[] = [];
   const stats: ReplayStats = {
-    totalMs: all.length ? all[all.length - 1][0] - all[0][0] : 0,
+    totalMs: timed.length ? timed[timed.length - 1][0] - timed[0][0] : 0,
     activeMs: 0,
     typedChars: 0,
     pastedChars: 0,
@@ -113,17 +127,31 @@ export function analyzeLog(init: string, log: unknown): Analysis {
 
   let doc = init;
   let awayMark: Mark | null = null;
+  let nudgeMark: Mark | null = null;
+  let prevT: number | null = null;
   for (let i = 0; i < all.length; i++) {
     const e = all[i];
     const at = edits.length;
-    if (i > 0) {
-      const gap = e[0] - all[i - 1][0];
+    // 막힘 알림: 타임라인에 표시만 하고, 멈춤·작업 시간 계산에는 넣지 않는다
+    if (isNudgeEvent(e)) {
+      const reaction = NUDGE_REACTIONS[e[1]];
+      if (reaction && nudgeMark) nudgeMark.detail += ` → ${reaction}`;
+      else if (!reaction) {
+        const rule = e[1].slice(2).split("@")[0] as keyof typeof STUCK_RULE_NAMES;
+        nudgeMark = { kind: "nudge", at, time: e[0], detail: `막힘 알림: ${STUCK_RULE_NAMES[rule] ?? rule}` };
+        marks.push(nudgeMark);
+      }
+      continue;
+    }
+    if (prevT !== null) {
+      const gap = e[0] - prevT;
       if (gap < ACTIVE_GAP_MS) stats.activeMs += gap;
       else if (gap >= PAUSE_MS && !awayMark) {
         stats.pauseCount++;
-        marks.push({ kind: "pause", at, time: all[i - 1][0], detail: `${formatDuration(gap)} 멈춤` });
+        marks.push({ kind: "pause", at, time: prevT, detail: `${formatDuration(gap)} 멈춤` });
       }
     }
+    prevT = e[0];
 
     if (isEdit(e)) {
       const lines = doc.split("\n").map((l) => l.length);
