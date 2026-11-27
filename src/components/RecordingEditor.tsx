@@ -26,6 +26,8 @@ import { nudgeDue, nudgeKind, nudgeRange, nudgeText } from "@/lib/askBack";
 import type { StuckMoment } from "@/lib/process-summary";
 import { STUCK_RULES } from "@/lib/stuckRules";
 import ReplayModal from "./ReplayModal";
+import { livePayload, type LivePayload } from "@/lib/liveStatus";
+import { OPEN_EVENT } from "@/lib/replay";
 import { INPUT_CANCELLED, loadPython, RUN_LIMIT_SECONDS, runStudentCode, TIME_LIMIT_ERROR } from "@/lib/pyodide";
 
 type Props = {
@@ -42,6 +44,11 @@ type Props = {
    * onAskAi: 알림의 "AI에게 물어보기" (없으면 단추를 숨김) / suppressed: true면 띄우지 않음 (예: AI 도우미 창이 열려 있을 때)
    */
   nudge?: { onAskAi?: () => void; suppressed?: boolean };
+  /**
+   * 작성 중 상태 보내기 (P3, 교사 화면 "지금 수업 중"): 주면 문제를 열 때·첫 입력·막힘 알림 때 바로, 그 사이에는 이 화면을 보고 있을 때만
+   * heartbeatMs마다 report를 부른다. 코드 내용은 담지 않는다 (liveStatus.ts livePayload)
+   */
+  live?: { report: (p: LivePayload) => void };
 };
 
 export type RecorderHandle = {
@@ -87,7 +94,7 @@ function friendlyTraceback(err: unknown) {
  * 작성 과정을 기록하는 편집기. 모든 편집·창 이탈·실행을 v1과 같은 edit_log 형식으로
  * localStorage에 바로 저장하므로 새로고침해도 이어서 쓸 수 있다.
  */
-export default function RecordingEditor({ storageKey, initialCode = "", mode = "code", ref, nudge }: Props) {
+export default function RecordingEditor({ storageKey, initialCode = "", mode = "code", ref, nudge, live }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const recRef = useRef<Recording | null>(null);
@@ -112,9 +119,24 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
   const [nudgeReplay, setNudgeReplay] = useState<{ rec: Recording; at: number; end: number; label: string } | null>(null);
   const nudgeRef = useRef(nudge);
   const nudgedRef = useRef<StuckMoment | null>(null);
+  /** 작성 중 상태 (P3): 이번에 문제를 연 시각, 첫 입력을 보냈는지 */
+  const liveRef = useRef(live);
+  const openedAtRef = useRef<number | null>(null);
+  const firstInputSentRef = useRef(false);
+  const reportLiveRef = useRef(() => {});
   useEffect(() => {
     nudgeRef.current = nudge;
     nudgedRef.current = nudged;
+    liveRef.current = live;
+    reportLiveRef.current = () => {
+      const rec = recRef.current;
+      if (!rec || openedAtRef.current === null || staleRef.current || !liveRef.current) return;
+      const p = livePayload(rec.log, openedAtRef.current);
+      if (p.firstInputAt !== null) firstInputSentRef.current = true;
+      try {
+        liveRef.current.report(p);
+      } catch {}
+    };
   });
   /** 다른 창의 기록을 불러와 다시 연 것인지 (다시 열 때 "창 복귀"를 맞춰 남긴다) */
   const takeOverRef = useRef(false);
@@ -206,7 +228,11 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
           rec.log.push(...eventsFromChanges(tr.changes, tr.startState.doc, kindOf(tr), Date.now()));
           changed = true;
         }
-        if (changed) save();
+        if (changed) {
+          save();
+          // 문제를 연 뒤 첫 입력이면 바로 알린다 (교사 화면 "시작 지연"이 바로 풀리게)
+          if (!firstInputSentRef.current) reportLiveRef.current();
+        }
       }),
       EditorView.theme({
         "&": { height: "100%", fontSize: "15px" },
@@ -239,6 +265,19 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
 
     // 다른 창의 기록에 "창 복귀"를 더했으면 저장한다 (그 밖에는 열기만 해서는 저장하지 않는다: 두 창이 서로 다시 불러오며 맴돌지 않게)
     if (closedAway) save();
+
+    // 문제를 연 순간 (P3·지표 7). 방금(10분 안) 연 표시가 마지막이면 다시 남기지 않는다 (새로고침·창 오가기)
+    const lastEvent = rec.log[rec.log.length - 1];
+    const now0 = Date.now();
+    if (lastEvent && lastEvent.length === 2 && lastEvent[1] === OPEN_EVENT && now0 - lastEvent[0] < 10 * 60_000) {
+      openedAtRef.current = lastEvent[0];
+    } else {
+      rec.log.push([now0, OPEN_EVENT]);
+      openedAtRef.current = now0;
+      save();
+    }
+    firstInputSentRef.current = false;
+    reportLiveRef.current();
 
     // 같은 문제를 다른 창에서 저장했을 때
     const takeOver = () => {
@@ -298,10 +337,22 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
       if (!m) return;
       rec.log.push([now, nudgeKind(m)]); // 알림이 뜬 시점 (학생 반응은 n:open / n:ask / n:close)
       saveRef.current();
+      reportLiveRef.current(); // 교사 화면 "막힘 반복"
       setNudged(m);
     }, STUCK_RULES.nudge.checkMs);
     return () => clearInterval(timer);
   }, [nudgeOn, storageKey, reloadN]);
+
+  // 작성 중 상태 (P3): 이 화면을 보고 있는 동안 heartbeatMs마다 "아직 쓰는 중"을 보낸다
+  const liveOn = !!live;
+  useEffect(() => {
+    if (!liveOn) return;
+    const timer = setInterval(() => {
+      // 브라우저 탭을 보고 있고, 편집기가 실제로 보일 때만 (사이트의 다른 메뉴에 가 있으면 숨겨져 있음)
+      if (!document.hidden && parentRef.current?.offsetParent) reportLiveRef.current();
+    }, STUCK_RULES.live.heartbeatMs);
+    return () => clearInterval(timer);
+  }, [liveOn, storageKey, reloadN]);
 
   /** 알림에 대한 학생 반응을 기록에 남기고 알림을 닫는다 */
   function reactNudge(kind: "n:open" | "n:ask" | "n:close") {

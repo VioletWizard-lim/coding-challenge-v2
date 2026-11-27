@@ -59,6 +59,10 @@ export function formatDuration(ms: number) {
  * 학생이 쓴 기록이 아니라서 멈춤·작업 시간 계산에는 넣지 않는다 (activityEntries)
  */
 export const isNudgeEvent = (e: LogEvent) => e.length === 2 && e[1].startsWith("n:");
+/** 문제를 연 순간 (P3·지표 7, 자동으로 남김) */
+export const OPEN_EVENT = "open";
+/** 학생이 직접 한 일이 아니라 사이트가 자동으로 남긴 표시 (막힘 알림, 문제를 연 순간) */
+export const isAutoEvent = (e: LogEvent) => isNudgeEvent(e) || (e.length === 2 && e[1] === OPEN_EVENT);
 export const NUDGE_REACTIONS: Record<string, string> = { "n:open": "다시 봄", "n:ask": "AI에게 물음", "n:close": "닫음" };
 
 /** 형식이 맞는 기록 항목만 (v1 valid_entries와 같음) */
@@ -98,16 +102,16 @@ export function timeAxis(times: number[], capMs = TIMELINE_GAP_CAP_MS): { total:
   return { total, pos };
 }
 
-/** 학생이 한 일만 (막힘 알림 표시는 뺀다): 멈춤·작업 시간·집중 시간을 셀 때 쓴다 */
+/** 학생이 한 일만 (막힘 알림·문제를 연 순간 표시는 뺀다): 멈춤·작업 시간·집중 시간을 셀 때 쓴다 */
 export function activityEntries(log: unknown): LogEvent[] {
-  return validEntries(log).filter((e) => !isNudgeEvent(e));
+  return validEntries(log).filter((e) => !isAutoEvent(e));
 }
 
 const isEdit = (e: LogEvent): e is EditEvent => e.length > 2 && typeof e[6] === "string";
 
 export function analyzeLog(init: string, log: unknown): Analysis {
   const all = validEntries(log);
-  const timed = all.filter((e) => !isNudgeEvent(e));
+  const timed = all.filter((e) => !isAutoEvent(e));
   const edits: EditEvent[] = [];
   const marks: Mark[] = [];
   const stats: ReplayStats = {
@@ -143,6 +147,7 @@ export function analyzeLog(init: string, log: unknown): Analysis {
       }
       continue;
     }
+    if (isAutoEvent(e)) continue; // 문제를 연 순간: 표시·시간 계산 없음
     if (prevT !== null) {
       const gap = e[0] - prevT;
       if (gap < ACTIVE_GAP_MS) stats.activeMs += gap;

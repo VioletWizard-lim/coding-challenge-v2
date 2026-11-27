@@ -32,13 +32,15 @@ import { getUserProfile } from "@/lib/auth";
 import { isValidLog, replay, type LogEvent } from "@/lib/editLog";
 import { askedBackText, continuesThread, decideAsk, plainAskText, type PrevRecord } from "@/lib/askBack";
 import { STUCK_RULES } from "@/lib/stuckRules";
-import { allowedSubjects, gradeClassFor } from "@/lib/problems";
+import { allowedSubjects, gradeClassFor, SUBJECTS } from "@/lib/problems";
 import { findOpenProblem } from "@/lib/problemStore";
 import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
 import { saveTodayReflection } from "@/lib/reflectionStore";
 import { meaningfulLines, processSummaryText, summarizeProcess } from "@/lib/process-summary";
 import { AI_BUSY_MESSAGE, oneAtATime } from "@/lib/aiTurn";
 import { getSession } from "@/lib/session";
+import type { LivePayload } from "@/lib/liveStatus";
+import { upsertLive } from "@/lib/liveStatusStore";
 import { getMyRecentRecordings, getReplayData, insertSubmission, isMySubmission, submittedSince, type Owner, type ReplayData } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote, type NotesBundle, type TimelineNote } from "@/lib/timelineNotes";
 import { countNotes, deleteNote, insertNote, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
@@ -643,5 +645,42 @@ export async function flagMyReview(reviewId: number): Promise<{ ok: boolean; err
   } catch (err) {
     console.error("되돌아보기 표시 오류:", err);
     return { ok: false, error: "알리지 못했어요. 잠시 후 다시 시도하세요." };
+  }
+}
+
+/* ───────────── 작성 중 상태 (P3: 교사 화면 "지금 수업 중") ───────────── */
+
+const LIVE_PROBLEM = /^[A-Za-z0-9_-]{1,24}$/;
+
+/**
+ * 문제를 쓰는 동안 짧은 상태를 보낸다 (문제를 연 시각, 첫 입력, 마지막 활동, 막힘 알림 수). 코드 내용은 보내지 않는다.
+ * 실패해도 학생 화면에는 아무 영향이 없다.
+ */
+export async function reportLiveStatus(input: { subject: string; problem: string; payload: LivePayload }): Promise<void> {
+  try {
+    const session = await getSession();
+    if (!session || session.role !== "student") return;
+    const subject = String(input?.subject ?? "");
+    const problem = String(input?.problem ?? "");
+    if (!(subject in SUBJECTS) || !LIVE_PROBLEM.test(problem)) return;
+    const now = Date.now();
+    // 브라우저 시계가 조금 달라도 받되, 엉뚱한 값은 버린다 (하루 전 ~ 1분 뒤)
+    const time = (v: unknown): number | null => {
+      const n = Number(v);
+      return v === null || v === undefined || !Number.isFinite(n) || n < now - 86_400_000 || n > now + 60_000 ? null : Math.round(n);
+    };
+    const p = input.payload ?? ({} as LivePayload);
+    const openedAt = time(p.openedAt);
+    if (openedAt === null) return;
+    const rule = typeof p.lastNudgeRule === "string" && /^[a-z-]{1,20}$/.test(p.lastNudgeRule) ? p.lastNudgeRule : null;
+    await upsertLive(session.id, subject, problem, {
+      openedAt,
+      firstInputAt: time(p.firstInputAt),
+      lastActiveAt: time(p.lastActiveAt),
+      nudgeCount: Math.min(999, Math.max(0, Math.round(Number(p.nudgeCount) || 0))),
+      lastNudgeRule: rule,
+    });
+  } catch (err) {
+    console.warn("작성 중 상태 보내기 실패:", err);
   }
 }

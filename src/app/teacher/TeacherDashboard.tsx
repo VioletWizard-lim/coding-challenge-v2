@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useStudentNav } from "@/components/SideTabs";
 import type { TeacherHomeData } from "@/lib/teacherHome";
 import { GRADE_SUBJECT_EVENT } from "./GradingBoard";
+import LiveStatusCard from "./LiveStatusCard";
 
 const dayFormat = new Intl.DateTimeFormat("ko-KR", { timeZone: "UTC", month: "long", day: "numeric", weekday: "short" });
 const openFormat = new Intl.DateTimeFormat("ko-KR", {
@@ -76,6 +77,9 @@ export default function TeacherDashboard({
           </a>
         </div>
       </div>
+
+      {/* 지금 수업 중 (P3): 시작 지연·막힘 반복 학생 */}
+      <LiveStatusCard />
 
       {status}
 
