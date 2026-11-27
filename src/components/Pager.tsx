@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { pageItems } from "@/lib/pager";
+import { PAGE_BLOCK, pageBlock } from "@/lib/pager";
 
-/** 쪽 나누기 버튼: « 처음 · ‹ 이전 · 1 2 3 … · 다음 › · 끝 » (쪽이 9개 이하면 모두, 많으면 첫·끝·지금 근처 번호 9개, pageItems) */
+/** 쪽 나누기 버튼: « 처음 · ‹ 이전 · … 11 12 … 20 … · 다음 › · 끝 » (게시판처럼 10쪽씩 묶어서, 양 끝 …는 앞·뒤 묶음으로, pageBlock) */
 export default function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
   const [typed, setTyped] = useState("");
   if (pages <= 1) return null;
@@ -14,7 +14,8 @@ export default function Pager({ page, pages, onPage }: { page: number; pages: nu
     onPage(Math.min(pages, Math.max(1, Math.round(n))));
     setTyped("");
   };
-  const items = pageItems(page, pages);
+  const { numbers, prevBlock, nextBlock } = pageBlock(page, pages);
+  const items: (number | "prev" | "next")[] = [...(prevBlock ? ["prev" as const] : []), ...numbers, ...(nextBlock ? ["next" as const] : [])];
   const button = "min-w-9 rounded-lg border px-2.5 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-40";
   return (
     <nav aria-label="쪽 고르기" className="flex flex-wrap items-center justify-center gap-1">
@@ -24,11 +25,18 @@ export default function Pager({ page, pages, onPage }: { page: number; pages: nu
       <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1} className={`${button} border-line bg-white`}>
         ‹ 이전
       </button>
-      {items.map((p, i) =>
-        p === "gap" ? (
-          <span key={`gap-${i}`} className="px-1 text-muted">
+      {items.map((p) =>
+        p === "prev" || p === "next" ? (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onPage(p === "prev" ? prevBlock! : nextBlock!)}
+            title={p === "prev" ? `앞 ${PAGE_BLOCK}쪽` : `다음 ${PAGE_BLOCK}쪽`}
+            aria-label={p === "prev" ? `앞 ${PAGE_BLOCK}쪽 (${prevBlock}쪽으로)` : `다음 ${PAGE_BLOCK}쪽 (${nextBlock}쪽으로)`}
+            className={`${button} border-line bg-white text-muted hover:bg-page`}
+          >
             …
-          </span>
+          </button>
         ) : (
           <button
             key={p}

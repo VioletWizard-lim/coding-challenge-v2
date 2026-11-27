@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { pageItems } from "./pager";
+import { pageBlock } from "./pager";
 
-describe("쪽 번호 단추", () => {
-  it("쪽이 9개 이하면 모두 보여 준다", () => {
-    expect(pageItems(1, 5)).toEqual([1, 2, 3, 4, 5]);
-    expect(pageItems(9, 9)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+describe("쪽 번호 단추 (10쪽씩 묶음)", () => {
+  it("10쪽 이하면 모두, 앞뒤 묶음 없음", () => {
+    expect(pageBlock(1, 5)).toEqual({ numbers: [1, 2, 3, 4, 5], prevBlock: null, nextBlock: null });
+    expect(pageBlock(10, 10).numbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
-  it("많으면 첫·끝 쪽과 지금 쪽 근처를 번호 9개로", () => {
-    expect(pageItems(1, 20)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, "gap", 20]);
-    expect(pageItems(10, 20)).toEqual([1, "gap", 7, 8, 9, 10, 11, 12, 13, "gap", 20]);
-    expect(pageItems(20, 20)).toEqual([1, "gap", 13, 14, 15, 16, 17, 18, 19, 20]);
-    expect(pageItems(5, 10)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, "gap", 10]);
+  it("지금 쪽이 든 10쪽 묶음을 보여 준다", () => {
+    expect(pageBlock(3, 25)).toEqual({ numbers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], prevBlock: null, nextBlock: 11 });
+    expect(pageBlock(10, 25).numbers[9]).toBe(10);
+    expect(pageBlock(11, 25)).toEqual({ numbers: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20], prevBlock: 10, nextBlock: 21 });
+    expect(pageBlock(23, 25)).toEqual({ numbers: [21, 22, 23, 24, 25], prevBlock: 20, nextBlock: null });
   });
-  it("번호는 늘 9개", () => {
-    for (let pages = 10; pages <= 30; pages++)
-      for (let page = 1; page <= pages; page++) expect(pageItems(page, pages).filter((x) => x !== "gap")).toHaveLength(9);
+  it("범위를 넘은 쪽은 처음·끝 묶음으로", () => {
+    expect(pageBlock(0, 25).numbers[0]).toBe(1);
+    expect(pageBlock(99, 25).numbers[0]).toBe(21);
   });
 });
