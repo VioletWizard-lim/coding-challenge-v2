@@ -4,6 +4,7 @@
  */
 import { editRange, type EditEvent, type LogEvent } from "./editLog";
 import { STUCK_RULE_NAMES } from "./stuckRules";
+import { parseCheck } from "./exampleCheck";
 
 /** 이 시간보다 오래 아무 기록이 없으면 "멈춤"으로 표시 */
 export const PAUSE_MS = 60_000;
@@ -17,7 +18,7 @@ export const MIN_AWAY_MS = 1000;
 /** 한 번에 이만큼 넘게 지우면 "크게 지움"으로 표시 */
 export const BIG_DELETE_CHARS = 30;
 
-export type MarkKind = "paste" | "away" | "run-ok" | "run-error" | "pause" | "bigdelete" | "ask" | "nudge";
+export type MarkKind = "paste" | "away" | "run-ok" | "run-error" | "pause" | "bigdelete" | "ask" | "nudge" | "check";
 
 export type Mark = {
   kind: MarkKind;
@@ -203,6 +204,10 @@ export function analyzeLog(init: string, log: unknown): Analysis {
       // TimeLimitError: 실행 시간 한도를 넘어 멈춘 것 (src/lib/pyodide.ts)
       const name = kind.slice(2);
       marks.push({ kind: "run-error", at, time: e[0], detail: name === "TimeLimitError" ? "실행이 오래 걸려 멈춤 (끝나지 않는 반복)" : `실행 오류: ${name}` });
+    } else if (parseCheck(kind)) {
+      // 예시로 확인 (exampleCheck.ts): 단추를 눌렀거나 제출할 때 자동으로
+      const { pass, total } = parseCheck(kind)!;
+      marks.push({ kind: "check", at, time: e[0], detail: pass === total ? `예시 확인: 모두 통과 (${pass}/${total})` : `예시 확인: ${pass}/${total} 통과` });
     } else if (kind === "q") {
       stats.askCount++;
       marks.push({ kind: "ask", at, time: e[0], detail: "AI에게 도움 요청" });
