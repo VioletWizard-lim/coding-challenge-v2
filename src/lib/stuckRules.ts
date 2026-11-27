@@ -20,4 +20,14 @@ export const STUCK_RULES = {
   threadMs: 15 * 60_000,
   /** C 상황: 이전 문제 기록을 몇 개까지 찾아볼지 (같은 과목, 최근 것부터) */
   previousRecords: 10,
+  /** 막힘 알림 (P2): 같은 문제에서 알림 사이 최소 간격, 편집기가 막힘을 확인하는 주기 (같은 막힘으로는 다시 알리지 않음) */
+  nudge: { gapMs: 5 * 60_000, checkMs: 15_000 },
+} as const;
+
+/** 규칙 이름 (화면·AI·재생 타임라인 공용) */
+export const STUCK_RULE_NAMES = {
+  "error-repeat": "같은 오류 반복",
+  "paste-error": "붙여넣기 직후 오류",
+  "same-line": "같은 줄 반복 수정",
+  "long-pause": "긴 멈춤",
 } as const;

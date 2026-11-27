@@ -173,7 +173,12 @@ export default function ProblemSolver({
         <div className="flex min-w-0 flex-col gap-4">
           {editorReady && !aiOpen && <AiHelperButton onOpen={() => setAiOpen(true)} />}
           {editorReady ? (
-            <RecordingEditor ref={recorder} storageKey={storageKey} initialCode={starterCode} />
+            <RecordingEditor
+              ref={recorder}
+              storageKey={storageKey}
+              initialCode={starterCode}
+              nudge={{ onAskAi: () => setAiOpen(true), suppressed: aiOpen }}
+            />
           ) : (
             <p className="text-muted">이어 쓸 코드를 불러오는 중…</p>
           )}

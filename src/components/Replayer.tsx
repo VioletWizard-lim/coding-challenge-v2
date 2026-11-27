@@ -49,6 +49,7 @@ export const MARK_STYLE: Record<MarkKind, { glyph: string; label: string; color:
   pause: { glyph: "⏸", label: "1분 넘게 멈춤", color: "text-slate-500" },
   bigdelete: { glyph: "✂", label: "크게 지움", color: "text-purple-600" },
   ask: { glyph: "?", label: "AI 도움 요청", color: "text-blue-600" },
+  nudge: { glyph: "◎", label: "막힘 알림", color: "text-amber-700" },
 };
 
 const SPEEDS = [1, 4, 16, 64];

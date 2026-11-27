@@ -5,6 +5,7 @@
  * 감시가 아니라 성찰: 숫자는 사실만 보여 주고, 벌주는 표시는 하지 않는다.
  */
 import { compareNumber } from "./problemBank";
+import { NUDGE_REACTIONS } from "./replay";
 
 export type WritingSummary = {
   totalMs: number;
@@ -222,7 +223,15 @@ export function rawLogCsvRows(rows: StatRow[], logs: Map<number, unknown[]>, ano
         "시각(ms)": e[0],
         "경과(초)": Math.round(((e[0] as number) - t0)) / 1000,
         종류: kind,
-        종류명: KIND_NAME[kind] ?? (kind === "r:ok" ? "실행성공" : kind.startsWith("r:") ? `실행오류(${kind.slice(2)})` : kind),
+        종류명:
+          KIND_NAME[kind] ??
+          (kind === "r:ok"
+            ? "실행성공"
+            : kind.startsWith("r:")
+              ? `실행오류(${kind.slice(2)})`
+              : kind.startsWith("n:")
+                ? (NUDGE_REACTIONS[kind] ? `막힘알림반응(${NUDGE_REACTIONS[kind]})` : `막힘알림(${kind.slice(2).split("@")[0]})`)
+                : kind),
         시작줄: pos ? e[2] : "",
         시작칸: pos ? e[3] : "",
         끝줄: pos ? e[4] : "",

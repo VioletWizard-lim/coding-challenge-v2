@@ -3,8 +3,7 @@
 import AiNoticeCard, { useAiNotice } from "@/components/AiNotice";
 import { useEffect, useRef, useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
-import Replayer from "@/components/Replayer";
-import { useDialog } from "@/components/useDialog";
+import ReplayModal from "@/components/ReplayModal";
 import { quietConfirm } from "@/lib/quietDialog";
 import type { RecorderHandle } from "@/components/RecordingEditor";
 import { MAX_QUESTION, type AiChat } from "@/lib/aiChat";
@@ -79,7 +78,6 @@ export default function AiHelper({
   const [replay, setReplay] = useState<{ rec: Recording; at: number; end?: number; label: string } | null>(null);
   const [flagged, setFlagged] = useState<Set<number>>(new Set());
   const listEnd = useRef<HTMLDivElement>(null);
-  const replayDialog = useDialog<HTMLDivElement>(!!replay, () => setReplay(null));
   const backend: HelperBackend = custom ?? {
     load: () => loadMyAiChats(subject, problem),
     ask: (x) => askAiHelper({ subject, problem, ...x, practiceId, studentProblemId }),
@@ -322,24 +320,7 @@ export default function AiHelper({
         </>
       )}
 
-      {replay && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4"
-          role="presentation"
-          onClick={(e) => e.target === e.currentTarget && setReplay(null)}
-        >
-          <div ref={replayDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="이 순간의 재생" className="mt-10 flex w-full max-w-4xl flex-col gap-3 rounded-xl bg-white p-5 shadow-xl">
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold">⏪ {replay.label} — 이 순간의 재생</h3>
-              <button type="button" onClick={() => setReplay(null)} className="ml-auto text-sm text-muted hover:text-ink">
-                ✕ 닫기
-              </button>
-            </div>
-            {replay.end !== undefined && <p className="text-sm text-muted">이 구간만 보여 줘요. ▶ 재생을 누르면 구간 끝에서 멈춰요.</p>}
-            <Replayer init={replay.rec.init} code={replay.rec.code} log={replay.rec.log} startAt={replay.at} endAt={replay.end} />
-          </div>
-        </div>
-      )}
+      {replay && <ReplayModal rec={replay.rec} at={replay.at} end={replay.end} label={replay.label} onClose={() => setReplay(null)} />}
     </aside>
   );
 }

@@ -6,8 +6,8 @@
  * 이전 도움 요청. 각 순간에는 번호(M1, M2…)를 붙여, AI가 "[[M3]]"처럼 가리키면 화면에서 그 시점의 재생으로 갈 수 있다.
  * 학생 이름·아이디는 담지 않는다 (코드와 기록만). 순수 함수만 — 단위 테스트: process-summary.test.ts
  */
-import { applyEditEvent, type EditEvent } from "./editLog";
-import { PAUSE_MS, formatDuration, validEntries } from "./replay";
+import { applyEditEvent, replay as replayEdits, type EditEvent } from "./editLog";
+import { PAUSE_MS, activityEntries, formatDuration, validEntries } from "./replay";
 import { STUCK_RULES } from "./stuckRules";
 
 /** AI가 가리킬 수 있는 과정의 한 순간 */
@@ -110,7 +110,7 @@ export function lineDiff(before: string, after: string): { added: string[]; remo
  * @param now 지금 시각(ms). "몇 분 전"을 셀 때 쓴다 (기본: 마지막 기록 시각)
  */
 export function summarizeProcess(init: string, log: unknown, now?: number): ProcessSummary {
-  const events = validEntries(log);
+  const events = activityEntries(log); // 막힘 알림 표시(자동)는 빼고 학생이 한 일만
   const moments: Moment[] = [];
   const addMoment = (at: number, kind: Moment["kind"], label: string) => {
     const id = `M${moments.length + 1}`;
@@ -448,10 +448,9 @@ const lineOf = (doc: string, line0: number) => doc.split("\n")[line0] ?? "";
  */
 export function findStuckMoments(init: string, log: unknown, now?: number): StuckMoment[] {
   const R = STUCK_RULES;
-  const events = validEntries(log);
+  const events = activityEntries(log); // 막힘 알림 표시(자동)는 빼고 학생이 한 일만
   const found: StuckMoment[] = [];
   let doc = init;
-  const docAt: { t: number; doc: string }[] = [];
   // 같은 오류 연달아
   type Streak = { kind: string; count: number; from: number; to: number; line: number | null };
   let streak = null as Streak | null;
@@ -465,11 +464,8 @@ export function findStuckMoments(init: string, log: unknown, now?: number): Stuc
   let lastEdit = null as { t: number; line: number } | null;
   const lastEditLineNo = () => (lastEdit ? lastEdit.line + 1 : null);
 
-  const docBefore = (t: number) => {
-    let d = init;
-    for (const x of docAt) if (x.t <= t) d = x.doc;
-    return d;
-  };
+  /** 그 시각까지의 코드 (후보 몇 개에만 쓰므로 그때 다시 계산한다) */
+  const docBefore = (t: number) => replayEdits(init, events.filter((x) => x[0] <= t));
 
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
@@ -486,7 +482,6 @@ export function findStuckMoments(init: string, log: unknown, now?: number): Stuc
       const line0 = edit[2];
       if (edit[1] === "p") lastPaste = { t, line: line0 };
       doc = applyEditEvent(doc, edit);
-      docAt.push({ t, doc });
       // 줄 방문 세기
       if (brokeSinceEdit || lastEditLine !== line0) {
         const list = visits.get(line0) ?? [];
@@ -549,7 +544,7 @@ export function findStuckMoments(init: string, log: unknown, now?: number): Stuc
  * now가 없으면 마지막 기록 시각 기준. 없으면 null
  */
 export function currentStuck(init: string, log: unknown, now?: number): StuckMoment | null {
-  const events = validEntries(log);
+  const events = activityEntries(log);
   const ref = now ?? (events.length ? events[events.length - 1][0] : 0);
   const recent = findStuckMoments(init, log, now).filter((m) => ref - m.to <= STUCK_RULES.recentMs);
   return recent.sort((x, y) => PRIORITY.indexOf(x.rule) - PRIORITY.indexOf(y.rule) || y.to - x.to)[0] ?? null;

@@ -402,7 +402,13 @@ export default function TryClient() {
             </aside>
             <div className="flex min-w-0 flex-col gap-4">
               {!aiOpen && <AiHelperButton onOpen={() => setAiOpen(true)} />}
-              <RecordingEditor key={`${problemId}:${resetKey}`} ref={recorder} storageKey={trialStorageKey(problemId)} initialCode={problem.view.starterCode} />
+              <RecordingEditor
+                key={`${problemId}:${resetKey}`}
+                ref={recorder}
+                storageKey={trialStorageKey(problemId)}
+                initialCode={problem.view.starterCode}
+                nudge={{ onAskAi: () => setAiOpen(true), suppressed: aiOpen }}
+              />
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"

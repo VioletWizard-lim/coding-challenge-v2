@@ -3,7 +3,7 @@
  * 모두 기존 기록(작성 기록·실행 기록·제출·성찰)에서 계산하므로 DB에 따로 저장하지 않고, 지난 제출에도 저절로 소급된다.
  * 여기는 순수 함수만 (단위 테스트: achievements.test.ts).
  */
-import { MIN_AWAY_MS, PAUSE_MS, validEntries } from "./replay";
+import { MIN_AWAY_MS, PAUSE_MS, activityEntries, validEntries } from "./replay";
 
 /** 학생 화면의 업적 탭 id (새 업적 알림의 "보러 가기"가 이 탭으로 옮긴다) */
 export const ACHIEVEMENTS_TAB = "achievements";
@@ -237,7 +237,7 @@ const FOCUS_MS = 10 * 60_000;
  * 1분 넘게 아무 기록이 없거나 창을 1초 넘게 벗어나면 다시 센다 (1초 미만 이탈은 input() 창이라 무시).
  */
 export function focusTime(log: unknown, needMs = FOCUS_MS): number | null {
-  const events = validEntries(log);
+  const events = activityEntries(log); // 막힘 알림 표시(자동)는 학생이 한 일이 아니다
   let start: number | null = null;
   let prev: number | null = null;
   for (let i = 0; i < events.length; i++) {

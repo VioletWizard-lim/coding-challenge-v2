@@ -267,6 +267,7 @@ export default function Workspace({
             ref={recorder}
             storageKey={storageKeyFor(userId, subject, current.number)}
             initialCode={current.starterCode}
+            nudge={{ onAskAi: () => setAiOpen(true), suppressed: aiOpen }}
           />
         )}
         <label className="flex flex-col gap-1 text-sm text-muted">

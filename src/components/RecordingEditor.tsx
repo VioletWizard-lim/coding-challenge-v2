@@ -22,6 +22,10 @@ import {
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { eventsFromChanges, freeOldRecordings, kindOf, pythonErrorName, runEvent, type Recording } from "@/lib/editLog";
 import { isQuiet } from "@/lib/quietDialog";
+import { nudgeDue, nudgeKind, nudgeRange, nudgeText } from "@/lib/askBack";
+import type { StuckMoment } from "@/lib/process-summary";
+import { STUCK_RULES } from "@/lib/stuckRules";
+import ReplayModal from "./ReplayModal";
 import { INPUT_CANCELLED, loadPython, RUN_LIMIT_SECONDS, runStudentCode, TIME_LIMIT_ERROR } from "@/lib/pyodide";
 
 type Props = {
@@ -33,6 +37,11 @@ type Props = {
   mode?: "code" | "text";
   /** 제출할 때 지금까지의 기록을 꺼내는 손잡이 */
   ref?: Ref<RecorderHandle>;
+  /**
+   * 막힘 알림 (P2): 주면 켜진다. 막힘을 감지하면 편집기 위에 "다시 볼까요?" 알림을 띄운다.
+   * onAskAi: 알림의 "AI에게 물어보기" (없으면 단추를 숨김) / suppressed: true면 띄우지 않음 (예: AI 도우미 창이 열려 있을 때)
+   */
+  nudge?: { onAskAi?: () => void; suppressed?: boolean };
 };
 
 export type RecorderHandle = {
@@ -78,7 +87,7 @@ function friendlyTraceback(err: unknown) {
  * 작성 과정을 기록하는 편집기. 모든 편집·창 이탈·실행을 v1과 같은 edit_log 형식으로
  * localStorage에 바로 저장하므로 새로고침해도 이어서 쓸 수 있다.
  */
-export default function RecordingEditor({ storageKey, initialCode = "", mode = "code", ref }: Props) {
+export default function RecordingEditor({ storageKey, initialCode = "", mode = "code", ref, nudge }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const recRef = useRef<Recording | null>(null);
@@ -98,6 +107,15 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
   const [tookOver, setTookOver] = useState(false);
   const [reloadN, setReloadN] = useState(0);
   const staleRef = useRef(false);
+  /** 막힘 알림 (P2): 지금 떠 있는 알림, 다시 보기 창 */
+  const [nudged, setNudged] = useState<StuckMoment | null>(null);
+  const [nudgeReplay, setNudgeReplay] = useState<{ rec: Recording; at: number; end: number; label: string } | null>(null);
+  const nudgeRef = useRef(nudge);
+  const nudgedRef = useRef<StuckMoment | null>(null);
+  useEffect(() => {
+    nudgeRef.current = nudge;
+    nudgedRef.current = nudged;
+  });
   /** 다른 창의 기록을 불러와 다시 연 것인지 (다시 열 때 "창 복귀"를 맞춰 남긴다) */
   const takeOverRef = useRef(false);
 
@@ -267,6 +285,39 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
     };
   }, [storageKey, initialCode, mode, reloadN]);
 
+  // 막힘 알림 (P2): 이 화면을 보고 있는 동안 checkMs마다 지금 막힌 곳이 있는지 본다 (규칙·간격은 stuckRules.ts)
+  const nudgeOn = !!nudge;
+  useEffect(() => {
+    if (!nudgeOn) return;
+    const timer = setInterval(() => {
+      const rec = recRef.current;
+      if (!rec || staleRef.current || runningRef.current || nudgedRef.current || nudgeRef.current?.suppressed) return;
+      if (document.hidden || !document.hasFocus()) return;
+      const now = Date.now();
+      const m = nudgeDue(rec.init, rec.log, now);
+      if (!m) return;
+      rec.log.push([now, nudgeKind(m)]); // 알림이 뜬 시점 (학생 반응은 n:open / n:ask / n:close)
+      saveRef.current();
+      setNudged(m);
+    }, STUCK_RULES.nudge.checkMs);
+    return () => clearInterval(timer);
+  }, [nudgeOn, storageKey, reloadN]);
+
+  /** 알림에 대한 학생 반응을 기록에 남기고 알림을 닫는다 */
+  function reactNudge(kind: "n:open" | "n:ask" | "n:close") {
+    const rec = recRef.current;
+    const m = nudged;
+    setNudged(null);
+    if (!rec || !m || staleRef.current) return;
+    rec.log.push([Date.now(), kind]);
+    saveRef.current();
+    if (kind === "n:open") {
+      const range = nudgeRange(m);
+      setNudgeReplay({ rec: { init: rec.init, code: rec.code, log: [...rec.log] }, at: range.from, end: range.to, label: "막혔던 구간" });
+    }
+    if (kind === "n:ask") nudgeRef.current?.onAskAi?.();
+  }
+
   // 편집기가 열리면 파이썬을 미리 불러온다 (첫 실행 때 기다리지 않도록)
   useEffect(() => {
     if (mode !== "code") return;
@@ -351,6 +402,33 @@ export default function RecordingEditor({ storageKey, initialCode = "", mode = "
           🪟 이 문제를 다른 창(탭)에서 쓰고 있어요. 기록이 섞이지 않게 이 창은 잠시 멈췄어요. 이 창을 누르면 다른 창에서 쓴 내용을
           불러와 이어서 쓸 수 있어요.
         </p>
+      )}
+      {nudged && !stale && (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1">📼 {nudgeText(nudged)}</span>
+          <button
+            type="button"
+            onClick={() => reactNudge("n:open")}
+            className="rounded-full border border-blue-300 bg-white px-2.5 py-0.5 font-medium text-blue-800 hover:bg-blue-50"
+          >
+            ⏪ 다시 보기
+          </button>
+          {nudge?.onAskAi && (
+            <button
+              type="button"
+              onClick={() => reactNudge("n:ask")}
+              className="rounded-full border border-line bg-white px-2.5 py-0.5 text-muted hover:text-ink"
+            >
+              🤖 AI에게 물어보기
+            </button>
+          )}
+          <button type="button" onClick={() => reactNudge("n:close")} aria-label="알림 닫기" className="px-1 text-muted hover:text-ink">
+            ✕
+          </button>
+        </div>
+      )}
+      {nudgeReplay && (
+        <ReplayModal rec={nudgeReplay.rec} at={nudgeReplay.at} end={nudgeReplay.end} label={nudgeReplay.label} onClose={() => setNudgeReplay(null)} />
       )}
       {tookOver && !stale && (
         <p role="status" className="flex items-center gap-2 rounded-lg bg-page px-3 py-2 text-sm text-muted">
