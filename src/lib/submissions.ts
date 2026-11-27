@@ -7,6 +7,7 @@ import { db, fetchAll, type RangeQuery, type SubmissionRow, type UserRow } from 
 import type { LogEvent } from "./editLog";
 import { kstDate, type SubmissionSummary } from "./journey";
 import { gradeClassFor } from "./problems";
+import { LOAD_TEST_PREFIX } from "./loadTest";
 import { toSubmissionSummary } from "./submissionSummary";
 import { EMPTY_SUMMARY, loadHeavy, summariesFor } from "./submissionSummaryStore";
 
@@ -352,4 +353,29 @@ export async function submissionIdsAfter(userId: string, subject: string, proble
     .limit(limit);
   if (error) throw new Error(`제출 조회 실패: ${error.message}`);
   return (data ?? []).map((r) => Number(r.id));
+}
+
+// ── 성취기준별 보기 (교사) ─────────────────────────────────────
+
+/** 제출 한 건의 가벼운 칸: 어느 문제를 누가 냈는지 (성취기준별 문제 수·낸 학생 수·제출 수를 셀 때) */
+export type SubmissionKey = { problem: string; student: string };
+
+/**
+ * 한 과목의 모든 제출에서 문제·학생만 (코드·기록은 안 받음).
+ * 학생은 아이디로, 아이디가 없는 지난 제출은 "이름|학년|반"으로 가린다. 부하 테스트 계정 제출은 뺀다.
+ * 나중에 학교별로 나누면 여기에 학교 조건을 넣는다.
+ */
+export async function listSubmissionKeys(subject: string): Promise<SubmissionKey[]> {
+  const withId = await hasUserIdColumn();
+  type Row = { problem: string | null; name: string | null; grade: unknown; class: unknown; user_id?: string | null };
+  const rows = await fetchAll<Row>(() =>
+    db()
+      .from("submissions")
+      .select(withId ? "problem, name, grade, class, user_id" : "problem, name, grade, class")
+      .eq("subject", subject)
+      .order("id") as unknown as RangeQuery<Row>,
+  );
+  return rows
+    .filter((r) => r.problem && !r.user_id?.startsWith(LOAD_TEST_PREFIX))
+    .map((r) => ({ problem: String(r.problem), student: r.user_id || `${r.name}|${r.grade}|${r.class}` }));
 }

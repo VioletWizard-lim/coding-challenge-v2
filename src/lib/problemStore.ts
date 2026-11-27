@@ -16,6 +16,12 @@ type ProblemRow = {
   examples?: unknown;
   goal?: string;
   challenge?: string;
+  // 025_problem_lessons.sql 실행 전에는 없는 칸
+  standards?: string[] | null;
+  level?: string | null;
+  lesson?: number | null;
+  lesson_order?: number | null;
+  anchor?: boolean | null;
 };
 
 const fromRow = (r: ProblemRow): Problem => ({
@@ -31,16 +37,26 @@ const fromRow = (r: ProblemRow): Problem => ({
   challenge: r.challenge ?? "",
   starterCode: r.starter_code ?? "",
   openAt: r.open_at,
+  standards: Array.isArray(r.standards) ? r.standards.map(String) : [],
+  level: r.level === "기본" || r.level === "심화" ? r.level : null,
+  lesson: r.lesson ?? null,
+  lessonOrder: r.lesson_order ?? null,
+  anchor: !!r.anchor,
 });
 
 /** problems 표가 없어서(003_problems.sql 실행 전) 생긴 오류인지 */
 const tableMissing = (message: string) => /problems/.test(message) && /(does not exist|schema cache|not find)/i.test(message);
 
+/** 025_problem_lessons.sql로 더한 칸이 없어서 생긴 오류인지 */
+const lessonFieldsMissing = (message: string) =>
+  /(standards|level|lesson|lesson_order|anchor)/.test(message) && /(does not exist|schema cache|not find)/i.test(message);
+
 /** 004_problem_fields.sql로 더한 칸이 없어서 생긴 오류인지 */
 const fieldsMissing = (message: string) =>
   /(difficulty|conditions|examples|goal|challenge)/.test(message) && /(does not exist|schema cache|not find)/i.test(message);
 
-export type ProblemList = { problems: Problem[]; tableReady: boolean; fieldsReady: boolean; now: string };
+/** lessonReady: 성취기준·차시 칸(025)이 있는지 */
+export type ProblemList = { problems: Problem[]; tableReady: boolean; fieldsReady: boolean; lessonReady: boolean; now: string };
 
 /**
  * 모든 문제 (교사용). 표가 없으면(003 실행 전) 코드에 든 목록을,
@@ -50,13 +66,17 @@ export async function listAllProblems(): Promise<ProblemList> {
   const now = new Date().toISOString();
   try {
     const rows = await fetchAll<ProblemRow>(() => db().from("problems").select("*").order("id"));
-    const { error } = await db().from("problems").select("difficulty").limit(1);
+    const [{ error }, { error: lessonError }] = await Promise.all([
+      db().from("problems").select("difficulty").limit(1),
+      db().from("problems").select("lesson").limit(1),
+    ]);
     if (error && !fieldsMissing(error.message)) throw new Error(error.message);
-    return { problems: sortProblems(rows.map(fromRow)), tableReady: true, fieldsReady: !error, now };
+    if (lessonError && !lessonFieldsMissing(lessonError.message)) throw new Error(lessonError.message);
+    return { problems: sortProblems(rows.map(fromRow)), tableReady: true, fieldsReady: !error, lessonReady: !lessonError, now };
   } catch (err) {
     const message = String((err as Error).message);
     if (!tableMissing(message)) throw err;
-    return { problems: staticProblems(), tableReady: false, fieldsReady: false, now };
+    return { problems: staticProblems(), tableReady: false, fieldsReady: false, lessonReady: false, now };
   }
 }
 
@@ -89,12 +109,34 @@ const toRow = (p: ProblemInput) => ({
   starter_code: p.starterCode,
   open_at: p.openAt,
   updated_at: new Date().toISOString(),
+  ...lessonRow(p),
 });
 
-/** 문제를 새로 만들거나(id 없음) 고친다. 같은 과목에 같은 번호가 있으면 "duplicate", 양식 칸이 없으면 "fields-missing" */
-export async function saveProblem(id: number | null, p: ProblemInput): Promise<"ok" | "duplicate" | "fields-missing"> {
-  const query = id === null ? db().from("problems").insert(toRow(p)) : db().from("problems").update(toRow(p)).eq("id", id);
-  const { error } = await query;
+/** 성취기준·차시 칸: 정한 것만 넣는다 (undefined면 그 칸은 건드리지 않음 — 새 칸이 없는 CSV를 올릴 때 기존 값을 지킴) */
+function lessonRow(p: ProblemInput) {
+  return {
+    ...(p.standards !== undefined ? { standards: p.standards } : {}),
+    ...(p.level !== undefined ? { level: p.level } : {}),
+    ...(p.lesson !== undefined ? { lesson: p.lesson } : {}),
+    ...(p.lessonOrder !== undefined ? { lesson_order: p.lessonOrder } : {}),
+    ...(p.anchor !== undefined ? { anchor: p.anchor } : {}),
+  };
+}
+
+/**
+ * 문제를 새로 만들거나(id 없음) 고친다. 같은 과목에 같은 번호가 있으면 "duplicate", 양식 칸이 없으면 "fields-missing".
+ * 성취기준·차시 칸(025)이 없으면 그 칸만 빼고 저장하고 "lesson-missing"
+ */
+export async function saveProblem(id: number | null, p: ProblemInput): Promise<"ok" | "duplicate" | "fields-missing" | "lesson-missing"> {
+  const write = (row: ReturnType<typeof toRow> | Omit<ReturnType<typeof toRow>, keyof ReturnType<typeof lessonRow>>) =>
+    id === null ? db().from("problems").insert(row) : db().from("problems").update(row).eq("id", id);
+  let { error } = await write(toRow(p));
+  if (error && lessonFieldsMissing(error.message)) {
+    const plain = { ...toRow(p) } as Record<string, unknown>;
+    for (const k of ["standards", "level", "lesson", "lesson_order", "anchor"]) delete plain[k];
+    ({ error } = await write(plain as ReturnType<typeof toRow>));
+    if (!error) return "lesson-missing";
+  }
   if (error?.code === "23505") return "duplicate";
   if (error && fieldsMissing(error.message)) return "fields-missing";
   if (error) throw new Error(`문제 저장 실패: ${error.message}`);
