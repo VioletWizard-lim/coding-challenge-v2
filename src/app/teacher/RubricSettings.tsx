@@ -10,7 +10,8 @@ const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-non
 export const RUBRIC_CHANGED_EVENT = "rubric-changed";
 
 /** ⚙️ 설정 → 과목별 채점 기준: 영역 이름·배점·설명 */
-export default function RubricSettings() {
+/** subject: 이 과목만 보여 준다 (다른 과목 카드는 숨기기만 해서 적던 내용이 남는다) */
+export default function RubricSettings({ subject }: { subject?: string }) {
   const [data, setData] = useState<{ ready: boolean; rubrics: { subject: string; parts: RubricPart[] }[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,12 +37,13 @@ export default function RubricSettings() {
       )}
       {!data && !error && <p className="text-sm text-muted">불러오는 중…</p>}
       {data?.rubrics.map((r) => (
-        <SubjectRubric
-          key={r.subject}
-          subject={r.subject}
-          parts={r.parts}
-          onSaved={(parts) => setData((d) => d && { ...d, rubrics: d.rubrics.map((x) => (x.subject === r.subject ? { ...x, parts } : x)) })}
-        />
+        <div key={r.subject} hidden={!!subject && subject !== r.subject}>
+          <SubjectRubric
+            subject={r.subject}
+            parts={r.parts}
+            onSaved={(parts) => setData((d) => d && { ...d, rubrics: d.rubrics.map((x) => (x.subject === r.subject ? { ...x, parts } : x)) })}
+          />
+        </div>
       ))}
     </section>
   );

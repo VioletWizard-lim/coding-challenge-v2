@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Header from "@/components/Header";
 import { requireRole } from "@/lib/session";
 import SideTabs from "@/components/SideTabs";
+import SettingsTabs from "./SettingsTabs";
 import { listAllProblems } from "@/lib/problemStore";
 import { listReflectionDays } from "@/lib/reflectionStore";
 import { getTeacherHome } from "@/lib/teacherHome";
@@ -12,9 +13,6 @@ import GradingBoard from "./GradingBoard";
 import ClassStats from "./ClassStats";
 import EffectStats from "./EffectStats";
 import { pendingBySubject } from "@/lib/gradingStore";
-import RubricSettings from "./RubricSettings";
-import PracticeSettingsPanel from "./PracticeSettings";
-import AiSettingsPanel from "./AiSettingsPanel";
 import { compareNumber } from "@/lib/problemBank";
 import AiUsageCard from "./AiUsageCard";
 import HealthCard from "./HealthCard";
@@ -167,11 +165,7 @@ async function TeacherHome() {
             id: "settings",
             label: "⚙️ 설정",
             content: (
-              <div className="mx-auto flex max-w-4xl flex-col gap-5">
-                <AiSettingsPanel />
-                <RubricSettings />
-                <PracticeSettingsPanel />
-              </div>
+              <SettingsTabs />
             ),
           },
         ]}
