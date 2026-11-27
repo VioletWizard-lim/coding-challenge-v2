@@ -7,7 +7,8 @@ import { loadPracticeSettings, saveSubjectPractice } from "./actions";
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
 /** ⚙️ 설정 → 🧪 연습 모드: 과목마다 켜고 끄기, 학생이 고를 수 있는 개념(= AI가 쓸 수 있는 문법 범위), 범위 안내 */
-export default function PracticeSettingsPanel() {
+/** subject: 이 과목만 보여 준다 (다른 과목 카드는 숨기기만 해서 적던 내용이 남는다) */
+export default function PracticeSettingsPanel({ subject }: { subject?: string }) {
   const [data, setData] = useState<{ ready: boolean; settings: PracticeSettings[]; limit: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,11 +37,12 @@ export default function PracticeSettingsPanel() {
       {!data && !error && <p className="text-sm text-muted">불러오는 중…</p>}
       {data?.ready &&
         data.settings.map((s) => (
-          <SubjectPractice
-            key={s.subject}
-            settings={s}
-            onSaved={(next) => setData((d) => d && { ...d, settings: d.settings.map((x) => (x.subject === s.subject ? next : x)) })}
-          />
+          <div key={s.subject} hidden={!!subject && subject !== s.subject}>
+            <SubjectPractice
+              settings={s}
+              onSaved={(next) => setData((d) => d && { ...d, settings: d.settings.map((x) => (x.subject === s.subject ? next : x)) })}
+            />
+          </div>
         ))}
     </section>
   );

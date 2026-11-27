@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { pageItems } from "@/lib/pager";
 
-/** 쪽 나누기 버튼: « 처음 · ‹ 이전 · 1 2 3 … · 다음 › · 끝 » (쪽이 많으면 첫·끝·지금 근처 번호만) */
+/** 쪽 나누기 버튼: « 처음 · ‹ 이전 · 1 2 3 … · 다음 › · 끝 » (쪽이 9개 이하면 모두, 많으면 첫·끝·지금 근처 번호 9개, pageItems) */
 export default function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
   const [typed, setTyped] = useState("");
   if (pages <= 1) return null;
@@ -13,12 +14,7 @@ export default function Pager({ page, pages, onPage }: { page: number; pages: nu
     onPage(Math.min(pages, Math.max(1, Math.round(n))));
     setTyped("");
   };
-  const shown = [...new Set([1, page - 1, page, page + 1, pages])].filter((p) => p >= 1 && p <= pages).sort((a, b) => a - b);
-  const items: (number | "gap")[] = [];
-  shown.forEach((p, i) => {
-    if (i > 0 && p - shown[i - 1] > 1) items.push("gap");
-    items.push(p);
-  });
+  const items = pageItems(page, pages);
   const button = "min-w-9 rounded-lg border px-2.5 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-40";
   return (
     <nav aria-label="쪽 고르기" className="flex flex-wrap items-center justify-center gap-1">

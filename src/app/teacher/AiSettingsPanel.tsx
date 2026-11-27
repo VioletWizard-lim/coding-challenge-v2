@@ -8,7 +8,8 @@ import { loadAiSettings, saveSubjectAi } from "./actions";
  * ⚙️ 설정 → 🤖 AI 기능: 과목마다 AI 도우미·AI 되돌아보기 켜고 끄기, 수행평가처럼 AI 도우미를 끌 단원, 선생님 지침.
  * 저장된 것이 없으면 모두 켜짐.
  */
-export default function AiSettingsPanel() {
+/** subject: 이 과목만 보여 준다 (다른 과목 카드는 숨기기만 해서 적던 내용이 남는다) */
+export default function AiSettingsPanel({ subject }: { subject?: string }) {
   const [data, setData] = useState<{ ready: boolean; settings: AiSettings[]; units: Record<string, string[]> } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,12 +37,13 @@ export default function AiSettingsPanel() {
       {!data && !error && <p className="text-sm text-muted">불러오는 중…</p>}
       {data?.ready &&
         data.settings.map((s) => (
-          <SubjectAi
-            key={s.subject}
-            settings={s}
-            units={data.units[s.subject] ?? []}
-            onSaved={(next) => setData((d) => d && { ...d, settings: d.settings.map((x) => (x.subject === s.subject ? next : x)) })}
-          />
+          <div key={s.subject} hidden={!!subject && subject !== s.subject}>
+            <SubjectAi
+              settings={s}
+              units={data.units[s.subject] ?? []}
+              onSaved={(next) => setData((d) => d && { ...d, settings: d.settings.map((x) => (x.subject === s.subject ? next : x)) })}
+            />
+          </div>
         ))}
     </section>
   );
