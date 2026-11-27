@@ -414,3 +414,35 @@ export function askCsvRows(rows: AskJudgeRow[], problems: Map<string, ResearchPr
       "교사 메모": "",
     }));
 }
+
+/* ── 학번 → 익명 ID 대응표 (사이트 밖에서 받은 설문을 연구 자료와 잇는 데만) ── */
+
+export const ID_MAP_NOTES = [
+  "⚠️ 학번 → 익명 ID 대응표. 사이트 밖에서 받은 설문(사전·사후)의 학번을 익명 ID로 바꿀 때만 쓰세요.",
+  "바꾼 뒤에는 이 파일을 바로 지우고, 연구 자료(익명 ID 파일)와 같은 곳에 두거나 함께 보내지 마세요. 이 파일이 있으면 익명 ID를 학생으로 되돌릴 수 있어요.",
+  "익명 ID는 연구용 지표 CSV와 같은 값이에요 (아직 제출하지 않은 학생도 미리 들어 있음).",
+];
+
+export type IdMapStudent = {
+  id: string;
+  name: string;
+  grade: number | string | null;
+  class: number | string | null;
+  programming_grade: number | string | null;
+  programming_class: number | string | null;
+  subjects: string | null;
+};
+
+/**
+ * 대응표 행: 이 과목을 듣는 학생 계정 (부하 테스트 계정 제외). cls는 그 과목의 반("2-3", 프로그래밍이면 프로그래밍 반).
+ * subjectsOf: 학생이 듣는 과목 목록 (problems.ts allowedSubjects), classFor: 그 과목의 학년-반
+ */
+export function idMapRows(
+  students: IdMapStudent[],
+  opts: { cls: string; anon: (key: string) => string; takes: (s: IdMapStudent) => boolean; classFor: (s: IdMapStudent) => string; skip: (id: string) => boolean },
+) {
+  return students
+    .filter((s) => !opts.skip(s.id) && opts.takes(s) && (!opts.cls || opts.classFor(s) === opts.cls))
+    .map((s) => ({ 반: opts.classFor(s), "학번(아이디)": s.id, 이름: s.name, 익명ID: opts.anon(s.id) }))
+    .sort((a, b) => a.반.localeCompare(b.반, "ko", { numeric: true }) || a["학번(아이디)"].localeCompare(b["학번(아이디)"], "ko", { numeric: true }));
+}

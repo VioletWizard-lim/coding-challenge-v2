@@ -197,6 +197,18 @@ export default function ClassStats({ subjects }: { subjects: string[] }) {
               </a>
             ))}
           </div>
+          <div className="mt-1 flex flex-col gap-1.5 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs leading-5 text-amber-900">
+            <p>
+              <b>학번 → 익명 ID 대응표</b>: 사이트 밖에서 받은 설문(사전·사후)의 학번을 익명 ID로 바꿀 때만 쓰세요. 아직 제출하지 않은 학생도 들어 있어요.
+              바꾼 뒤에는 <b>이 파일을 바로 지우고</b>, 연구 자료와 함께 두거나 보내지 마세요 (이 파일이 있으면 익명 ID를 학생으로 되돌릴 수 있어요).
+            </p>
+            <a
+              href={`/api/teacher/research?${new URLSearchParams({ subject, year: String(data.year), cls: picked, kind: "ids" })}`}
+              className="self-start rounded-lg border border-amber-500 bg-white px-3 py-1.5 font-bold text-amber-900 hover:bg-amber-100"
+            >
+              ⬇️ 학번 → 익명 ID 대응표 (다 쓰면 지우기)
+            </a>
+          </div>
         </div>
       )}
     </section>
