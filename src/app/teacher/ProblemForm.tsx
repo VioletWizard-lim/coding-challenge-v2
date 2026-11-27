@@ -229,6 +229,16 @@ export default function ProblemForm({
     );
   }
 
+  /** "더 적기"에 든 칸들과 채웠는지 (접혀 있어도 무엇을 적었는지 보이게) */
+  const optionalFields: [string, boolean][] = [
+    ["난이도", difficulty !== null],
+    ["조건", !!conditions.trim()],
+    ["문제 목표", !!goal.trim()],
+    ["도전 과제", !!challenge.trim()],
+    ["시작 코드", !!starterCode.trim()],
+    ...(onDraft ? [] : ([["수업 계획(차시·성취기준)", !!lesson || !!lessonOrder || !!level || anchor || standards.length > 0]] as [string, boolean][])),
+  ];
+
   // 지금 입력 중인 내용을 학생 화면처럼 바로 보여 준다
   const preview: Problem = {
     ...problem,
@@ -348,16 +358,32 @@ export default function ProblemForm({
           )}
         </fieldset>
         {/* 꼭 필요한 칸(번호·제목·문제·예시·공개)만 먼저 보이고, 나머지는 "더 적기"를 눌러 연다. 값이 있으면 처음부터 열림 */}
+        <div className={`flex flex-col gap-3 rounded-xl border-2 p-3 ${more ? "border-brand/40 bg-white" : "border-dashed border-brand/50 bg-brand-soft/50"}`}>
         <button
           type="button"
           onClick={() => setMore(!more)}
           aria-expanded={more}
-          className="self-start rounded-lg border border-line bg-white px-3 py-1.5 text-sm hover:bg-page"
+          className="flex flex-col gap-2 text-left"
         >
-          {more ? "▾" : "▸"} 더 적기 (선택: 난이도, 조건, 문제 목표, 도전 과제, 시작 코드{onDraft ? "" : ", 수업 계획"})
+          <span className="flex w-full items-center gap-2">
+            <span className="font-bold text-brand">{more ? "➖" : "➕"} 더 적기 (선택)</span>
+            <span className="text-xs text-muted">필요한 것만 적으면 돼요</span>
+            <span className="ml-auto rounded-lg bg-brand px-3 py-1 text-sm font-bold text-white">{more ? "접기 ▲" : "펼치기 ▼"}</span>
+          </span>
+          <span className="flex flex-wrap gap-1.5">
+            {optionalFields.map(([name, filled]) => (
+              <span
+                key={name}
+                className={`rounded-full border px-2 py-0.5 text-xs ${filled ? "border-green-300 bg-green-50 font-bold text-green-800" : "border-line bg-white text-muted"}`}
+              >
+                {filled ? "✓ " : ""}
+                {name}
+              </span>
+            ))}
+          </span>
         </button>
         {more && (
-          <div className="flex flex-col gap-3 border-l-2 border-brand/20 pl-3">
+          <div className="flex flex-col gap-3 border-t border-line pt-3">
         <div className="flex flex-col gap-1 text-sm text-muted">
           난이도
           <div
@@ -541,6 +567,7 @@ export default function ProblemForm({
         )}
           </div>
         )}
+        </div>
         {!onDraft && (
           <fieldset className="flex flex-col gap-2 text-sm">
             <legend className="mb-1 text-muted">공개</legend>
