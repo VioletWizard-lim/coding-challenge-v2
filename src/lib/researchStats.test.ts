@@ -155,3 +155,21 @@ describe("지표 6: 막힌 지점 짚기", () => {
     expect(out).toBe('﻿"# 가, 나"\r\na,b\r\n1,2\r\n');
   });
 });
+
+describe("학번 → 익명 ID 대응표", async () => {
+  const { idMapRows } = await import("./researchStats");
+  it("그 과목·반 학생만, 반·학번 순", () => {
+    const st = (id: string, cls: number, subjects = "정보") => ({ id, name: id, grade: 1, class: cls, programming_grade: null, programming_class: null, subjects });
+    const rows = idMapRows([st("s3", 2), st("s1", 1), st("loadtest1", 1), st("s2", 1, "프로그래밍")], {
+      cls: "",
+      anon: (k) => `R-${k}`,
+      takes: (s) => (s.subjects ?? "").includes("정보"),
+      classFor: (s) => `${s.grade}-${s.class}`,
+      skip: (id) => id.startsWith("loadtest"),
+    });
+    expect(rows).toEqual([
+      { 반: "1-1", "학번(아이디)": "s1", 이름: "s1", 익명ID: "R-s1" },
+      { 반: "1-2", "학번(아이디)": "s3", 이름: "s3", 익명ID: "R-s3" },
+    ]);
+  });
+});
