@@ -171,6 +171,34 @@ export default function ClassStats({ subjects }: { subjects: string[] }) {
           </div>
         </div>
       )}
+
+      {data && (
+        <div className="flex flex-col gap-2 rounded-lg bg-page p-3 text-sm">
+          <p className="font-bold">🔬 연구용 지표 CSV (익명 ID)</p>
+          <p className="text-xs leading-5 text-muted">
+            {subject} · {data.year}년 · {picked ? `${picked}반` : "모든 반"}. 이름·학번 대신 익명 ID(R로 시작)를 써요. 같은 학생은 언제 내보내도 같은 ID예요.
+            지표 8가지의 계산 방법은 파일 맨 위 #줄에 적혀 있어요. &lsquo;통과&rsquo;는 학생이 누르거나 제출할 때 자동으로 한 &lsquo;예시로 확인&rsquo; 결과예요.
+            차시·앵커·기본/심화로 나누려면 문제 관리에서 문제에 차시를 넣어 주세요.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["problems", "⬇️ 학생 × 문제"],
+                ["summary", "⬇️ 학생 × 묶음 요약 (전반·후반·앵커)"],
+                ["asks", "⬇️ 지표 6 되물음 원자료 (교사 판정 칸)"],
+              ] as const
+            ).map(([kind, text]) => (
+              <a
+                key={kind}
+                href={`/api/teacher/research?${new URLSearchParams({ subject, year: String(data.year), cls: picked, kind })}`}
+                className="rounded-lg border border-brand bg-white px-3 py-1.5 font-bold text-brand hover:bg-brand-soft"
+              >
+                {text}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

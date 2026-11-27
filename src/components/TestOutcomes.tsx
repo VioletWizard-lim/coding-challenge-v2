@@ -4,9 +4,9 @@ import { harnessCode, parseRunResult, type PracticeTest, type RunResult, type Te
 import { loadPython } from "@/lib/pyodide";
 
 /** 브라우저(Pyodide)에서 코드를 예시 입력으로 돌린다 (서버의 참고 답안 확인과 같은 실행 코드) */
-export async function runTests(code: string, tests: PracticeTest[]): Promise<RunResult[]> {
+export async function runTests(code: string, tests: PracticeTest[], options: { echo?: boolean } = {}): Promise<RunResult[]> {
   const py = await loadPython();
-  return tests.map((t) => parseRunResult(py.runPython(harnessCode(code, t.inputs))));
+  return tests.map((t) => parseRunResult(py.runPython(harnessCode(code, t.inputs, options))));
 }
 
 /** 확인 결과: 예시마다 통과 여부, 틀리면 기대 출력과 내 출력을 나란히 */

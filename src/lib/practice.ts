@@ -146,7 +146,8 @@ export type RunResult = { output: string; error: string | null };
  * - 매번 새 변수 공간에서 돌리고, 무한 반복·너무 긴 출력은 멈춘다
  * JSON 글은 파이썬 문자열로도 그대로 읽힌다.
  */
-export function harnessCode(code: string, inputs: string[], options: { restricted?: boolean } = {}): string {
+export function harnessCode(code: string, inputs: string[], options: { restricted?: boolean; echo?: boolean } = {}): string {
+  // echo: 실행 화면처럼 input()의 안내 글과 넣은 값을 출력에 함께 적는다 (교사가 예시 출력에 안내 글까지 적은 문제를 확인할 때)
   // restricted: 서버에서 AI가 만든 코드를 돌릴 때. 위험한 내장 함수(eval·open·__import__ 등)를 뺀 변수 공간에서 돌린다
   const env = options.restricted
     ? `{"__name__": "__main__", "__builtins__": _p_safe_builtins()}`
@@ -172,9 +173,11 @@ def _p_run(_p_code, _p_inputs):
             pass
     def _p_input(prompt=""):
         try:
-            return next(_p_lines)
+            _p_value = next(_p_lines)
         except StopIteration:
             raise EOFError("입력이 더 없어요 (input()을 예시보다 많이 썼어요)")
+        ${options.echo ? 'sys.stdout.write(str(prompt) + _p_value + "\\n")' : "pass"}
+        return _p_value
     _p_steps = [0]
     def _p_trace(frame, event, arg):
         if frame.f_code.co_filename == "<practice>":

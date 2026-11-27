@@ -7,6 +7,9 @@ import ProblemView from "@/components/ProblemView";
 import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEditor";
 import { descriptionKeyFor, storageKeyFor } from "@/lib/editLog";
 import { labelOf, type Problem } from "@/lib/problemBank";
+import { checkEvent, exampleTests, judgeExamples } from "@/lib/exampleCheck";
+import type { PracticeTest, TestOutcome } from "@/lib/practice";
+import { Outcomes, runTests } from "@/components/TestOutcomes";
 import AiHelper from "./AiHelper";
 import { checkSubmitted, reportLiveStatus, submitCode } from "./actions";
 
@@ -59,6 +62,9 @@ export default function Workspace({
   const [submittedKeys, setSubmittedKeys] = useState<Set<string>>(new Set());
   const recorder = useRef<RecorderHandle>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  /** 예시로 확인 결과 (어느 문제의 결과인지 key로 가린다) */
+  const [check, setCheck] = useState<{ key: string; tests: PracticeTest[]; outcomes: TestOutcome[] } | null>(null);
+  const [checking, setChecking] = useState(false);
 
   // 제출하지 않은 코드가 있으면 다른 탭으로 갈 때 알려 준다 (막지 않고 안내만: 코드는 이 컴퓨터에 저장돼 있음)
   // 같은 코드로는 한 번만 알린다 (고치면 다시 알림). 새로고침·창 닫기는 브라우저 기본 경고 창으로 묻는다
@@ -170,18 +176,54 @@ export default function Workspace({
     setMessage(null);
   }
 
-  function submit() {
+  const currentKey = current ? `${subject}_${current.number}` : "";
+  const tests = current ? exampleTests(current.examples) : [];
+
+  /**
+   * 예시로 확인: 지금 코드를 문제의 예시 입력으로 돌려 보고, 결과를 기록에 [시각, "t:통과/전체"]로 남긴다.
+   * 점수와는 상관없다 (연구용 "통과" 판단과 학생 스스로 확인하는 데만 씀). 예시가 없거나 파이썬을 못 불러오면 null
+   */
+  async function runCheck(): Promise<{ pass: number; total: number } | null> {
     const rec = recorder.current?.getRecording();
-    if (!rec || !current) return;
-    if (!rec.code.trim()) return setMessage({ text: "코드를 입력하세요.", kind: "error" });
+    if (!rec || !current || !tests.length || !rec.code.trim()) return null;
+    const key = currentKey;
+    try {
+      const [plain, echoed] = [await runTests(rec.code, tests), await runTests(rec.code, tests, { echo: true })];
+      const outcomes = judgeExamples(tests, plain, echoed);
+      const pass = outcomes.filter((o) => o.pass).length;
+      recorder.current?.addMark(checkEvent(pass, tests.length));
+      setCheck({ key, tests, outcomes });
+      return { pass, total: tests.length };
+    } catch (err) {
+      console.warn("예시로 확인 실패:", err);
+      return null;
+    }
+  }
+
+  async function checkNow() {
+    if (!recorder.current?.getRecording()?.code.trim()) return setMessage({ text: "코드를 입력하세요.", kind: "error" });
+    setMessage(null);
+    setChecking(true);
+    const r = await runCheck();
+    setChecking(false);
+    if (!r) setMessage({ text: "예시로 확인하지 못했어요. 파이썬을 불러오는 중이면 잠시 뒤 다시 눌러 주세요.", kind: "error" });
+  }
+
+  function submit() {
+    const first = recorder.current?.getRecording();
+    if (!first || !current) return;
+    if (!first.code.trim()) return setMessage({ text: "코드를 입력하세요.", kind: "error" });
     if (!description.trim()) return setMessage({ text: "코드 설명을 입력하세요.", kind: "error" });
     // 방금 낸 것과 똑같은 코드는 또 내지 않는다 (같은 제출이 두 번 쌓이지 않게)
-    if (rec.code === submittedCode.current && submittedKeys.has(`${subject}_${current.number}`)) {
+    if (first.code === submittedCode.current && submittedKeys.has(`${subject}_${current.number}`)) {
       return setMessage({ text: "방금 제출한 코드와 같아요. 코드를 고친 뒤에 다시 제출할 수 있어요.", kind: "error" });
     }
     setMessage(null);
-    writeSession(PENDING_KEY, { subject, problem: current.number, at: Date.now(), description, code: rec.code } satisfies Pending);
     startTransition(async () => {
+      // 제출할 때도 예시로 한 번 확인해 기록에 남긴다 (결과와 상관없이 제출은 그대로 된다)
+      const checked = await runCheck();
+      const rec = recorder.current?.getRecording() ?? first;
+      writeSession(PENDING_KEY, { subject, problem: current.number, at: Date.now(), description, code: rec.code } satisfies Pending);
       const result = await submitCode({
         subject,
         problem: current.number,
@@ -199,7 +241,8 @@ export default function Workspace({
       setTimeout(() => writeSession(PENDING_KEY, null), 5000);
       submittedCode.current = rec.code;
       setSubmittedKeys((prev) => new Set(prev).add(`${subject}_${current.number}`));
-      setMessage({ text: `✅ 제출 완료! (${current.number}) '▶ 내 기록 다시 보기'에서 내가 쓴 과정을 돌아볼 수 있어요.`, kind: "ok" });
+      const checkText = checked ? ` 예시 ${checked.pass}/${checked.total}개가 맞았어요.` : "";
+      setMessage({ text: `✅ 제출 완료! (${current.number})${checkText} '▶ 내 기록 다시 보기'에서 내가 쓴 과정을 돌아볼 수 있어요.`, kind: "ok" });
       setCoolingDown(true);
       setTimeout(() => setCoolingDown(false), COOLDOWN_MS);
     });
@@ -292,6 +335,17 @@ export default function Workspace({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-3">
+          {tests.length > 0 && (
+            <button
+              type="button"
+              onClick={checkNow}
+              disabled={checking || pending}
+              title="문제의 예시 입력으로 내 코드를 돌려 보고 예시 출력과 같은지 알려 줘요. 점수와는 상관없어요."
+              className="rounded-xl border border-emerald-600 bg-white px-4 py-2.5 font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
+            >
+              {checking ? "확인 중…" : "✔ 예시로 확인"}
+            </button>
+          )}
           <button
             type="button"
             onClick={submit}
@@ -309,6 +363,7 @@ export default function Workspace({
             </p>
           )}
         </div>
+        {check && check.key === currentKey && <Outcomes tests={check.tests} outcomes={check.outcomes} />}
       </div>
 
       {/* 맨 오른쪽: 과정 기반 AI 도우미 (넓은 화면은 세 번째 칸, 좁으면 아래) */}
