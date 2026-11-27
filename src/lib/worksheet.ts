@@ -2,6 +2,7 @@
  * 학습지(PDF·사진·docx)에서 AI가 뽑은 문제를 우리 문제 형식으로 바꾼다. AI 호출은 ai.ts, 여기는 순수 함수만.
  */
 import { MAX_EXAMPLES, NUMBER_PATTERN, type Example, type ProblemInput } from "./problemBank";
+import { lessonDefaults, MAX_LESSON, MAX_LESSON_ORDER, parseStandards } from "./standards";
 
 /** AI에게 요구하는 출력 모양 (structured outputs JSON schema) */
 export const WORKSHEET_SCHEMA = {
@@ -31,8 +32,13 @@ export const WORKSHEET_SCHEMA = {
           },
           goal: { type: "string", description: "'문제 목표' 칸의 글 (없으면 빈 문자열)" },
           challenge: { type: "string", description: "'도전 과제' 칸의 글 (없으면 빈 문자열)" },
+          lesson: { type: "integer", description: "'차시' 칸의 숫자 (예: '2차시' → 2). 없으면 0" },
+          lesson_order: { type: "integer", description: "'차시 안 순서' 칸의 숫자 (예: '1번' → 1). 없으면 0" },
+          level: { type: "string", enum: ["기본", "심화", ""], description: "'기본/심화' 칸. 없으면 빈 문자열" },
+          anchor: { type: "boolean", description: "'앵커(기준 문제)' 칸이 O·예·앵커처럼 표시되어 있으면 true, 비었거나 X면 false" },
+          standards: { type: "array", items: { type: "string" }, description: "'성취기준' 칸의 코드들 그대로 (예: \"12정03-04\"). 없으면 빈 배열" },
         },
-        required: ["number", "title", "difficulty", "description", "conditions", "examples", "goal", "challenge"],
+        required: ["number", "title", "difficulty", "description", "conditions", "examples", "goal", "challenge", "lesson", "lesson_order", "level", "anchor", "standards"],
         additionalProperties: false,
       },
     },
@@ -69,6 +75,57 @@ export function toProblems(json: unknown, subject: string): ExtractedProblem[] {
       goal: str(p.goal),
       challenge: str(p.challenge),
       starterCode: "",
+      ...lessonFields(p),
+    };
+  });
+}
+
+const smallInt = (v: unknown, max: number) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= max ? n : null;
+};
+
+/**
+ * 수업 계획 칸(차시·순서·기본/심화·앵커·성취기준). 학습지에 차시가 없으면 차시·순서·기본/심화·앵커는 정하지 않음(undefined) →
+ * 이미 있는 문제의 값을 지킨다. 성취기준은 적혀 있을 때만.
+ */
+function lessonFields(p: Record<string, unknown>): Pick<ExtractedProblem, "lesson" | "lessonOrder" | "level" | "anchor" | "standards"> {
+  const codes = parseStandards((Array.isArray(p.standards) ? p.standards : []).map(String).join(" ")).codes;
+  const lesson = smallInt(p.lesson, MAX_LESSON);
+  const out: Pick<ExtractedProblem, "lesson" | "lessonOrder" | "level" | "anchor" | "standards"> = codes.length ? { standards: codes } : {};
+  if (lesson === null) return out;
+  return {
+    ...out,
+    lesson,
+    lessonOrder: smallInt(p.lesson_order, MAX_LESSON_ORDER),
+    level: p.level === "기본" || p.level === "심화" ? p.level : null,
+    anchor: p.anchor === true,
+  };
+}
+
+/**
+ * 차시·순서만 적은 문제는 문제 양식과 같은 규칙으로 미리 채운다 (standards.ts lessonDefaults):
+ * 성취기준이 비었으면 차시의 성취기준, 기본/심화가 비었으면 순서로, 그 차시에 앵커 표시가 하나도 없으면 마지막 순서를 앵커로.
+ * others: 같은 과목에 이미 있는 문제 (같은 차시의 순서를 함께 센다)
+ */
+export function fillLessonDefaults(
+  problems: ExtractedProblem[],
+  others: { subject: string; number: string; lesson?: number | null; lessonOrder?: number | null }[] = [],
+): ExtractedProblem[] {
+  return problems.map((p) => {
+    if (!p.lesson || !p.lessonOrder) return p;
+    const same = (q: { subject: string; lesson?: number | null }) => q.subject === p.subject && q.lesson === p.lesson;
+    const orders = [
+      ...problems.filter((q) => q !== p && same(q)).map((q) => q.lessonOrder),
+      ...others.filter((q) => same(q) && !problems.some((x) => x.subject === q.subject && x.number === q.number)).map((q) => q.lessonOrder),
+    ].filter((n): n is number => !!n);
+    const d = lessonDefaults(p.lesson, p.lessonOrder, orders);
+    const anchorMarked = problems.some((q) => same(q) && q.anchor);
+    return {
+      ...p,
+      standards: p.standards?.length ? p.standards : d.standards,
+      level: p.level ?? d.level,
+      anchor: anchorMarked ? !!p.anchor : d.anchor,
     };
   });
 }

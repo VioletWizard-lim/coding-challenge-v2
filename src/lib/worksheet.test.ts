@@ -84,3 +84,30 @@ describe("학습지 읽기 진행 게이지", async () => {
     expect(gaugePercent("writing", 0, 1_000_000)).toBeLessThanOrEqual(95);
   });
 });
+
+describe("학습지의 수업 계획 칸", async () => {
+  const { toProblems: read, fillLessonDefaults } = await import("./worksheet");
+  const base = { number: "2-1", title: "가", difficulty: 1, description: "", conditions: [], examples: [], goal: "", challenge: "" };
+  it("차시가 없으면 수업 계획은 정하지 않음 (이미 있는 값을 지킴)", () => {
+    const [p] = read({ problems: [{ ...base, lesson: 0, lesson_order: 0, level: "", anchor: false, standards: [] }] }, "정보");
+    expect(p.lesson).toBeUndefined();
+    expect(p.anchor).toBeUndefined();
+    expect(p.standards).toBeUndefined();
+  });
+  it("차시·순서·성취기준을 읽고 모르는 코드는 뺀다", () => {
+    const [p] = read({ problems: [{ ...base, lesson: 2, lesson_order: 3, level: "심화", anchor: true, standards: ["12정03-05", "[12정03-04]", "12정99-1"] }] }, "정보");
+    expect(p).toMatchObject({ lesson: 2, lessonOrder: 3, level: "심화", anchor: true, standards: ["12정03-04", "12정03-05"] });
+  });
+  it("차시·순서만 적으면 양식과 같은 규칙으로 채운다 (앵커 표시가 없으면 마지막 순서)", () => {
+    const raw = [1, 2, 3].map((n) => ({ ...base, number: `5-${n}`, lesson: 5, lesson_order: n, level: "", anchor: false, standards: [] }));
+    const filled = fillLessonDefaults(read({ problems: raw }, "정보"));
+    expect(filled.map((p) => [p.level, p.anchor, p.standards])).toEqual([
+      ["기본", false, ["12정03-07"]],
+      ["심화", false, ["12정03-07"]],
+      ["심화", true, ["12정03-07"]],
+    ]);
+    // 앵커를 직접 표시했으면 그대로
+    const marked = fillLessonDefaults(read({ problems: raw.map((r, i) => ({ ...r, anchor: i === 1 })) }, "정보"));
+    expect(marked.map((p) => p.anchor)).toEqual([false, true, false]);
+  });
+});

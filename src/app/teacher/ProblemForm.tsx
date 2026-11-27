@@ -181,6 +181,11 @@ export default function ProblemForm({
         goal,
         challenge,
         starterCode,
+        lesson: lessonNum,
+        lessonOrder: orderNum,
+        level,
+        anchor,
+        standards,
       });
     }
     if (mode === "at" && !openAtLocal)
@@ -237,7 +242,7 @@ export default function ProblemForm({
     ["문제 목표", !!goal.trim()],
     ["도전 과제", !!challenge.trim()],
     ["시작 코드", !!starterCode.trim()],
-    ...(onDraft ? [] : ([["수업 계획(차시·성취기준)", !!lesson || !!lessonOrder || !!level || anchor || standards.length > 0]] as [string, boolean][])),
+    ["수업 계획(차시·성취기준)", !!lesson || !!lessonOrder || !!level || anchor || standards.length > 0],
   ];
 
   // 지금 입력 중인 내용을 학생 화면처럼 바로 보여 준다
@@ -459,7 +464,6 @@ export default function ProblemForm({
             className={`${inputClass} font-[family-name:var(--font-code)] text-sm`}
           />
         </label>
-        {!onDraft && (
           <fieldset className="flex flex-col gap-2 rounded-lg border border-line bg-white p-3 text-sm">
             <legend className="px-1 text-muted">
               수업 계획 (선택, 연구용 지표를 차시·성취기준별로 나눠 볼 때 써요)
@@ -568,7 +572,6 @@ export default function ProblemForm({
               ))}
             </div>
           </fieldset>
-        )}
           </div>
         )}
         </div>
