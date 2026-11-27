@@ -2,7 +2,7 @@
 /**
  * 동시접속 부하 테스트 (보고서용 수치) — docs/load-test.md
  *
- * 한 반이 함께 쓰는 순간을 흉내 낸다: N명이 "동시에" 로그인 → 각자 코드 작성 탭에서 코드·설명을 쓰고 → "동시에" 제출.
+ * 한 반이 함께 쓰는 순간을 흉내 낸다: N명이 "동시에" 로그인 → 각자 코드 제출 탭에서 코드·설명을 쓰고 → "동시에" 제출.
  * 서버가 걸린 시간은 브라우저가 잰 요청 시간(요청을 보낸 뒤 응답이 끝날 때까지)으로 잰다. 이 컴퓨터가 브라우저 여러 개를
  * 돌리느라 느려지는 것(글자 입력 등)은 숫자에 넣지 않으려는 것이다.
  *
@@ -39,7 +39,7 @@ if (!ACCOUNTS) {
 /** 학생 관리 CSV 양식에서 아이디·비밀번호만 읽는다 (loadtest로 시작하는 계정만) */
 function readAccounts(path) {
   const lines = readFileSync(path, "utf8").replace(/^﻿/, "").trim().split(/\r?\n/);
-  const head = lines[0].split(",").map((h) => h.trim());
+  const head = lines[0].split(",").map((h) => h.replace(/\s/g, ""));
   const idAt = head.findIndex((h) => h === "아이디" || h === "학번");
   const pwAt = head.findIndex((h) => h === "초기비밀번호" || h === "비밀번호");
   const list = lines.slice(1).map((l) => l.split(",")).map((c) => ({ id: c[idAt]?.trim(), password: c[pwAt]?.trim() }));
@@ -95,7 +95,8 @@ async function runUser(browser, account, n, gates) {
     r.login = serverMs(await loginReq);
     await page.waitForURL("**/student**", { timeout: TIMEOUT });
 
-    await page.locator("nav button, aside button", { hasText: "코드 작성" }).first().click();
+    // 메뉴 이름: "코드 제출" (예전 이름 "코드 작성"도 찾는다)
+    await page.locator("nav button, aside button", { hasText: /코드 제출|코드 작성/ }).first().click();
     const editor = page.locator(".cm-content:visible").first();
     await editor.waitFor({ timeout: TIMEOUT });
     await editor.click();
