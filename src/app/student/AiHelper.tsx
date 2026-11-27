@@ -10,7 +10,8 @@ import type { RecorderHandle } from "@/components/RecordingEditor";
 import { MAX_QUESTION, type AiChat } from "@/lib/aiChat";
 import type { Recording } from "@/lib/editLog";
 import type { Moment } from "@/lib/process-summary";
-import { askAiHelper, flagMyAiChat, loadMyAiChats } from "./actions";
+import type { AskClip } from "@/lib/askBack";
+import { askAiHelper, flagMyAiChat, loadMyAiChats, loadMyReplay } from "./actions";
 
 /**
  * 도우미가 쓰는 서버 기능. 기본은 학생 기능(저장·하루 한도·🚩 알리기),
@@ -18,10 +19,13 @@ import { askAiHelper, flagMyAiChat, loadMyAiChats } from "./actions";
  */
 export type HelperBackend = {
   load: () => Promise<{ ok: true; chats: AiChat[]; remaining: number; limit: number } | { ok: false; error: string }>;
-  ask: (input: { question: string; init: string; log: unknown; at: number }) => Promise<
+  /** threadId: 이 문제의 가장 최근 되물음 id (같은 흐름이면 학생 답으로 보고 AI 힌트) */
+  ask: (input: { question: string; init: string; log: unknown; at: number; threadId?: number }) => Promise<
     { ok: true; chat: AiChat; remaining: number } | { ok: false; error: string; remaining?: number; notReady?: boolean }
   >;
   flag?: (id: number) => Promise<{ ok: boolean; error?: string }>;
+  /** C 상황(이전 문제 기록)의 작성 기록 불러오기 (그 구간 다시 보기). 없으면 단추를 숨김 */
+  openSource?: (clip: AskClip) => Promise<Recording | null>;
   /** 안내 문구 바꾸기 (체험: "대화는 저장하지 않아요") */
   note?: React.ReactNode;
   /** 남은 횟수 앞 글자 (기본 "오늘 남은 질문") */
@@ -71,7 +75,8 @@ export default function AiHelper({
   const [error, setError] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [pending, startTransition] = useTransition();
-  const [replay, setReplay] = useState<{ rec: Recording; at: number; label: string } | null>(null);
+  /** 재생 창: end가 있으면 그 시각까지만 (되물음이 가리킨 기록의 한 구간) */
+  const [replay, setReplay] = useState<{ rec: Recording; at: number; end?: number; label: string } | null>(null);
   const [flagged, setFlagged] = useState<Set<number>>(new Set());
   const listEnd = useRef<HTMLDivElement>(null);
   const replayDialog = useDialog<HTMLDivElement>(!!replay, () => setReplay(null));
@@ -79,7 +84,15 @@ export default function AiHelper({
     load: () => loadMyAiChats(subject, problem),
     ask: (x) => askAiHelper({ subject, problem, ...x, practiceId, studentProblemId }),
     flag: flagMyAiChat,
+    openSource: async (clip) => {
+      if (!clip.source?.submissionId) return null;
+      const r = await loadMyReplay(clip.source.submissionId);
+      return r.ok ? { init: r.data.init, code: r.data.code, log: r.data.log as Recording["log"] } : null;
+    },
   };
+  /** 가장 최근의 되물음: 그 뒤에 쓰는 말은 되물음에 대한 답이 될 수 있다 (같은 흐름인지는 서버가 정함) */
+  const lastAsk = [...chats].reverse().find((c) => c.step === "ask") ?? null;
+  const awaitingReply = chats.length > 0 && chats[chats.length - 1].step === "ask";
 
   useEffect(() => {
     let alive = true;
@@ -112,7 +125,7 @@ export default function AiHelper({
     const at = marked ?? Date.now();
     setError(null);
     startTransition(async () => {
-      const r = await backend.ask({ question: q, init: rec.init, log: rec.log, at });
+      const r = await backend.ask({ question: q, init: rec.init, log: rec.log, at, threadId: lastAsk?.id });
       if (r.remaining !== undefined) setRemaining(r.remaining);
       if (!r.ok) {
         // 답을 받지 못한 질문은 "AI 도움 요청"으로 남기지 않는다 (재생 타임라인에 빈 도움 요청이 생기지 않게)
@@ -127,9 +140,19 @@ export default function AiHelper({
     });
   }
 
-  function openMoment(m: Moment) {
+  /** end: 되물음이 가리킨 구간의 끝 (그때까지만 재생) */
+  function openMoment(m: Moment, end?: number | null) {
     const rec = recorder.current?.getRecording();
-    if (rec) setReplay({ rec, at: m.at, label: m.label });
+    // 구간은 그 순간 바로 전부터 보여 준다 (첫 변화도 보이게)
+    if (rec) setReplay({ rec, at: end ? m.at - 1 : m.at, end: end ?? undefined, label: m.label });
+  }
+
+  /** C 상황: 이전 문제의 기록에서 그 구간 다시 보기 */
+  async function openSource(clip: AskClip) {
+    if (!backend.openSource || clip.from === null) return;
+    const rec = await backend.openSource(clip);
+    if (!rec) return setError("그 기록을 불러오지 못했어요.");
+    setReplay({ rec, at: clip.from - 1, end: clip.to ?? undefined, label: `지난 ${clip.source?.problem ?? ""} 문제의 기록` });
   }
 
   function flag(id: number) {
@@ -195,6 +218,36 @@ export default function AiHelper({
             {chats.map((c) => (
               <div key={c.id} className="flex flex-col gap-2">
                 <p className="self-end whitespace-pre-wrap rounded-xl rounded-br-sm bg-brand-soft px-3 py-2 text-sm">{c.question}</p>
+                {c.step === "ask" ? (
+                  /* 기록으로 되묻기: AI가 아니라 사이트가 내 작성 기록에서 찾아 바로 되물은 것 */
+                  <div className="flex flex-col gap-1.5 rounded-xl rounded-bl-sm border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm">
+                    <span className="text-xs font-bold text-amber-800">📼 내 작성 기록에서 찾았어요</span>
+                    <p className="whitespace-pre-wrap leading-7">
+                      <AiAnswer chat={c} onMoment={(m) => openMoment(m, c.clip?.to)} />
+                    </p>
+                    {c.clip && c.clip.lineVersions.length > 1 && (
+                      <div className="rounded-lg border border-line bg-white px-2 py-1.5">
+                        <p className="text-xs text-muted">{c.clip.line}번째 줄이 고칠 때마다 바뀐 모습</p>
+                        <ol className="mt-1 flex list-decimal flex-col gap-0.5 pl-5 font-[family-name:var(--font-code)] text-xs">
+                          {c.clip.lineVersions.map((v, i) => (
+                            <li key={i} className="whitespace-pre-wrap break-all">
+                              {v || "(빈 줄)"}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    {c.clip?.source && c.clip.from !== null && backend.openSource && (
+                      <button
+                        type="button"
+                        onClick={() => openSource(c.clip!)}
+                        className="self-start rounded-full border border-blue-300 bg-blue-50 px-2.5 py-0.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+                      >
+                        ⏪ 지난 {c.clip.source.problem} 문제의 그 구간 다시 보기
+                      </button>
+                    )}
+                  </div>
+                ) : (
                 <div className="flex flex-col gap-1 rounded-xl rounded-bl-sm border border-line bg-page px-3 py-2 text-sm">
                   <span className="text-xs font-bold text-blue-700">🤖 AI가 만든 답변입니다</span>
                   <Answer chat={c} onMoment={openMoment} />
@@ -208,9 +261,12 @@ export default function AiHelper({
                     )}
                   </div>
                 </div>
+                )}
               </div>
             ))}
-            {pending && <p className="text-sm text-muted">🤖 AI가 내 작성 과정을 살펴보는 중…</p>}
+            {pending && (
+              <p className="text-sm text-muted">{awaitingReply ? "🤖 AI가 내 답과 작성 과정을 살펴보는 중…" : "📼 내 작성 기록을 살펴보는 중…"}</p>
+            )}
             <div ref={listEnd} />
           </div>
 
@@ -246,7 +302,13 @@ export default function AiHelper({
             rows={3}
             maxLength={MAX_QUESTION}
             disabled={outOfQuestions}
-            placeholder={outOfQuestions ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요." : "무엇이 막히나요? (다 쓰고 아래 '물어보기'를 누르거나 Ctrl+Enter)"}
+            placeholder={
+              outOfQuestions
+                ? "오늘 질문을 모두 썼어요. 내일 다시 물어볼 수 있어요."
+                : awaitingReply
+                  ? "위 질문에 내 생각을 적어 보세요. '모르겠어요'라고 적어도 돼요. (Ctrl+Enter로 보내기)"
+                  : "무엇이 막히나요? (다 쓰고 아래 '물어보기'를 누르거나 Ctrl+Enter)"
+            }
             className="rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:bg-page"
           />
           <button
@@ -255,7 +317,7 @@ export default function AiHelper({
             disabled={pending || outOfQuestions || !question.trim()}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? "답을 기다리는 중…" : "물어보기"}
+            {pending ? "답을 기다리는 중…" : awaitingReply ? "답하기" : "물어보기"}
           </button>
         </>
       )}
@@ -273,7 +335,8 @@ export default function AiHelper({
                 ✕ 닫기
               </button>
             </div>
-            <Replayer init={replay.rec.init} code={replay.rec.code} log={replay.rec.log} startAt={replay.at} />
+            {replay.end !== undefined && <p className="text-sm text-muted">이 구간만 보여 줘요. ▶ 재생을 누르면 구간 끝에서 멈춰요.</p>}
+            <Replayer init={replay.rec.init} code={replay.rec.code} log={replay.rec.log} startAt={replay.at} endAt={replay.end} />
           </div>
         </div>
       )}

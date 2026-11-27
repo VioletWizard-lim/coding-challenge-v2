@@ -4,6 +4,7 @@
  */
 import { conditionList, type Problem } from "./problemBank";
 import type { Moment } from "./process-summary";
+import type { AskClip, Situation } from "./askBack";
 
 export type AiChat = {
   id: number;
@@ -22,6 +23,15 @@ export type AiChat = {
   model: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  /**
+   * 기록으로 되묻기 (023): "ask" = 사이트가 작성 기록에서 찾은 순간을 보여 주며 되물음(AI 호출 없음, 하루 횟수에 안 셈),
+   * "hint" = 학생 답을 보고 AI가 준 힌트(parentId = 그 되물음). 예전 대화는 null (질문에 바로 답한 AI 답)
+   */
+  step: "ask" | "hint" | null;
+  situation: Situation | null;
+  /** 되물음에 보여 준 기록 구간 */
+  clip: AskClip | null;
+  parentId: number | null;
 };
 
 export const MAX_QUESTION = 1000;

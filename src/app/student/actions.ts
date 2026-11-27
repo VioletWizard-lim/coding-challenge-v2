@@ -29,15 +29,17 @@ import { validEntries } from "@/lib/replay";
 import { ACHIEVEMENTS } from "@/lib/achievements";
 import { saveAchievementsSeen } from "@/lib/achievementStore";
 import { getUserProfile } from "@/lib/auth";
-import { isValidLog } from "@/lib/editLog";
+import { isValidLog, replay, type LogEvent } from "@/lib/editLog";
+import { askedBackText, continuesThread, decideAsk, plainAskText, type PrevRecord } from "@/lib/askBack";
+import { STUCK_RULES } from "@/lib/stuckRules";
 import { allowedSubjects, gradeClassFor } from "@/lib/problems";
 import { findOpenProblem } from "@/lib/problemStore";
 import { normalizeReflection, validateReflection, type Reflection, type ReflectionInput } from "@/lib/reflection";
 import { saveTodayReflection } from "@/lib/reflectionStore";
-import { processSummaryText, summarizeProcess } from "@/lib/process-summary";
+import { meaningfulLines, processSummaryText, summarizeProcess } from "@/lib/process-summary";
 import { AI_BUSY_MESSAGE, oneAtATime } from "@/lib/aiTurn";
 import { getSession } from "@/lib/session";
-import { getReplayData, insertSubmission, isMySubmission, submittedSince, type ReplayData } from "@/lib/submissions";
+import { getMyRecentRecordings, getReplayData, insertSubmission, isMySubmission, submittedSince, type Owner, type ReplayData } from "@/lib/submissions";
 import { MAX_NOTES_PER_SUBMISSION, validateNote, type NotesBundle, type TimelineNote } from "@/lib/timelineNotes";
 import { countNotes, deleteNote, insertNote, listNotesForSubmission, updateNote } from "@/lib/timelineNoteStore";
 
@@ -232,6 +234,8 @@ export type AskInput = {
   practiceId?: number;
   /** 학생이 만든 문제에서 물을 때 (problem은 "S7" 같은 키) */
   studentProblemId?: number;
+  /** 이 문제에서 가장 최근의 되물음(step='ask') id. 같은 흐름이면 학생 답으로 보고 AI 힌트를 준다 */
+  threadId?: number;
 };
 
 export type AskResult =
@@ -269,6 +273,7 @@ async function askAiHelperOnce(input: AskInput): Promise<AskResult> {
     // 수업 문제는 공개된 것만, 연습 문제는 내 것만. 연습 문제는 참고 답안으로도 정답 알려 주기를 검사한다
     let problemText: string;
     let solution = "";
+    let starter = "";
     if (input.practiceId !== undefined) {
       const practice = await getPractice(Number(input.practiceId), session.id);
       if (!practice || practice.subject !== input.subject || practiceKey(practice.id) !== input.problem) {
@@ -276,6 +281,7 @@ async function askAiHelperOnce(input: AskInput): Promise<AskResult> {
       }
       problemText = problemForAi(asProblem(practice));
       solution = practice.solution;
+      starter = practice.starterCode;
     } else if (input.studentProblemId !== undefined) {
       const classKeys = Object.fromEntries(
         allowedSubjects(profile.subjects).map((s) => [s, classKeyOf(gradeClassFor(profile, s))]),
@@ -286,10 +292,12 @@ async function askAiHelperOnce(input: AskInput): Promise<AskResult> {
       }
       problemText = problemForAi(studentAsProblem(own));
       solution = own.solution;
+      starter = studentAsProblem(own).starterCode;
     } else {
       const problem = await findOpenProblem(input.subject, input.problem);
       if (!problem) return { ok: false, error: "아직 공개되지 않았거나 없는 문제예요." };
       problemText = problemForAi(problem);
+      starter = problem.starterCode;
     }
 
     // 선생님이 이 과목(또는 수업 문제의 단원)에서 AI 도우미를 꺼 두었는지
@@ -299,21 +307,53 @@ async function askAiHelperOnce(input: AskInput): Promise<AskResult> {
 
     const limit = dailyLimit();
     const used = (await Promise.all([countTodayChats(session.id), countTodayReviews(session.id)])).reduce((a, b) => a + b, 0);
+
+    // ── 기록으로 되묻기 (P1): 같은 흐름의 답이 아니면, 사이트가 기록에서 막힌 순간을 찾아 바로 되묻는다 (AI 호출 없음, 횟수에 안 셈)
+    const thread = input.threadId !== undefined ? await threadOf(session.id, input.subject, input.problem, Number(input.threadId)) : null;
+    const lastAt = thread ? Math.max(...thread.map((c) => c.at ?? 0)) : null;
+    if (!thread || lastAt === null || !continuesThread(lastAt, input.log, at)) {
+      const init = String(input.init ?? "");
+      // 코드가 거의 없을 때만 이전 문제 기록을 찾는다 (C 상황, 무거운 기록을 읽으므로)
+      const almostEmpty = meaningfulLines(replay(init, input.log as LogEvent[]), starter || init) < STUCK_RULES.emptyCode.minMeaningfulLines;
+      const previous = almostEmpty ? await previousRecords(profile, input.subject, input.problem) : [];
+      const d = decideAsk({ init, log: input.log, now: at, starter: starter || init, previous });
+      const chat = await insertChat({
+        userId: session.id,
+        subject: input.subject,
+        problem: input.problem,
+        at,
+        question,
+        answer: d.text,
+        moments: d.moments,
+        model: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        step: "ask",
+        situation: d.situation,
+        clip: d.clip,
+      });
+      return { ok: true, chat, remaining: Math.max(0, limit - used) };
+    }
+
+    // ── 같은 흐름: 학생 답을 보고 AI가 힌트 (하루 횟수에 셈)
     if (used >= limit) {
       return { ok: false, error: `오늘 질문 ${limit}번을 모두 썼어요. 내일 다시 물어볼 수 있어요.`, remaining: 0 };
     }
+    const root = thread[0];
 
     // 과정 기록 요약: 마지막 성공 코드, 그 뒤 바뀐 줄, 반복된 오류, 멈춘 구간, 막힌 개념 (CLAUDE.md 규칙 1)
     const summary = summarizeProcess(String(input.init ?? ""), input.log, at);
     // 학생이 직접 쓴 코드: 이 안의 코드를 AI가 가리키는 것은 정답 알려 주기가 아니다
     const ownCode = `${summary.currentCode}\n${summary.lastSuccess?.code ?? ""}`;
-    const history = await listChatsForProblem(session.id, input.subject, input.problem, HISTORY_TURNS);
+    // 이 흐름의 앞 대화 (처음 질문과 되물음, 앞서 준 힌트들)
+    const history = thread.slice(-HISTORY_TURNS).map((c) => ({ question: c.question, answer: c.step === "ask" ? plainAskText(c.answer) : c.answer }));
     const reply = await askHelper({
       problemText,
       processText: processSummaryText(summary),
-      history: history.map((c) => ({ question: c.question, answer: c.answer })),
+      history,
       question,
       teacherNote: ai.note,
+      askedBack: root.situation ? askedBackText({ situation: root.situation, clip: root.clip, text: root.answer }) : undefined,
       leaks: (text) => leaksAnswer(text, ownCode, solution),
     });
     // 다시 받은 답에도 남아 있으면 코드 부분을 지워서 보여 준다 (마지막 안전장치)
@@ -331,6 +371,9 @@ async function askAiHelperOnce(input: AskInput): Promise<AskResult> {
       model: reply.model,
       inputTokens: reply.inputTokens,
       outputTokens: reply.outputTokens,
+      step: "hint",
+      situation: root.situation,
+      parentId: root.id,
     });
     return { ok: true, chat, remaining: Math.max(0, limit - used - 1) };
   } catch (err) {
@@ -342,6 +385,33 @@ async function askAiHelperOnce(input: AskInput): Promise<AskResult> {
     console.error("AI 도우미 오류:", err);
     return { ok: false, error: "AI가 답하지 못했어요. 잠시 후 다시 물어보세요." };
   }
+}
+
+/** 되물음 하나와 그 뒤 힌트들 (오래된 것부터). 내 것이 아니거나 이 문제의 되물음이 아니면 null */
+async function threadOf(userId: string, subject: string, problem: string, rootId: number): Promise<AiChat[] | null> {
+  if (!Number.isInteger(rootId)) return null;
+  const all = await listChatsForProblem(userId, subject, problem);
+  const root = all.find((c) => c.id === rootId && c.step === "ask");
+  return root ? all.filter((c) => c.id === root.id || c.parentId === root.id) : null;
+}
+
+
+/**
+ * C 상황에서 찾아볼 이전 문제 기록: 같은 과목의 최근 제출 중 이 문제가 아닌 것.
+ * 같은 단원("3-2"의 3)을 앞에 둔다. (P4 성취기준 태그가 생기면 같은 태그를 맨 앞에)
+ */
+async function previousRecords(profile: Owner, subject: string, problem: string): Promise<PrevRecord[]> {
+  const [recent, { problems }] = await Promise.all([
+    getMyRecentRecordings(profile, [subject], STUCK_RULES.previousRecords + 1),
+    listAllProblems(),
+  ]);
+  const titles = new Map(problems.map((p) => [`${p.subject}_${p.number}`, p.title]));
+  const unit = problem.split("-")[0];
+  const list = recent
+    .filter((r) => r.problem !== problem)
+    .slice(0, STUCK_RULES.previousRecords)
+    .map((r) => ({ problem: r.problem, title: titles.get(`${r.subject}_${r.problem}`) ?? "", submissionId: Number(r.id), init: r.init, log: r.log }));
+  return [...list.filter((r) => r.problem.split("-")[0] === unit), ...list.filter((r) => r.problem.split("-")[0] !== unit)];
 }
 
 export type ChatsResult =

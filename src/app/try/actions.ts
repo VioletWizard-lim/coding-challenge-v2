@@ -4,6 +4,7 @@ import { AiNotConfiguredError, AiRefusedError, askHelper, makePractice, makeRevi
 import { dropUnknownRefs, leaksAnswer, MAX_QUESTION, momentsUsed, problemForAi, stripAnswerCode, validateQuestion, type AiChat } from "@/lib/aiChat";
 import { MAX_REVIEW_ANSWER, MIN_QUESTIONS, toFollowUp, toReview, type AiReview, type FollowUp } from "@/lib/aiReview";
 import { isValidLog } from "@/lib/editLog";
+import { askedBackText, continuesThread, decideAsk, plainAskText, type AskClip, type PrevRecord } from "@/lib/askBack";
 import { processSummaryText, stuckBrief, stuckPoints, summarizeProcess, type StuckPoint, type StuckSource } from "@/lib/process-summary";
 import { DEFAULT_CONCEPTS, levelLabel, MAX_CONCEPTS_PER_PROBLEM, toDraft, verifyDraft, type PracticeDraft, type PracticeTest } from "@/lib/practice";
 import { runPythonTests } from "@/lib/pyRunner";
@@ -133,26 +134,84 @@ function aiError(err: unknown, what: string): string {
 export type TrialAskResult = { ok: true; chat: AiChat; remaining: number } | { ok: false; error: string };
 
 /** 체험 AI 도우미: 학생 도우미와 같은 방식 (과정 요약 + 질문, 정답 코드 검사) */
-export async function trialAsk(input: Rec & { question: string; at: number; history: { question: string; answer: string }[] }): Promise<TrialAskResult> {
+/** 브라우저가 들고 있는 이 문제의 체험 대화 (체험은 저장하지 않으므로 되묻기 흐름을 이어 가려고 함께 보낸다) */
+export type TrialChatIn = Pick<AiChat, "id" | "question" | "answer" | "at" | "step" | "situation" | "clip" | "parentId">;
+
+/** 브라우저에서 온 대화를 믿을 만한 모양으로 (AI에 보낼 글로만 쓴다) */
+function cleanChats(list: unknown): TrialChatIn[] {
+  return (Array.isArray(list) ? list : []).slice(-20).flatMap((c): TrialChatIn[] => {
+    if (!c || typeof c !== "object") return [];
+    const x = c as Partial<TrialChatIn>;
+    const clip = x.clip && typeof x.clip === "object" ? (x.clip as AskClip) : null;
+    return [
+      {
+        id: Number(x.id) || 0,
+        question: String(x.question ?? "").slice(0, MAX_QUESTION),
+        answer: String(x.answer ?? "").slice(0, 4000),
+        at: Number.isFinite(x.at) ? Number(x.at) : null,
+        step: x.step === "ask" || x.step === "hint" ? x.step : null,
+        situation: x.situation === "A" || x.situation === "B" || x.situation === "C" ? x.situation : null,
+        clip: clip
+          ? {
+              ...clip,
+              lineVersions: (Array.isArray(clip.lineVersions) ? clip.lineVersions : []).slice(0, 6).map((v) => String(v).slice(0, 300)),
+              codeAt: String(clip.codeAt ?? "").slice(0, 1600),
+            }
+          : null,
+        parentId: x.parentId === null || x.parentId === undefined ? null : Number(x.parentId),
+      },
+    ];
+  });
+}
+
+/**
+ * 체험 AI 도우미: 학생 도우미와 같은 방식.
+ * 먼저 사이트가 체험 기록에서 막힌 순간을 찾아 되묻고(AI 호출 없음, 횟수에 안 셈), 같은 흐름에서 답하면 AI가 과정 요약을 근거로 힌트.
+ * others: 다른 체험 문제의 기록 (코드가 거의 없을 때 C 상황으로 보여 줄 이전 기록)
+ */
+export async function trialAsk(
+  input: Rec & { question: string; at: number; chats?: TrialChatIn[]; others?: TrialRecord[] },
+): Promise<TrialAskResult> {
   const question = String(input.question ?? "").trim();
   const invalid = validateQuestion(question);
   if (invalid) return { ok: false, error: invalid };
   const ok = await check(input);
   if (!ok.ok) return ok;
   try {
+    const at = Number.isFinite(input.at) ? Number(input.at) : Date.now();
+    const chats = cleanChats(input.chats);
+    const lastAsk = [...chats].reverse().find((c) => c.step === "ask") ?? null;
+    const thread = lastAsk ? chats.filter((c) => c.id === lastAsk.id || c.parentId === lastAsk.id) : [];
+    const lastAt = thread.length ? Math.max(...thread.map((c) => c.at ?? 0)) : null;
+    const base = { userId: "", subject: TRIAL_SUBJECT, problem: String(input.problemId), at, question, flaggedBy: null, flagNote: null, createdAt: new Date().toISOString() };
+
+    // 같은 흐름이 아니면: 기록으로 되묻기 (AI 호출 없음)
+    if (!lastAsk || lastAt === null || !continuesThread(lastAt, input.log, at)) {
+      const init = String(input.init ?? "");
+      const starter = findTrialProblem(String(input.problemId))?.view.starterCode ?? init;
+      const previous: PrevRecord[] = sources((input.others ?? []).filter((r) => r?.problemId !== input.problemId)).map((r) => ({
+        problem: r.problem.replace(TRIAL_SUBJECT, ""),
+        title: r.title,
+        init: r.init,
+        log: r.log,
+      }));
+      const d = decideAsk({ init, log: input.log, now: at, starter, previous });
+      const chat: AiChat = { ...base, id: at, answer: d.text, moments: d.moments, model: null, inputTokens: 0, outputTokens: 0, step: "ask", situation: d.situation, clip: d.clip, parentId: null };
+      return { ok: true, chat, remaining: await trialRemaining().catch(() => 0) };
+    }
+
+    // 같은 흐름: 학생 답을 보고 AI 힌트 (체험 하루 횟수에 셈)
     const limited = await takeTurn();
     if (limited) return { ok: false, error: limited };
-    const at = Number.isFinite(input.at) ? Number(input.at) : Date.now();
     const summary = summarizeProcess(String(input.init ?? ""), input.log, at);
     const ownCode = `${summary.currentCode}\n${summary.lastSuccess?.code ?? ""}`;
-    const history = (Array.isArray(input.history) ? input.history : [])
-      .slice(-3)
-      .map((h) => ({ question: String(h?.question ?? "").slice(0, MAX_QUESTION), answer: String(h?.answer ?? "").slice(0, 4000) }));
+    const history = thread.slice(-3).map((c) => ({ question: c.question, answer: c.step === "ask" ? plainAskText(c.answer) : c.answer }));
     const reply = await askHelper({
       problemText: ok.problemText,
       processText: processSummaryText(summary),
       history,
       question,
+      askedBack: lastAsk.situation ? askedBackText({ situation: lastAsk.situation, clip: lastAsk.clip, text: lastAsk.answer }) : undefined,
       leaks: (text) => leaksAnswer(text, ownCode, ok.solution),
     });
     await recordTrialUsage({ model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens }).catch(() => {});
@@ -160,26 +219,24 @@ export async function trialAsk(input: Rec & { question: string; at: number; hist
       reply.retried && leaksAnswer(reply.text, ownCode, ok.solution) ? stripAnswerCode(reply.text, ownCode, ok.solution) : reply.text;
     const answer = dropUnknownRefs(checked, summary.moments);
     const chat: AiChat = {
+      ...base,
       id: at,
-      userId: "",
-      subject: TRIAL_SUBJECT,
-      problem: String(input.problemId),
-      at,
-      question,
       answer,
       moments: momentsUsed(answer, summary.moments),
-      flaggedBy: null,
-      flagNote: null,
-      createdAt: new Date().toISOString(),
       model: reply.model,
       inputTokens: reply.inputTokens,
       outputTokens: reply.outputTokens,
+      step: "hint",
+      situation: lastAsk.situation,
+      clip: null,
+      parentId: lastAsk.id,
     };
     return { ok: true, chat, remaining: await trialRemaining().catch(() => 0) };
   } catch (err) {
     return { ok: false, error: aiError(err, "도우미") };
   }
 }
+
 
 export type TrialReviewResult = { ok: true; review: AiReview; remaining: number } | { ok: false; error: string };
 

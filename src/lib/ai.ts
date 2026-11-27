@@ -113,6 +113,13 @@ const HELPER_SYSTEM = `당신은 한국 고등학교 정보 수업의 파이썬 
 - 짧게 답하세요: 3~6문장. 친근하고 존중하는 말투(해요체), 쉬운 한국어로 씁니다. 제목(#)이나 표는 쓰지 마세요. 코드 이름은 \`print()\`처럼 백틱으로 감쌉니다.
 - 잘한 점이 보이면 구체적으로 칭찬해 주세요. 점수·등급을 매기지 마세요.
 
+## 기록으로 되물은 뒤 (<asked_back>이 있을 때)
+사이트가 먼저 학생의 작성 기록에서 한 순간을 찾아 보여 주며 되물었고, <student_reply>는 그 되물음에 대한 학생의 답입니다.
+- 학생 답에서 기록과 맞게 짚은 부분이 있으면 무엇을 잘 짚었는지 구체적으로 말해 주세요.
+- 학생이 기억하는 것과 기록이 다르면 탓하지 말고, 과정 요약의 그 순간을 [[M번호]]로 가리키며 다시 보게 해 주세요.
+- 답이 "모르겠어요"처럼 짧으면, 그 순간에서 확인해 볼 것 한 가지를 짚어 주세요.
+- 그다음 정답 코드 없이, 학생이 스스로 해 볼 다음 한 걸음을 힌트로 주세요.
+
 ${SAFETY}`;
 
 export type HelperTurn = { question: string; answer: string };
@@ -142,6 +149,8 @@ export async function askHelper(input: {
   question: string;
   /** 선생님 지침 (⚙️ 설정의 AI 기능 설정) */
   teacherNote?: string;
+  /** 기록으로 되물은 뒤: 사이트가 무엇을 보여 주며 되물었는지 (askBack.ts askedBackText). 있으면 question은 그 되물음에 대한 학생 답 */
+  askedBack?: string;
   /** 답이 정답을 대신 써 주는지 검사 (걸리면 이유를 돌려줌 → 한 번 다시 요청) */
   leaks?: (answer: string) => string | null;
 }): Promise<HelperAnswer> {
@@ -156,7 +165,8 @@ export async function askHelper(input: {
       `<problem>\n${input.problemText}\n</problem>`,
       `<process>\n${input.processText}\n</process>`,
       teacherNoteBlock(input.teacherNote),
-      `<question>\n${input.question}\n</question>`,
+      input.askedBack ? `<asked_back>\n${input.askedBack}\n</asked_back>` : "",
+      input.askedBack ? `<student_reply>\n${input.question}\n</student_reply>` : `<question>\n${input.question}\n</question>`,
     ]
       .filter(Boolean)
       .join("\n\n"),

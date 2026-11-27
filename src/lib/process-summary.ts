@@ -8,6 +8,7 @@
  */
 import { applyEditEvent, type EditEvent } from "./editLog";
 import { PAUSE_MS, formatDuration, validEntries } from "./replay";
+import { STUCK_RULES } from "./stuckRules";
 
 /** AI가 가리킬 수 있는 과정의 한 순간 */
 export type Moment = {
@@ -15,7 +16,7 @@ export type Moment = {
   id: string;
   /** 작성 기록 안의 시각 (ms) — 재생기를 이 시각으로 연다 */
   at: number;
-  kind: "run-ok" | "run-error" | "pause" | "ask" | "paste";
+  kind: "run-ok" | "run-error" | "pause" | "ask" | "paste" | "edit";
   /** 사람이 읽는 설명 (예: "NameError (3번째)") */
   label: string;
 };
@@ -405,4 +406,165 @@ export function stuckBrief(points: StuckPoint[], subject: string): string {
   const errors = points.filter((p) => p.subject === subject && p.kind === "error").slice(0, 3);
   if (!errors.length) return "- 최근 작성 기록에서 두 번 넘게 반복된 오류는 없음";
   return errors.map((p) => `- ${p.label} (${p.evidence}) → ${p.concept}`).join("\n");
+}
+
+/* ───────── 막힌 순간 찾기 (AI 도우미 첫 되물음 P1, 막힘 알림 P2) ───────── */
+
+export type StuckRule = "error-repeat" | "paste-error" | "same-line" | "long-pause";
+
+/** 기록에서 찾은 막힌 순간: 어느 구간(from~to)에서, 어떤 규칙으로 */
+export type StuckMoment = {
+  rule: StuckRule;
+  /** 구간 시작·끝 (기록 안의 시각 ms). 재생기를 from부터 to까지 보여 준다 */
+  from: number;
+  to: number;
+  /** 관련된 줄 (1부터). 없으면 null */
+  line: number | null;
+  /** 같은 줄로 돌아온 횟수 / 같은 오류가 연달아 난 횟수 */
+  count: number;
+  /** 오류 이름 (error-repeat, paste-error) */
+  error: string | null;
+  /** 구간 길이(분, 소수 한 자리) */
+  minutes: number;
+  /** 같은 줄 반복 수정: 고칠 때마다 그 줄이 어떻게 바뀌었는지 (최근 6개까지) */
+  lineVersions: string[];
+  /** 구간 끝(to)의 코드 (화면·AI에 보여 줄 때) */
+  codeAt: string;
+};
+
+const PRIORITY: StuckRule[] = ["error-repeat", "paste-error", "same-line", "long-pause"];
+const MAX_VERSIONS = 6;
+const toMinutes = (ms: number) => Math.round(ms / 6000) / 10;
+const lineOf = (doc: string, line0: number) => doc.split("\n")[line0] ?? "";
+
+/**
+ * 작성 기록에서 막힌 순간들을 찾는다 (규칙과 기준값은 stuckRules.ts).
+ * - error-repeat: 같은 오류가 minCount번 넘게 연달아 남 (마지막까지 못 고친 것만)
+ * - paste-error: 붙여넣은 뒤 withinMs 안의 첫 실행이 오류
+ * - same-line: windowMs 안에 같은 줄로 minVisits번 넘게 돌아와 고침
+ *   (한 번 "방문" = 다른 줄을 고치거나 실행하기 전까지 그 줄을 고친 것. 처음 타이핑은 한 번으로 센다)
+ * - long-pause: 다른 창에 가 있지 않은 채 minMs 넘게 아무 기록이 없음 (now까지 이어지는 멈춤 포함)
+ * 줄 번호는 그때 문서 기준이라, 위에 줄을 더하면 조금 어긋날 수 있다.
+ */
+export function findStuckMoments(init: string, log: unknown, now?: number): StuckMoment[] {
+  const R = STUCK_RULES;
+  const events = validEntries(log);
+  const found: StuckMoment[] = [];
+  let doc = init;
+  const docAt: { t: number; doc: string }[] = [];
+  // 같은 오류 연달아
+  type Streak = { kind: string; count: number; from: number; to: number; line: number | null };
+  let streak = null as Streak | null;
+  // 붙여넣기 뒤 첫 실행
+  let lastPaste: { t: number; line: number } | null = null;
+  // 줄 방문: 마지막으로 고친 줄과, 줄마다 방문 기록
+  let lastEditLine: number | null = null;
+  let brokeSinceEdit = true;
+  const visits = new Map<number, { t: number; text: string }[]>();
+  let awayStart: number | null = null;
+  let lastEdit = null as { t: number; line: number } | null;
+  const lastEditLineNo = () => (lastEdit ? lastEdit.line + 1 : null);
+
+  const docBefore = (t: number) => {
+    let d = init;
+    for (const x of docAt) if (x.t <= t) d = x.doc;
+    return d;
+  };
+
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    const [t, kind] = e;
+    // 긴 멈춤 (다른 창에 가 있던 시간은 빼고)
+    if (i > 0 && awayStart === null) {
+      const prev = events[i - 1][0];
+      if (t - prev >= R.longPause.minMs) {
+        found.push({ rule: "long-pause", from: prev, to: t, line: lastEdit ? lastEdit.line + 1 : null, count: 1, error: null, minutes: toMinutes(t - prev), lineVersions: [], codeAt: doc });
+      }
+    }
+    if (e.length > 2) {
+      const edit = e as EditEvent;
+      const line0 = edit[2];
+      if (edit[1] === "p") lastPaste = { t, line: line0 };
+      doc = applyEditEvent(doc, edit);
+      docAt.push({ t, doc });
+      // 줄 방문 세기
+      if (brokeSinceEdit || lastEditLine !== line0) {
+        const list = visits.get(line0) ?? [];
+        list.push({ t, text: "" });
+        visits.set(line0, list);
+      }
+      const list = visits.get(line0)!;
+      list[list.length - 1] = { t, text: lineOf(doc, line0) };
+      lastEditLine = line0;
+      brokeSinceEdit = false;
+      lastEdit = { t, line: line0 };
+      continue;
+    }
+    if (kind === "b") awayStart = t;
+    else if (kind === "f") awayStart = null;
+    else if (kind.startsWith("r:")) {
+      brokeSinceEdit = true; // 실행한 뒤 같은 줄을 고치면 새 방문
+      if (kind === "r:ok") {
+        streak = null;
+      } else {
+        const name = kind.slice(2) || "오류";
+        const prevStreak: Streak | null = streak;
+        streak =
+          prevStreak && prevStreak.kind === name
+            ? { ...prevStreak, count: prevStreak.count + 1, to: t }
+            : { kind: name, count: 1, from: t, to: t, line: lastEditLineNo() };
+        if (lastPaste && t - lastPaste.t <= R.pasteThenError.withinMs) {
+          found.push({ rule: "paste-error", from: lastPaste.t, to: t, line: lastPaste.line + 1, count: 1, error: name, minutes: toMinutes(t - lastPaste.t), lineVersions: [], codeAt: doc });
+        }
+      }
+      lastPaste = null; // 붙여넣기 뒤 "첫 실행"만 본다
+    }
+  }
+  // 끝까지 못 고친 같은 오류
+  if (streak && streak.count >= R.errorRepeat.minCount) {
+    found.push({ rule: "error-repeat", from: streak.from, to: streak.to, line: streak.line, count: streak.count, error: streak.kind, minutes: toMinutes(streak.to - streak.from), lineVersions: [], codeAt: docBefore(streak.to) });
+  }
+  // 같은 줄 반복 수정: 줄마다 windowMs 안에 가장 많이 돌아온 구간
+  for (const [line0, list] of visits) {
+    let best: { from: number; to: number; n: number; texts: string[] } | null = null;
+    for (let a = 0, b = 0; b < list.length; b++) {
+      while (list[b].t - list[a].t > R.sameLine.windowMs) a++;
+      const n = b - a + 1;
+      if (n >= R.sameLine.minVisits && (!best || n >= best.n)) best = { from: list[a].t, to: list[b].t, n, texts: list.slice(a, b + 1).map((v) => v.text) };
+    }
+    if (best) {
+      found.push({ rule: "same-line", from: best.from, to: best.to, line: line0 + 1, count: best.n, error: null, minutes: toMinutes(best.to - best.from), lineVersions: best.texts.slice(-MAX_VERSIONS), codeAt: docBefore(best.to) });
+    }
+  }
+  // 지금까지 이어지는 멈춤
+  const last = events.length ? events[events.length - 1][0] : null;
+  if (now !== undefined && last !== null && awayStart === null && now - last >= R.longPause.minMs) {
+    found.push({ rule: "long-pause", from: last, to: now, line: lastEdit ? lastEdit.line + 1 : null, count: 1, error: null, minutes: toMinutes(now - last), lineVersions: [], codeAt: doc });
+  }
+  return found.sort((x, y) => y.to - x.to || PRIORITY.indexOf(x.rule) - PRIORITY.indexOf(y.rule));
+}
+
+/**
+ * 지금(now) 막힌 곳 하나: recentMs 안에 끝난 막힘 중 규칙 우선순위(같은 오류 > 붙여넣기 직후 오류 > 같은 줄 > 멈춤)가 높고 최근인 것.
+ * now가 없으면 마지막 기록 시각 기준. 없으면 null
+ */
+export function currentStuck(init: string, log: unknown, now?: number): StuckMoment | null {
+  const events = validEntries(log);
+  const ref = now ?? (events.length ? events[events.length - 1][0] : 0);
+  const recent = findStuckMoments(init, log, now).filter((m) => ref - m.to <= STUCK_RULES.recentMs);
+  return recent.sort((x, y) => PRIORITY.indexOf(x.rule) - PRIORITY.indexOf(y.rule) || y.to - x.to)[0] ?? null;
+}
+
+/** 기록 전체에서 가장 눈에 띄는 막힘 하나 (이전 문제 기록을 보여 줄 때, C 상황). 없으면 null */
+export function strongestStuck(init: string, log: unknown): StuckMoment | null {
+  return findStuckMoments(init, log).sort((x, y) => PRIORITY.indexOf(x.rule) - PRIORITY.indexOf(y.rule) || y.count - x.count || y.to - x.to)[0] ?? null;
+}
+
+/** 의미 있는 코드 줄 수: 빈 줄·주석만 있는 줄·시작 코드에 원래 있던 줄은 세지 않는다 (B 상황 판단) */
+export function meaningfulLines(code: string, starter = ""): number {
+  const given = new Set(starter.split("\n").map((l) => l.trim()).filter(Boolean));
+  return code
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && !given.has(l)).length;
 }

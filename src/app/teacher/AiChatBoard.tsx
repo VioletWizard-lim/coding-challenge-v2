@@ -30,6 +30,9 @@ import { classOptions, inClass } from "@/lib/classes";
 import type { StudentRow } from "@/lib/teacher";
 import { findChatReplay, flagAiChat, flagAiReview, flagPractice, loadAiChats, loadStudentReplay, type ChatReplay } from "./actions";
 
+/** 기록으로 되묻기의 상황 (src/lib/askBack.ts) */
+const SITUATION_LABEL = { A: "A 이번 문제 기록", B: "B 코드가 거의 없음", C: "C 이전 문제 기록" } as const;
+
 const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
 
 const timeFormat = new Intl.DateTimeFormat("ko-KR", {
@@ -130,11 +133,26 @@ export default function AiChatBoard({ students }: { students: StudentRow[] }) {
         ) : c.type === "chat" ? (
           <>
             <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
-              <b>질문</b> {c.chat.question}
+              <b>{c.chat.step === "hint" ? "학생 답" : "질문"}</b> {c.chat.question}
             </p>
-            <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
-              <b className="text-blue-700">🤖 AI 답</b> <AiAnswer chat={c.chat} onMoment={openMoment(c.key)} />
-            </p>
+            {c.chat.step === "ask" ? (
+              <div className="flex flex-col gap-1 rounded-lg bg-amber-50 px-3 py-2 text-sm leading-6">
+                <p className="whitespace-pre-wrap">
+                  <b className="text-amber-800">📼 기록으로 되묻기 ({SITUATION_LABEL[c.chat.situation ?? "A"]})</b>{" "}
+                  <AiAnswer chat={c.chat} onMoment={openMoment(c.key)} />
+                </p>
+                {c.chat.clip && c.chat.clip.lineVersions.length > 1 && (
+                  <p className="font-[family-name:var(--font-code)] text-xs text-muted">
+                    {c.chat.clip.line}번째 줄: {c.chat.clip.lineVersions.map((v) => v || "(빈 줄)").join("  →  ")}
+                  </p>
+                )}
+                <p className="text-xs text-muted">AI가 아니라 사이트가 작성 기록에서 찾아 바로 보여 준 되물음이에요. 학생 답과 AI 힌트는 바로 뒤 대화에 있어요.</p>
+              </div>
+            ) : (
+              <p className="whitespace-pre-wrap rounded-lg bg-page px-3 py-2 text-sm leading-6">
+                <b className="text-blue-700">{c.chat.step === "hint" ? "🤖 AI 힌트 (되물음에 답한 뒤)" : "🤖 AI 답"}</b> <AiAnswer chat={c.chat} onMoment={openMoment(c.key)} />
+              </p>
+            )}
             {opened?.key === c.key && <ChatReplayPanel chatId={c.chat.id} at={opened.at} label={opened.label} onClose={() => setOpened(null)} />}
           </>
         ) : (
@@ -464,7 +482,8 @@ function Row({
   onToggle: () => void;
   children: React.ReactNode;
 }) {
-  const icon = c.type === "chat" ? "🤖" : c.type === "review" ? "🔁" : "🧪";
+  // 📼: 사이트가 작성 기록에서 찾아 되물은 것 (AI 답이 아님)
+  const icon = c.type === "chat" ? (c.chat.step === "ask" ? "📼" : "🤖") : c.type === "review" ? "🔁" : "🧪";
   const preview =
     c.type === "chat"
       ? `“${snippet(c.chat.question)}”`
