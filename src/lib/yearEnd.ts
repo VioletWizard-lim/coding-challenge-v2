@@ -40,6 +40,7 @@ export const YEAR_TABLES: YearTable[] = [
   { table: "student_problem_attempts", label: "학생이 만든 문제를 푼 기록", by: { problem: true }, id: true, key: ["problem_id", "user_id"], refs: { problem_id: "student_problems" } },
   { table: "ai_chats", label: "AI 도우미 대화", by: { date: "created_at" }, id: true, key: ["user_id", "created_at"] },
   { table: "reflections", label: "오늘의 성찰", by: { date: "class_date" }, id: true, key: ["user_id", "subject", "class_date"] },
+  { table: "live_status", label: "작성 중 상태 (교사 화면용, 이틀 지나면 지워짐)", by: { date: "updated_at" }, key: ["user_id", "subject", "problem"] },
 ];
 
 export const yearTable = (name: string) => YEAR_TABLES.find((t) => t.table === name);

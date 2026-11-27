@@ -46,6 +46,7 @@ const USER_COL: Record<string, string> = {
   reflections: "user_id",
   practice_problems: "user_id",
   student_problems: "author_id",
+  live_status: "user_id",
 };
 
 type StudentRow = { id: string; name: string; grade: number | string | null; class: number | string | null; programming_grade: number | string | null; programming_class: number | string | null };

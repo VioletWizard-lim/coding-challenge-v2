@@ -22,6 +22,12 @@ export const STUCK_RULES = {
   previousRecords: 10,
   /** 막힘 알림 (P2): 같은 문제에서 알림 사이 최소 간격, 편집기가 막힘을 확인하는 주기 (같은 막힘으로는 다시 알리지 않음) */
   nudge: { gapMs: 5 * 60_000, checkMs: 15_000 },
+  /**
+   * 작성 중 상태 (P3, 교사 화면 "지금 수업 중"):
+   * lateStartMs 문제를 연 뒤 이만큼 첫 입력이 없으면 "시작 지연" / repeatedNudges 이번에 연 뒤 막힘 알림이 이만큼이면 "막힘 반복" /
+   * presentMs 이 시간 안에 상태를 보낸 학생만 "지금 화면에 있음" / heartbeatMs 상태를 보내는 주기 / keepMs 이보다 오래된 줄은 지움
+   */
+  live: { lateStartMs: 5 * 60_000, repeatedNudges: 2, presentMs: 3 * 60_000, heartbeatMs: 2 * 60_000, keepMs: 2 * 24 * 60 * 60_000 },
 } as const;
 
 /** 규칙 이름 (화면·AI·재생 타임라인 공용) */

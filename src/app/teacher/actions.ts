@@ -3,6 +3,8 @@
 import { refresh } from "next/cache";
 import { randomInt } from "node:crypto";
 import { getSession } from "@/lib/session";
+import type { LiveRow } from "@/lib/liveStatus";
+import { listLiveNow } from "@/lib/liveStatusStore";
 import type { StatRow } from "@/lib/classStats";
 import { loadStatRows, yearsWithSubmissions } from "@/lib/classStatsStore";
 import { AiNotConfiguredError, AiRefusedError, draftGrade } from "@/lib/ai";
@@ -884,5 +886,21 @@ export async function cancelDeleteRequest(id: number): Promise<{ ok: boolean; me
   } catch (err) {
     console.error("삭제 요청 취소 오류:", err);
     return { ok: false, message: "취소하지 못했어요." };
+  }
+}
+
+/* ───────────── 지금 수업 중 (P3) ───────────── */
+
+export type LiveResult = { ok: true; ready: boolean; now: number; rows: LiveRow[] } | { ok: false; message: string };
+
+/** 교사 첫 화면 "지금 수업 중": 지금 문제를 쓰고 있는 학생들의 상태 (시작 지연·막힘 반복 표시는 화면에서 liveFlags로) */
+export async function loadLiveStatus(): Promise<LiveResult> {
+  if (!(await isTeacher())) return { ok: false, message: "교사 계정으로 다시 로그인하세요." };
+  try {
+    const { ready, rows } = await listLiveNow();
+    return { ok: true, ready, now: Date.now(), rows };
+  } catch (err) {
+    console.error("지금 수업 중 조회 오류:", err);
+    return { ok: false, message: "불러오지 못했어요. 잠시 후 다시 시도하세요." };
   }
 }

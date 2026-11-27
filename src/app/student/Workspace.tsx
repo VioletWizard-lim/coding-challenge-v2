@@ -8,7 +8,7 @@ import RecordingEditor, { type RecorderHandle } from "@/components/RecordingEdit
 import { descriptionKeyFor, storageKeyFor } from "@/lib/editLog";
 import { labelOf, type Problem } from "@/lib/problemBank";
 import AiHelper from "./AiHelper";
-import { checkSubmitted, submitCode } from "./actions";
+import { checkSubmitted, reportLiveStatus, submitCode } from "./actions";
 
 const selectClass =
   "rounded-lg border border-line bg-white px-3 py-2 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15";
@@ -256,6 +256,10 @@ export default function Workspace({
           💾 작성 중인 코드와 과정은 <b>이 컴퓨터(이 브라우저)에만</b> 임시로 저장돼요. 새로고침해도 그대로 있지만, 다른
           컴퓨터에서는 보이지 않아요. <b>제출해야</b> 선생님께 전달되고 어디서든 다시 볼 수 있어요.
         </p>
+        <p className="text-xs leading-5 text-muted">
+          👀 선생님은 수업 중에 내가 문제를 <b>시작했는지</b>와 <b>막힘 알림이 몇 번 떴는지</b>를 볼 수 있어요. 막혔을 때 도와주려는 것이고,
+          코드 내용은 보이지 않아요.
+        </p>
       </aside>
 
       {/* 오른쪽: 코드 작성 */}
@@ -268,6 +272,7 @@ export default function Workspace({
             storageKey={storageKeyFor(userId, subject, current.number)}
             initialCode={current.starterCode}
             nudge={{ onAskAi: () => setAiOpen(true), suppressed: aiOpen }}
+            live={{ report: (payload) => void reportLiveStatus({ subject, problem: current.number, payload }) }}
           />
         )}
         <label className="flex flex-col gap-1 text-sm text-muted">

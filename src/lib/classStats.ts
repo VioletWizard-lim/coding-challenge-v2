@@ -201,6 +201,7 @@ const KIND_NAME: Record<string, string> = {
   b: "창이탈",
   f: "창복귀",
   q: "AI도움요청",
+  open: "문제열기",
 };
 
 /** 이벤트 원본 로그 CSV 행 (v1과 같은 칸 + 실행·AI 도움 이벤트 이름) */

@@ -12,7 +12,7 @@ import { errorName, judge, type PracticeTest, type TestOutcome } from "@/lib/pra
 import { Outcomes, runTests } from "@/components/TestOutcomes";
 import type { Problem } from "@/lib/problemBank";
 import AiHelper from "./AiHelper";
-import { loadMyAiChats } from "./actions";
+import { loadMyAiChats, reportLiveStatus } from "./actions";
 import { quietConfirm } from "@/lib/quietDialog";
 
 type Work = { code: string; init: string; log: unknown };
@@ -178,6 +178,7 @@ export default function ProblemSolver({
               storageKey={storageKey}
               initialCode={starterCode}
               nudge={{ onAskAi: () => setAiOpen(true), suppressed: aiOpen }}
+              live={{ report: (payload) => void reportLiveStatus({ subject, problem: problemKey, payload }) }}
             />
           ) : (
             <p className="text-muted">이어 쓸 코드를 불러오는 중…</p>
