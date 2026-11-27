@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import ProblemView from "@/components/ProblemView";
+import CloseButton from "@/components/CloseButton";
 import {
   labelOf,
   MAX_EXAMPLES,
@@ -255,13 +256,16 @@ export default function ProblemForm({
   return (
     <div className="grid gap-4 rounded-xl border-2 border-brand/40 bg-brand-soft/30 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
       <div className="flex min-w-0 flex-col gap-3">
-        <h3 className="font-bold">
-          {onDraft
-            ? `반영 전에 고치기: ${problem.subject} ${labelOf(problem)}`
-            : problem.id === null
-              ? `새 문제 (${problem.subject})`
-              : `고치기: ${problem.subject} ${labelOf(problem)}`}
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="font-bold">
+            {onDraft
+              ? `반영 전에 고치기: ${problem.subject} ${labelOf(problem)}`
+              : problem.id === null
+                ? `새 문제 (${problem.subject})`
+                : `고치기: ${problem.subject} ${labelOf(problem)}`}
+          </h3>
+          <CloseButton onClick={onCancel} disabled={pending} />
+        </div>
         <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
           <label className="flex flex-col gap-1 text-sm text-muted">
             번호
@@ -368,7 +372,7 @@ export default function ProblemForm({
           <span className="flex w-full items-center gap-2">
             <span className="font-bold text-brand">{more ? "➖" : "➕"} 더 적기 (선택)</span>
             <span className="text-xs text-muted">필요한 것만 적으면 돼요</span>
-            <span className="ml-auto rounded-lg bg-brand px-3 py-1 text-sm font-bold text-white">{more ? "접기 ▲" : "펼치기 ▼"}</span>
+            <span className="ml-auto rounded-lg bg-brand px-3 py-1 text-sm font-bold text-white">{more ? "✕ 접기" : "펼치기 ▼"}</span>
           </span>
           <span className="flex flex-wrap gap-1.5">
             {optionalFields.map(([name, filled]) => (

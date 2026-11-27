@@ -19,6 +19,7 @@ import {
   type ExtractedProblem,
 } from "@/lib/worksheet";
 import { problemsToCsv, problemTemplateCsv, toKstText } from "@/lib/problemCsv";
+import CloseButton from "@/components/CloseButton";
 import { decodeCsvFile } from "@/lib/studentCsv";
 import { importProblems, previewProblemImport, type ProblemImportResult, type ProblemPreviewRow } from "./actions";
 
@@ -344,6 +345,19 @@ export default function ProblemImport({
           </button>
         ))}
       </div>
+      {mode && (
+        <div className="flex items-center gap-2 border-t border-line pt-3">
+          <span className="text-sm font-bold">{mode === "csv" ? "⬆ CSV 올리기" : "📄 학습지 업로드(AI)"}</span>
+          {pending && mode === "ai" && <span className="text-xs text-muted">AI가 읽는 동안에는 닫을 수 없어요</span>}
+          <CloseButton
+            disabled={pending}
+            onClick={() => {
+              setMode(null);
+              reset();
+            }}
+          />
+        </div>
+      )}
       {mode === "ai" && (
         <>
           <ol className="list-decimal pl-5 text-sm text-muted">

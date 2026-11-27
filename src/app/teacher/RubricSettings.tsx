@@ -10,8 +10,11 @@ const inputClass = "rounded-lg border border-line bg-white px-3 py-2 outline-non
 export const RUBRIC_CHANGED_EVENT = "rubric-changed";
 
 /** ⚙️ 설정 → 과목별 채점 기준: 영역 이름·배점·설명 */
-/** subject: 이 과목만 보여 준다 (다른 과목 카드는 숨기기만 해서 적던 내용이 남는다) */
-export default function RubricSettings({ subject }: { subject?: string }) {
+/**
+ * subject: 이 과목만 보여 준다 (다른 과목 카드는 숨기기만 해서 적던 내용이 남는다)
+ * inline: 채점 화면 안에서 바로 고칠 때 — 머리말 없이, 처음부터 고치는 칸을 연다
+ */
+export default function RubricSettings({ subject, inline = false }: { subject?: string; inline?: boolean }) {
   const [data, setData] = useState<{ ready: boolean; rubrics: { subject: string; parts: RubricPart[] }[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,8 +23,8 @@ export default function RubricSettings({ subject }: { subject?: string }) {
   }, []);
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-line bg-white p-5">
-      <div>
+    <section className={inline ? "flex flex-col gap-3" : "flex flex-col gap-4 rounded-xl border border-line bg-white p-5"}>
+      <div hidden={inline}>
         <h2 className="text-lg font-bold">⚖️ 과목별 채점 기준</h2>
         <p className="mt-1 text-sm leading-6 text-muted">
           과목마다 채점 영역과 배점, <b>설명</b>을 정해요. 설명은 채점 화면의 점수 칸 옆, 학생 점수표(눌러서 보기), AI 채점 초안에 쓰여요.
@@ -41,6 +44,7 @@ export default function RubricSettings({ subject }: { subject?: string }) {
           <SubjectRubric
             subject={r.subject}
             parts={r.parts}
+            startEditing={inline}
             onSaved={(parts) => setData((d) => d && { ...d, rubrics: d.rubrics.map((x) => (x.subject === r.subject ? { ...x, parts } : x)) })}
           />
         </div>
@@ -49,8 +53,20 @@ export default function RubricSettings({ subject }: { subject?: string }) {
   );
 }
 
-function SubjectRubric({ subject, parts, onSaved }: { subject: string; parts: RubricPart[]; onSaved: (parts: RubricPart[]) => void }) {
-  const [editing, setEditing] = useState<{ name: string; max: string; desc: string }[] | null>(null);
+function SubjectRubric({
+  subject,
+  parts,
+  onSaved,
+  startEditing = false,
+}: {
+  subject: string;
+  parts: RubricPart[];
+  onSaved: (parts: RubricPart[]) => void;
+  startEditing?: boolean;
+}) {
+  const [editing, setEditing] = useState<{ name: string; max: string; desc: string }[] | null>(() =>
+    startEditing ? parts.map((p) => ({ name: p.name, max: String(p.max), desc: p.desc ?? "" })) : null,
+  );
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [pending, startTransition] = useTransition();
 
