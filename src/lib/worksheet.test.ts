@@ -68,3 +68,19 @@ describe("학습지 파일 형식", () => {
     );
   });
 });
+
+describe("학습지 읽기 진행 게이지", async () => {
+  const { countFoundProblems, gaugePercent } = await import("./worksheet");
+  it("옮겨 적기 시작한 문제 수", () => {
+    expect(countFoundProblems('{"problems":[{"number":"1-1","title":"a"},{"number" :"1-2"')).toBe(2);
+    expect(countFoundProblems("")).toBe(0);
+  });
+  it("단계마다 앞으로만 가고, 100%는 끝날 때만", () => {
+    expect(gaugePercent("sending", 0, 0)).toBe(5);
+    expect(gaugePercent("reading", 0, 0)).toBe(10);
+    expect(gaugePercent("reading", 600_000, 0)).toBeLessThanOrEqual(40);
+    expect(gaugePercent("writing", 0, 0)).toBe(40);
+    expect(gaugePercent("writing", 0, 4000)).toBeGreaterThan(gaugePercent("writing", 0, 1000));
+    expect(gaugePercent("writing", 0, 1_000_000)).toBeLessThanOrEqual(95);
+  });
+});

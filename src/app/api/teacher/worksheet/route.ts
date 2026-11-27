@@ -2,14 +2,17 @@ import Anthropic from "@anthropic-ai/sdk";
 import { AiNotConfiguredError, AiRefusedError, extractProblemsFromWorksheet, type WorksheetFile } from "@/lib/ai";
 import { SUBJECTS } from "@/lib/problems";
 import { getSession } from "@/lib/session";
-import { looksLike, MAX_WORKSHEET_BYTES, MAX_WORKSHEET_FILES, MAX_WORKSHEET_TEXT, WORKSHEET_TYPES } from "@/lib/worksheet";
+import { looksLike, MAX_WORKSHEET_BYTES, MAX_WORKSHEET_FILES, MAX_WORKSHEET_TEXT, WORKSHEET_TYPES, type WorksheetLine } from "@/lib/worksheet";
 
 // 학습지가 길면 AI가 읽는 데 1~3분 걸릴 수 있다
 export const maxDuration = 300;
 
 const fail = (message: string, status = 400) => Response.json({ ok: false, message }, { status });
 
-/** 교사가 올린 학습지(PDF·사진, docx에서 뽑은 글)를 AI가 읽어 문제 목록으로 돌려준다. 파일은 어디에도 저장하지 않는다 (미리보기 후 교사가 반영) */
+/**
+ * 교사가 올린 학습지(PDF·사진, docx에서 뽑은 글)를 AI가 읽어 문제 목록으로 돌려준다. 파일은 어디에도 저장하지 않는다 (미리보기 후 교사가 반영).
+ * 파일 검사에서 걸리면 JSON({ ok: false, message }), 통과하면 NDJSON 한 줄씩: 진행 상황(화면 게이지) → { type: "done" } 또는 { type: "error" }
+ */
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session || session.role !== "teacher") return fail("교사 계정으로 다시 로그인하세요.", 401);
@@ -37,20 +40,34 @@ export async function POST(request: Request) {
   }
   texts.forEach((text) => worksheet.push({ mediaType: "text/html", text }));
 
-  try {
-    const problems = await extractProblemsFromWorksheet(worksheet, subject);
-    return Response.json({ ok: true, problems });
-  } catch (err) {
-    if (err instanceof AiNotConfiguredError) {
-      return fail("AI 기능이 아직 설정되지 않았어요. Vercel 환경변수에 ANTHROPIC_API_KEY와 ANTHROPIC_MODEL을 넣어 주세요.", 503);
-    }
-    if (err instanceof AiRefusedError) return fail("AI가 이 파일을 읽지 않았어요. 학습지 파일이 맞는지 확인해 주세요.", 422);
-    if (err instanceof Anthropic.RateLimitError) return fail("AI 사용량이 잠시 많아요. 1분 뒤 다시 시도해 주세요.", 429);
-    if (err instanceof Anthropic.APIError) {
-      console.error("학습지 AI 오류:", err.status, err.message);
-      return fail("AI가 학습지를 읽지 못했어요. 잠시 후 다시 시도해 주세요.", 502);
-    }
-    console.error("학습지 읽기 오류:", err);
-    return fail(err instanceof Error && err.message.includes("너무 길어요") ? err.message : "학습지를 읽지 못했어요. 잠시 후 다시 시도해 주세요.", 500);
+  // 여기부터는 한 줄씩(NDJSON) 보낸다: 진행 상황(게이지) → 끝에 결과 또는 오류
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (line: WorksheetLine) => controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+      send({ type: "progress", stage: "reading", found: 0, chars: 0 });
+      try {
+        const problems = await extractProblemsFromWorksheet(worksheet, subject, (p) => send({ type: "progress", ...p }));
+        send({ type: "done", problems });
+      } catch (err) {
+        send({ type: "error", message: errorMessage(err) });
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" } });
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof AiNotConfiguredError) {
+    return "AI 기능이 아직 설정되지 않았어요. Vercel 환경변수에 ANTHROPIC_API_KEY와 ANTHROPIC_MODEL을 넣어 주세요.";
   }
+  if (err instanceof AiRefusedError) return "AI가 이 파일을 읽지 않았어요. 학습지 파일이 맞는지 확인해 주세요.";
+  if (err instanceof Anthropic.RateLimitError) return "AI 사용량이 잠시 많아요. 1분 뒤 다시 시도해 주세요.";
+  if (err instanceof Anthropic.APIError) {
+    console.error("학습지 AI 오류:", err.status, err.message);
+    return "AI가 학습지를 읽지 못했어요. 잠시 후 다시 시도해 주세요.";
+  }
+  console.error("학습지 읽기 오류:", err);
+  return err instanceof Error && err.message.includes("너무 길어요") ? err.message : "학습지를 읽지 못했어요. 잠시 후 다시 시도해 주세요.";
 }

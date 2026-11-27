@@ -113,6 +113,19 @@ export default function GradingBoard({
     setPage(p);
   };
 
+  /**
+   * 카드에서 채점·오답 처리(또는 해제)로 미채점 여부가 바뀌면 위쪽 수(N개 (미채점), 과목별 미채점 수)를 바로 고친다.
+   * 카드는 그 자리에 두고(실수했으면 바로 되돌릴 수 있게), 다음에 불러올 때 목록에서 빠진다.
+   */
+  const onStatus = useCallback(
+    (subject: string, graded: boolean) => {
+      const step = graded ? -1 : 1;
+      setPendingCounts((c) => ({ ...c, [subject]: Math.max(0, (c[subject] ?? 0) + step) }));
+      if (filter.ungradedOnly) setData((d) => (d ? { ...d, total: Math.max(0, d.total + step) } : d));
+    },
+    [filter.ungradedOnly],
+  );
+
   const onDirty = useCallback((id: number, isDirty: boolean) => {
     setDirty((d) => {
       if (d.has(id) === isDirty) return d;
@@ -258,6 +271,8 @@ export default function GradingBoard({
             drafters={drafters}
             onDirty={onDirty}
             onRemoved={() => setReload((n) => n + 1)}
+            ungradedOnly={filter.ungradedOnly}
+            onStatus={onStatus}
           />
         ))}
       </ul>
@@ -277,6 +292,8 @@ function GradingCard({
   drafters,
   onDirty,
   onRemoved,
+  ungradedOnly,
+  onStatus,
 }: {
   row: GradingRow;
   rubric: RubricPart[];
@@ -284,9 +301,18 @@ function GradingCard({
   drafters: React.RefObject<Map<number, () => Promise<boolean>>>;
   onDirty: (id: number, dirty: boolean) => void;
   onRemoved: () => void;
+  /** "미채점만" 목록을 보는 중인지 */
+  ungradedOnly: boolean;
+  /** 미채점 ↔ 처리됨(채점·오답)이 바뀌었을 때 */
+  onStatus: (subject: string, graded: boolean) => void;
 }) {
   const { problemLabel } = useStudentNav();
-  const [row, setRow] = useState(initial);
+  const [row, setRowState] = useState(initial);
+  /** 저장 결과로 줄을 바꾸고, 미채점 여부가 바뀌었으면 위쪽 수를 고치게 알린다 */
+  const setRow = (next: GradingRow) => {
+    if (isGraded(row) !== isGraded(next)) onStatus(next.subject, isGraded(next));
+    setRowState(next);
+  };
   // 이미 채점한 제출은 그때 기준, 아니면 지금 과목 기준
   const [ownParts, setParts] = useState<RubricPart[]>(() =>
     initial.sheet ? initial.sheet.map(({ name, max, desc }) => ({ name, max, ...(desc ? { desc } : {}) })) : rubric,
@@ -573,6 +599,9 @@ function GradingCard({
         <p role={message.ok ? "status" : "alert"} className={`text-sm ${message.ok ? "text-green-700" : "text-danger"}`}>
           {message.text}
         </p>
+      )}
+      {ungradedOnly && graded && !isGraded(initial) && (
+        <p className="text-xs text-muted">✓ 미채점 목록에서 빠졌어요. 다음에 불러오면 이 카드는 보이지 않아요 (잘못했으면 지금 고칠 수 있어요).</p>
       )}
     </li>
   );

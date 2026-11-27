@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { FOLLOWUP_SCHEMA, REVIEW_SCHEMA } from "./aiReview";
 import { DRAFT_SCHEMA } from "./gradingDraft";
 import { PRACTICE_SCHEMA } from "./practice";
-import { toProblems, WORKSHEET_SCHEMA, type ExtractedProblem } from "./worksheet";
+import { countFoundProblems, toProblems, WORKSHEET_SCHEMA, type ExtractedProblem, type WorksheetStage } from "./worksheet";
 
 /**
  * AI 호출은 모두 이 파일에서 한다 (CLAUDE.md). 키(ANTHROPIC_API_KEY)와 모델 이름(ANTHROPIC_MODEL)은
@@ -47,8 +47,15 @@ const WORKSHEET_SYSTEM = `당신은 고등학교 정보 교사를 돕는 도우�
 - "오늘의 성찰"처럼 학생이 쓰는 칸, 머리말, 쪽 번호 등 문제가 아닌 부분은 넣지 않습니다.
 - 문제가 하나도 없으면 problems를 빈 배열로 둡니다.`;
 
-/** 학습지에서 문제를 뽑는다. 결과는 교사가 미리보기에서 확인한 뒤에만 저장된다 */
-export async function extractProblemsFromWorksheet(files: WorksheetFile[], subject: string): Promise<ExtractedProblem[]> {
+/**
+ * 학습지에서 문제를 뽑는다. 결과는 교사가 미리보기에서 확인한 뒤에만 저장된다.
+ * onProgress: 읽는 중(생각)·옮겨 적는 중(받은 글자 수, 옮겨 적기 시작한 문제 수)을 알려 준다 (화면의 진행 게이지)
+ */
+export async function extractProblemsFromWorksheet(
+  files: WorksheetFile[],
+  subject: string,
+  onProgress?: (p: { stage: WorksheetStage; found: number; chars: number }) => void,
+): Promise<ExtractedProblem[]> {
   const content: Anthropic.Beta.BetaContentBlockParam[] = files.map((f) =>
     f.mediaType === "text/html"
       ? { type: "text", text: `<worksheet_html>\n${f.text}\n</worksheet_html>` }
@@ -69,6 +76,24 @@ export async function extractProblemsFromWorksheet(files: WorksheetFile[], subje
     system: WORKSHEET_SYSTEM,
     messages: [{ role: "user", content }],
   });
+  if (onProgress) {
+    let sentChars = -1;
+    let sentFound = -1;
+    stream.on("thinking", () => {
+      if (sentChars < 0) {
+        sentChars = 0;
+        onProgress({ stage: "reading", found: 0, chars: 0 });
+      }
+    });
+    // 너무 자주 보내지 않게: 문제 수가 바뀌었거나 글자가 300자 넘게 늘었을 때만
+    stream.on("text", (_delta, snapshot) => {
+      const found = countFoundProblems(snapshot);
+      if (found === sentFound && snapshot.length - sentChars < 300) return;
+      sentFound = found;
+      sentChars = snapshot.length;
+      onProgress({ stage: "writing", found, chars: snapshot.length });
+    });
+  }
   const message = await stream.finalMessage();
 
   if (message.stop_reason === "refusal") throw new AiRefusedError("AI가 이 파일을 읽지 않았어요.");
