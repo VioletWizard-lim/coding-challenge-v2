@@ -4,6 +4,7 @@ import AiNoticeCard, { useAiNotice } from "@/components/AiNotice";
 import { useState, useTransition } from "react";
 import AiAnswer from "@/components/AiAnswer";
 import { canFollowUp, MAX_REVIEW_ANSWER, type AiReview } from "@/lib/aiReview";
+import CharCount from "@/components/CharCount";
 import { flagAiReview } from "../teacher/actions";
 import { askReviewFollowUp, flagMyReview, saveMyReviewAnswers, startMyReview } from "./actions";
 import { quietConfirm } from "@/lib/quietDialog";
@@ -202,6 +203,9 @@ export default function ReviewPanel({
                 placeholder="그때 어떤 생각을 했는지 적어 보세요."
                 className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
               />
+            ) : null}
+            {role === "student" ? (
+              <CharCount value={answers[i] ?? ""} max={MAX_REVIEW_ANSWER} />
             ) : (
               <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
                 <b>학생 답</b> {q.answer || <span className="text-muted">(아직 안 씀)</span>}
@@ -230,6 +234,9 @@ export default function ReviewPanel({
                     placeholder="한 번 더 생각해 보고 적어 보세요. (적지 않아도 괜찮아요)"
                     className="rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
                   />
+                ) : null}
+                {role === "student" ? (
+                  <CharCount value={follows[i] ?? ""} max={MAX_REVIEW_ANSWER} />
                 ) : (
                   <p className="whitespace-pre-wrap rounded-lg bg-brand-soft px-3 py-2 text-sm">
                     <b>학생 답</b> {q.followUp.answer || <span className="text-muted">(아직 안 씀)</span>}

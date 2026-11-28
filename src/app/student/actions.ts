@@ -15,7 +15,7 @@ import {
 } from "@/lib/aiChat";
 import { AiChatsNotReadyError, chatsForReplay, countTodayChats, insertChat, listChatsForProblem, setChatFlag } from "@/lib/aiChatStore";
 import type { HelpChat } from "@/lib/helpTrail";
-import { canFollowUp, normalizeAnswers, toFollowUp, toReview, MIN_QUESTIONS, type AiReview } from "@/lib/aiReview";
+import { canFollowUp, normalizeAnswers, toFollowUp, toReview, MAX_REVIEW_ANSWER, MIN_QUESTIONS, type AiReview } from "@/lib/aiReview";
 import { AiReviewsNotReadyError, countTodayReviews, getReview, insertReview, saveReviewQuestions, setReviewFlag } from "@/lib/aiReviewStore";
 import { listAllProblems } from "@/lib/problemStore";
 import { asProblem, practiceKey } from "@/lib/practice";
@@ -564,7 +564,7 @@ export async function saveMyReviewAnswers(submissionId: number, answers: string[
     if (!review || review.userId !== session.id) return { ok: false, error: "되돌아보기를 찾지 못했어요." };
     const list = normalizeAnswers(answers, review.questions.length);
     const follows = followAnswers === undefined ? review.questions.map((q) => q.followUp?.answer ?? "") : normalizeAnswers(followAnswers, review.questions.length);
-    if (!list || !follows) return { ok: false, error: "답은 한 칸에 1000자까지 쓸 수 있어요." };
+    if (!list || !follows) return { ok: false, error: `답은 한 칸에 ${MAX_REVIEW_ANSWER}자까지 쓸 수 있어요.` };
     const saved = await saveReviewQuestions(
       review.id,
       session.id,
