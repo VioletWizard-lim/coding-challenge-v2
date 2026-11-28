@@ -50,7 +50,8 @@ export type AiReview = {
   outputTokens: number | null;
 };
 
-export const MAX_REVIEW_ANSWER = 1000;
+/** 되돌아보기 답 한 칸 글자 수 */
+export const MAX_REVIEW_ANSWER = 300;
 export const MIN_QUESTIONS = 2;
 export const MAX_QUESTIONS = 3;
 

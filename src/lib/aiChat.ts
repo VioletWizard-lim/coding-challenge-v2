@@ -34,7 +34,8 @@ export type AiChat = {
   parentId: number | null;
 };
 
-export const MAX_QUESTION = 1000;
+/** 질문 한 개 글자 수 (코드·오류·작성 과정은 따로 자동으로 가므로 짧게: 비용·남용 방지) */
+export const MAX_QUESTION = 300;
 /** 학생 한 명이 하루에 물어볼 수 있는 횟수 (환경변수 AI_DAILY_LIMIT_PER_STUDENT로 바꿈) */
 export const DEFAULT_DAILY_LIMIT = 50;
 /** AI에 함께 보낼 이전 대화 수 (같은 문제, 최근 것부터) */

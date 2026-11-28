@@ -7,6 +7,7 @@ import ReplayModal from "@/components/ReplayModal";
 import { quietConfirm } from "@/lib/quietDialog";
 import type { RecorderHandle } from "@/components/RecordingEditor";
 import { MAX_QUESTION, type AiChat } from "@/lib/aiChat";
+import CharCount from "@/components/CharCount";
 import type { Recording } from "@/lib/editLog";
 import type { Moment } from "@/lib/process-summary";
 import type { AskClip } from "@/lib/askBack";
@@ -309,6 +310,7 @@ export default function AiHelper({
             }
             className="rounded-lg border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:bg-page"
           />
+          <CharCount value={question} max={MAX_QUESTION} hint="AI는 내 코드와 오류 종류·횟수만 알아요. 오류 메시지를 직접 읽어 보고, 모르는 부분을 그대로 적어 물어보세요." />
           <button
             type="button"
             onClick={() => ask()}

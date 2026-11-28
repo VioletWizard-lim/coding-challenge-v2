@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   chatSource,
+  MAX_QUESTION,
   hasAskAt,
   dailyLimit,
   dropUnknownRefs,
@@ -32,7 +33,8 @@ describe("aiChat", () => {
 
   it("질문 확인", () => {
     expect(validateQuestion("  ")).toMatch(/적어/);
-    expect(validateQuestion("a".repeat(1001))).toMatch(/1000자/);
+    expect(validateQuestion("a".repeat(MAX_QUESTION + 1))).toMatch(new RegExp(`${MAX_QUESTION}자`));
+    expect(validateQuestion("a".repeat(MAX_QUESTION))).toBeNull();
     expect(validateQuestion("왜 오류가 나요?")).toBeNull();
   });
 

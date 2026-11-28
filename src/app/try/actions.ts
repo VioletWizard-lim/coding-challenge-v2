@@ -284,7 +284,7 @@ export type TrialFollowUpResult = { ok: true; followUp: FollowUp; remaining: num
 export async function trialFollowUp(input: Rec & { question: string; momentLabel: string | null; answer: string }): Promise<TrialFollowUpResult> {
   const answer = String(input.answer ?? "").trim();
   if (!answer) return { ok: false, error: "먼저 내 답을 적어 주세요." };
-  if (answer.length > MAX_REVIEW_ANSWER) return { ok: false, error: "답은 1000자까지 쓸 수 있어요." };
+  if (answer.length > MAX_REVIEW_ANSWER) return { ok: false, error: `답은 ${MAX_REVIEW_ANSWER}자까지 쓸 수 있어요.` };
   const ok = await check(input);
   if (!ok.ok) return ok;
   try {
